@@ -15,7 +15,7 @@ version = "0.0.0"
 edition = "2021"
 rust-version = "1.96"
 repository = "https://github.com/mihaicristianfarcas/incipit"
-license = "GPL-3.0-only"
+license = "AGPL-3.0-only"
 # An application and its private libraries, not crates for crates.io.
 publish = false
 

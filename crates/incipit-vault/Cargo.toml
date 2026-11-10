@@ -1,0 +1,24 @@
+[package]
+name = "incipit-vault"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+dunce = "1.0.5"
+futures = { version = "0.3.34", default-features = false, features = ["std"] }
+# Only for the object-hash argument jj-lib's Git backend asks for at init; the version jj-lib uses.
+gix = { version = "0.87.1", default-features = false }
+# jj-lib's API changes between releases, so it is pinned exactly. 0.45.1 is the newest release
+# that builds with the workspace's rust-version (0.46 and later need 1.97.1).
+jj-lib = { version = "=0.45.1", default-features = false, features = ["git"] }
+notify = "8.2.2"
+pollster = "1.0.1"
+serde.workspace = true
+serde-saphyr = { version = "2.1.1", default-features = false, features = ["serialize", "deserialize"] }
+serde_json.workspace = true
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+unicode-normalization = "0.1.26"

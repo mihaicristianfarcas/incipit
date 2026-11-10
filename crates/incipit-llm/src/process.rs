@@ -8,7 +8,7 @@
 //! console window. Stopping is driven by events: the cancel hook, the deadline, the child's exit.
 
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -63,6 +63,7 @@ impl Exit {
 
 enum Message {
     Line(String),
+    Complaint(String),
     Eof,
     Exited(Option<ExitStatus>),
 }
@@ -75,13 +76,27 @@ enum Control {
 /// Runs `command`, giving it `stdin` and passing each line it prints to `on_line`, until it ends,
 /// `timeout` passes or `cancel` fires.
 pub fn run(
-    mut command: Command,
+    command: Command,
     stdin: Option<&str>,
     timeout: Duration,
     cancel: &Cancel,
     on_line: &mut dyn FnMut(&str),
 ) -> Result<Exit, Error> {
+    run_both(command, stdin, timeout, cancel, on_line, None)
+}
+
+/// `run`, also passing each line of stderr to `on_stderr` as it comes: for programs that talk to
+/// people there (a sign-in link).
+pub fn run_both(
+    mut command: Command,
+    stdin: Option<&str>,
+    timeout: Duration,
+    cancel: &Cancel,
+    on_line: &mut dyn FnMut(&str),
+    mut on_stderr: Option<&mut dyn FnMut(&str)>,
+) -> Result<Exit, Error> {
     cancel.check()?;
+    let forward = on_stderr.is_some();
     let program = Path::new(command.get_program())
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -114,17 +129,27 @@ pub fn run(
             let _ = pipe.write_all(text.as_bytes());
         });
     }
-    let stderr = child.stderr.take().map(|mut pipe| {
+    let (messages, inbox) = mpsc::channel::<Message>();
+    let stderr = child.stderr.take().map(|pipe| {
+        let messages = messages.clone();
         thread::spawn(move || {
             let mut tail = Vec::new();
-            let mut chunk = [0u8; 4096];
-            while let Ok(n) = pipe.read(&mut chunk) {
-                if n == 0 {
-                    break;
+            let mut reader = BufReader::new(pipe);
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                match reader.read_until(b'\n', &mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
                 }
-                tail.extend_from_slice(&chunk[..n]);
+                tail.extend_from_slice(&line);
                 if tail.len() > 2 * STDERR_TAIL {
                     tail.drain(..tail.len() - STDERR_TAIL);
+                }
+                if forward {
+                    let text = String::from_utf8_lossy(&line);
+                    let text = text.trim_end_matches(['\n', '\r']).to_string();
+                    let _ = messages.send(Message::Complaint(text));
                 }
             }
             let start = tail.len().saturating_sub(STDERR_TAIL);
@@ -132,7 +157,6 @@ pub fn run(
         })
     });
 
-    let (messages, inbox) = mpsc::channel::<Message>();
     if let Some(stdout) = child.stdout.take() {
         let messages = messages.clone();
         thread::spawn(move || {
@@ -199,6 +223,11 @@ pub fn run(
         };
         match message {
             Message::Line(line) => on_line(&line),
+            Message::Complaint(line) => {
+                if let Some(on_stderr) = on_stderr.as_mut() {
+                    on_stderr(&line);
+                }
+            }
             Message::Eof => eof = true,
             Message::Exited(s) => {
                 status = s;
@@ -383,6 +412,7 @@ pub fn home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::time::Instant;
 
     fn shell(script: &str) -> Command {

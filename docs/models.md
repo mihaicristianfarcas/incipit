@@ -48,6 +48,58 @@ they never become instructions.
 - No provider keeps a session between calls: the conversation is sent with
   each one.
 
+## Command-line agents
+
+Three providers drive a program the learner installed and signed in to
+themselves. Incipit never sees their credentials; each program keeps its own
+login. A windowed app gets a short `PATH`, so the programs are also looked for
+where installers put them (`~/.local/bin`, `/opt/homebrew/bin`, npm's folder
+and others), and the child gets those folders in its `PATH` too.
+
+| Provider | Runs | Structured output | Sandbox for agents | Models |
+|---|---|---|---|---|
+| Codex | `codex exec --json --ephemeral`, the prompt on stdin, the final message from `-o` | `--output-schema` | a permission profile passed with `-c` | `codex debug models`, else Codex's own cache |
+| Claude Code | `claude -p --output-format stream-json --no-session-persistence --strict-mcp-config` | `--json-schema`, read from `structured_output` | `--restricted` and sandbox `--settings` | the names `--model` takes (`haiku`, `sonnet`, `opus`, `fable`) |
+| OpenCode 2 | `opencode run --standalone --format json` with a config of its own | asked for in the prompt | only its shell, which runs each command under Seatbelt or bubblewrap | `opencode models` |
+
+- **Codex** plain calls run in the read-only sandbox in a scratch folder. A
+  turn the service turns away for a moment ("at capacity", rate limits) is
+  tried again after 30, 90 and 180 s, moving to the next model the plan lists
+  after the first retry. Codex's errors are shown in its own words: the model
+  a learner's `config.toml` names may be one a ChatGPT account cannot use,
+  and Codex says so.
+- **Claude Code** gets Incipit's preface and instructions in
+  `--system-prompt` and no tools for plain calls; pictures are copied into
+  the call's folder and read with its Read tool. Its text streams.
+- **OpenCode** runs on a private server (`--standalone`), not the learner's
+  background service, with a config that carries over only their models and
+  providers: no plugins, MCP servers, agents or project config. Its session is
+  deleted after each call. The effort is the model's variant
+  (`provider/model#low`); a model that has none is asked again without it.
+  It needs version 2 or later.
+
+Status (installed, signed in, version) comes from `--version` and each
+program's login status (`codex login status`, `claude auth status`,
+`opencode auth list`), and shows how a program is signed in, never who.
+
+## The sandbox
+
+Agents work on files with the shell they already have, inside the operating
+system's sandbox: Seatbelt on macOS, bubblewrap (or Landlock, in Codex) on
+Linux.
+
+| The agent tries to | Allowed |
+|---|---|
+| read its folder, and the folders it is given to read | yes |
+| write its folder, when it may write | yes |
+| write `.git` or `.jj` in its folder, or anywhere else | no |
+| read the home folder | no |
+| reach the network | no |
+
+OpenCode's agents need the OS sandbox to run commands, so they run on macOS
+and Linux only (bubblewrap must be installed there); Codex and Claude Code
+bring their own. On Windows no agent has been run.
+
 ## Settings
 
 `Settings` say which provider, model and effort do each job (`Quick` for

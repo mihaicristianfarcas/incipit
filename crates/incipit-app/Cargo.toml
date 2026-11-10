@@ -20,3 +20,4 @@ incipit-book = { path = "../incipit-book" }
 serde_json.workspace = true
 anyhow.workspace = true
 image = { version = "0.25", default-features = false }
+futures = "0.3"

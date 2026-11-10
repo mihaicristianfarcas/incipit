@@ -4,6 +4,7 @@
 
 mod figure;
 mod math;
+mod notes;
 mod reader;
 mod stage;
 
@@ -15,12 +16,14 @@ use incipit_ui::{Glide, IconName, Theme, Type};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Page {
     Reader,
+    Notes,
     Math,
     Figure,
 }
 
-const PAGES: [(Page, &str, &str, IconName); 3] = [
+const PAGES: [(Page, &str, &str, IconName); 4] = [
     (Page::Reader, "nav-reader", "Reader", IconName::List),
+    (Page::Notes, "nav-notes", "Notes", IconName::Pencil),
     (Page::Math, "nav-math", "Math", IconName::Type),
     (Page::Figure, "nav-figure", "Figure", IconName::Activity),
 ];
@@ -30,6 +33,7 @@ struct Root {
     glide: Glide,
     figure: Entity<figure::FigureView>,
     math: Entity<math::MathView>,
+    notes: Entity<notes::NotesView>,
     reader: Entity<reader::ReaderView>,
 }
 
@@ -38,6 +42,7 @@ impl Root {
         let page = match std::env::var("INCIPIT_PAGE").as_deref() {
             Ok("reader") => Page::Reader,
             Ok("math") => Page::Math,
+            Ok("notes") => Page::Notes,
             _ => Page::Figure,
         };
         if let Some(path) = std::env::var_os("INCIPIT_SHOT") {
@@ -61,6 +66,7 @@ impl Root {
             glide: Glide::new(cx),
             figure: cx.new(figure::FigureView::new),
             math: cx.new(math::MathView::new),
+            notes: cx.new(notes::NotesView::new),
             reader: cx.new(reader::ReaderView::new),
         }
     }
@@ -92,6 +98,7 @@ impl Render for Root {
         let page: AnyElement = match self.page {
             Page::Figure => self.figure.clone().into_any_element(),
             Page::Math => self.math.clone().into_any_element(),
+            Page::Notes => self.notes.clone().into_any_element(),
             Page::Reader => self.reader.clone().into_any_element(),
         };
         let shown = gpui::ElementId::Name(format!("page-{:?}", self.page).into());

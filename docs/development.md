@@ -29,7 +29,7 @@ screenshots are taken:
 
 | Variable | Does |
 |---|---|
-| `INCIPIT_PAGE` | Opens on `reader`, `math` or `figure` |
+| `INCIPIT_PAGE` | Opens on `reader`, `notes`, `math` or `figure` |
 | `INCIPIT_SHOT` | A file name: the window is saved there as a PNG after a moment, and the app quits (macOS) |
 | `INCIPIT_BOOK` | On the Reader page: `pdf` or `epub` |
 | `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected |

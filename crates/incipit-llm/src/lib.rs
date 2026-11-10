@@ -4,17 +4,23 @@
 //! under the OS sandbox (`provider`). Providers block and report through a callback; `Call` runs one
 //! on a thread of its own and stops it when cancelled (`call`). `Settings` say which provider and
 //! model does which job, and `SecretStore` keeps keys and tokens (`secret`).
+//!
+//! The command-line agents (Codex, Claude Code, OpenCode) are providers in `cli`, signed in by
+//! their own flows (`cli::login`); `sandbox` builds the OS sandbox their agents run in.
 
 pub mod call;
+pub mod cli;
 pub mod error;
 pub mod process;
 pub mod provider;
 pub mod request;
+pub mod sandbox;
 pub mod schema;
 pub mod secret;
 pub mod settings;
 
 pub use call::{spawn_with, Answer, Call, Cancel, Event, Hook, Structured, Update};
+pub use cli::{Claude, Codex, OpenCode};
 pub use error::Error;
 pub use provider::{structured, Abilities, Model, Provider, Registry, Sandbox, Status};
 pub use request::{Effort, Material, Request, Speaker, Turn, ENGINE};

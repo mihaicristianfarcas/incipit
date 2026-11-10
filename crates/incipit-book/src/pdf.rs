@@ -23,6 +23,15 @@ pub struct Glyph {
     pub h: f32,
 }
 
+/// A line of a book's table of contents.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub title: String,
+    pub depth: usize,
+    /// The page (PDF) or block (EPUB) it leads to.
+    pub page: usize,
+}
+
 pub struct Page {
     /// The page's size in points.
     pub width: f32,
@@ -53,6 +62,48 @@ impl Pdf {
             .load_pdf_from_file(file, None)
             .map_err(|e| anyhow!("{}: {e:?}", file.display()))?;
         Ok(Pdf { document })
+    }
+
+    /// Every page's width and height in points, without drawing any.
+    pub fn sizes(&self) -> Result<Vec<(f32, f32)>> {
+        let sizes = self
+            .document
+            .pages()
+            .page_sizes()
+            .map_err(|e| anyhow!("the pages' sizes were not read: {e:?}"))?;
+        Ok(sizes
+            .iter()
+            .map(|r| (r.width().value, r.height().value))
+            .collect())
+    }
+
+    /// The PDF's own table of contents: each entry's title, how deep it is nested (0 at the top)
+    /// and the page it leads to. Entries that lead nowhere in the document are left out.
+    pub fn contents(&self) -> Vec<Entry> {
+        fn walk(bookmark: &PdfBookmark, depth: usize, into: &mut Vec<Entry>) {
+            // A cycle in a crafted file must not hang or overflow: depth and count are bounded.
+            if depth > 8 || into.len() >= 5000 {
+                return;
+            }
+            let page = bookmark.destination().and_then(|d| d.page_index().ok());
+            if let (Some(title), Some(page)) = (bookmark.title(), page) {
+                into.push(Entry {
+                    title: title.trim().to_string(),
+                    depth,
+                    page: page as usize,
+                });
+            }
+            for child in bookmark.iter_direct_children() {
+                walk(&child, depth + 1, into);
+            }
+        }
+        let mut entries = Vec::new();
+        if let Some(root) = self.document.bookmarks().root() {
+            for top in root.iter_siblings() {
+                walk(&top, 0, &mut entries);
+            }
+        }
+        entries
     }
 
     pub fn pages(&self) -> usize {

@@ -16,7 +16,7 @@ native app could not do without:
 
 | Page | What it shows |
 |---|---|
-| Reader | A PDF drawn by pdfium and an EPUB laid out as native text, with text selection and notes in the margin tied to their passage |
+| Reader | A whole PDF (drawn by pdfium) or EPUB (laid out as native text) with its contents, zoom, text selection across pages, highlights, and notes in the margin beside their passage |
 | Math | LaTeX typeset by Typst and drawn in the window, on its own line and inside a sentence |
 | Figure | A sequence figure made from a typed spec, checked, then played, stepped and scrubbed |
 

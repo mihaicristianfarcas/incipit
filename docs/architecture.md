@@ -16,7 +16,7 @@ incipit-app ──▶ incipit-ui ──▶ gpui
 |---|---|---|
 | `incipit-scene` | The figure engine. A figure is a typed spec (`Sequence`); `layout` turns it and a moment in time into a list of marks (lines, boxes, text); `check` refuses a spec whose drawing would be wrong | no |
 | `incipit-math` | Typesets LaTeX: mitex converts it to Typst, Typst lays it out, and the result is a raster with its size and baseline | no |
-| `incipit-book` | Opens books. `Pdf` draws pages through pdfium and gives each character's place; `Book` turns an EPUB into headings, paragraphs and pictures; `Anchor` ties a note to a passage and finds it again | no |
+| `incipit-book` | Opens books. `Pdf` draws pages through pdfium and gives each character's place, and `PdfWorker` does so on a thread of its own; `Book` turns an EPUB into headings, paragraphs and pictures; `Anchor` ties a note to a passage and finds it again | no |
 | `incipit-learn` | Spaced repetition as pure logic: `schedule` applies one FSRS-6 review to a `Card` and returns the log line, `preview` gives the four buttons' waits, `build_queue` orders what to review (learning steps, overdue reviews, then new cards up to the daily limit), `today_counts` and `streaks` feed the Today page. Time and timezone are arguments; there is no storage | no |
 | `incipit-ui` | The look: theme, controls, icons, motion, window chrome. It began as Helio's kit | yes |
 | `incipit-app` | The window: one module per page | yes |

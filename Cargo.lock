@@ -4468,6 +4468,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "incipit-llm"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "incipit-math"
 version = "0.0.0"
 dependencies = [

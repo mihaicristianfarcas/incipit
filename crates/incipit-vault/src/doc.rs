@@ -109,6 +109,11 @@ pub(crate) fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
+/// The time now to the millisecond, for ordering things done within one second.
+pub(crate) fn now_precise() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Doc {
     id: DocId,

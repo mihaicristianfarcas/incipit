@@ -8,7 +8,8 @@ incipit-app ──▶ incipit-ui ──▶ gpui
      │
      ├──▶ incipit-scene     figures: spec → layout → marks → checks
      ├──▶ incipit-math      LaTeX → Typst → a picture with a baseline
-     └──▶ incipit-book      PDF pages, EPUB blocks, anchors for notes
+     ├──▶ incipit-book      PDF pages, EPUB blocks, anchors for notes
+     └──▶ incipit-learn     FSRS-6 scheduling, the review queue, streaks
 ```
 
 | Crate | What it is | Depends on GPUI |
@@ -16,6 +17,7 @@ incipit-app ──▶ incipit-ui ──▶ gpui
 | `incipit-scene` | The figure engine. A figure is a typed spec (`Sequence`); `layout` turns it and a moment in time into a list of marks (lines, boxes, text); `check` refuses a spec whose drawing would be wrong | no |
 | `incipit-math` | Typesets LaTeX: mitex converts it to Typst, Typst lays it out, and the result is a raster with its size and baseline | no |
 | `incipit-book` | Opens books. `Pdf` draws pages through pdfium and gives each character's place; `Book` turns an EPUB into headings, paragraphs and pictures; `Anchor` ties a note to a passage and finds it again | no |
+| `incipit-learn` | Spaced repetition as pure logic: `schedule` applies one FSRS-6 review to a `Card` and returns the log line, `preview` gives the four buttons' waits, `build_queue` orders what to review (learning steps, overdue reviews, then new cards up to the daily limit), `today_counts` and `streaks` feed the Today page. Time and timezone are arguments; there is no storage | no |
 | `incipit-ui` | The look: theme, controls, icons, motion, window chrome. It began as Helio's kit | yes |
 | `incipit-app` | The window: one module per page | yes |
 
@@ -50,12 +52,19 @@ blocks; it is never run or displayed as HTML.
 **A note is tied to words.** An `Anchor` keeps a position and the passage
 itself. When the text has moved, the words find the place again.
 
+**FSRS is ported, not imported.** `incipit-learn` follows the earlier app's
+scheduler formula for formula, so a learner's intervals do not change. The
+Rust FSRS crates either bring in a machine-learning framework for the
+optimizer (`fsrs`) or schedule learning steps and same-day reviews
+differently (`rs-fsrs`). `tests/against_typescript.rs` checks the port against
+numbers printed by the original.
+
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,
 so that no code under a license of Zed's own is linked.
 
 ## Not built yet
 
-The vault, model providers, flashcards and review, quizzes, the graph of
+The vault, model providers, the flashcards themselves and the review screen (their scheduling is in `incipit-learn`), quizzes, the graph of
 ideas, and the remaining figure kinds. This page describes them when they
 exist.

@@ -3433,6 +3433,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "incipit-learn"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "incipit-math"
 version = "0.0.0"
 dependencies = [

@@ -19,7 +19,7 @@ native app could not do without:
 | Reader | A whole PDF (drawn by pdfium) or EPUB (laid out as native text) with its contents, zoom, text selection across pages, highlights, and notes in the margin beside their passage |
 | Notes | A note written as Markdown in a native field: the marks are dimmed and show what they mean, lists carry on, every change can be undone |
 | Math | LaTeX typeset by Typst and drawn in the window, on its own line and inside a sentence |
-| Figure | A sequence figure made from a typed spec, checked, then played, stepped and scrubbed |
+| Figure | A figure made from a typed spec, checked, then played, stepped and scrubbed |
 
 The vault and the models exist as libraries, `incipit-vault` and `incipit-llm`
 ([docs/models.md](docs/models.md)), that no page uses yet. There are no

@@ -150,6 +150,7 @@ home; other pages link to it and do not repeat it.
 | `docs/development.md` | Building, running, the tools, taking screenshots |
 | `docs/models.md` | The model providers, what each needs, signing in, and how keys and book text are kept in their place |
 | `docs/vault.md` | What is in a vault's folder: the files, their properties, links, logs, history |
+| `docs/figures.md` | The figure engine: the idea, each kind, the checks, adding a kind |
 | `AGENTS.md`, `CONTRIBUTING.md` | People and agents changing it |
 | `SECURITY.md` | Reporting a vulnerability, and what is trusted |
 

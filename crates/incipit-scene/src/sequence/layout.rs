@@ -4,11 +4,12 @@
 
 use std::collections::HashMap;
 
+use super::spec::{Actor, ActorShape, Event, Sequence};
 use crate::draw::{
     text_box, Anchor, Fill, Frame, Item, Mark, Measure, Rect, Text, Tone, HEIGHT, WIDTH,
 };
 use crate::labels::Labels;
-use crate::spec::{Actor, ActorShape, Event, Sequence};
+use crate::ticks::{nice_ticks, tick_label};
 
 const TOP: f32 = 104.0;
 const BOTTOM: f32 = HEIGHT - 16.0;
@@ -27,11 +28,7 @@ struct Layers {
 }
 
 fn item(id: Option<&str>, mark: Mark) -> Item {
-    Item {
-        id: id.map(str::to_string),
-        opacity: 1.0,
-        mark,
-    }
+    Item::new(id, mark)
 }
 
 fn line(points: &[(f32, f32)], tone: Tone, dashed: bool, width: f32) -> Mark {
@@ -82,45 +79,6 @@ fn columns(spec: &Sequence) -> HashMap<&str, f32> {
             (a.id.as_str(), x)
         })
         .collect()
-}
-
-/// Round tick values between `a` and `b`.
-pub fn nice_ticks(a: f32, b: f32, count: usize) -> Vec<f32> {
-    if !a.is_finite() || !b.is_finite() || a == b {
-        return vec![a];
-    }
-    let (lo, hi) = (a.min(b), a.max(b));
-    let raw = (hi - lo) / count.max(1) as f32;
-    let mag = 10f32.powf(raw.log10().floor());
-    let norm = raw / mag;
-    let step = mag
-        * if norm < 1.5 {
-            1.0
-        } else if norm < 3.0 {
-            2.0
-        } else if norm < 7.0 {
-            5.0
-        } else {
-            10.0
-        };
-    let mut out = Vec::new();
-    let mut v = (lo / step - 1e-6).ceil() * step;
-    while v <= hi + step * 1e-4 {
-        out.push(if v.abs() < step * 1e-4 { 0.0 } else { v });
-        v += step;
-    }
-    out
-}
-
-/// A number as an axis shows it: no trailing zeros.
-pub fn tick_label(v: f32) -> String {
-    let s = format!("{:.2}", v);
-    let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s.is_empty() || s == "-0" {
-        "0".into()
-    } else {
-        s.replace('-', "−")
-    }
 }
 
 fn glyph(actor: &Actor, cx: f32, tone: Tone, out: &mut Vec<Item>) {
@@ -547,18 +505,21 @@ pub fn layout(spec: &Sequence, now: f32, focus: Option<&str>, m: &dyn Measure) -
                 };
                 let tone = if lit { Tone::Lit } else { *tone };
                 let Rect { x, y, w, h } = rect;
-                l.front.push(item(
-                    Some(id),
-                    Mark::Rect {
-                        x,
-                        y,
-                        w,
-                        h,
-                        radius: 2.0,
-                        fill: Fill::Paper,
-                        tone,
-                    },
-                ));
+                l.front.push(
+                    item(
+                        Some(id),
+                        Mark::Rect {
+                            x,
+                            y,
+                            w,
+                            h,
+                            radius: 2.0,
+                            fill: Fill::Paper,
+                            tone,
+                        },
+                    )
+                    .solid(),
+                );
                 let tone = if tone == Tone::Lo { Tone::Mid } else { tone };
                 l.front.push(item(
                     Some(id),
@@ -671,5 +632,9 @@ pub fn layout(spec: &Sequence, now: f32, focus: Option<&str>, m: &dyn Measure) -
     let mut items = l.back;
     items.extend(l.mid);
     items.extend(l.front);
-    Frame { items, narration }
+    Frame {
+        items,
+        narration,
+        ..Frame::default()
+    }
 }

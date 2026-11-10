@@ -1,8 +1,12 @@
 //! What the engine hands a window to draw: plain marks on a stage of WIDTH × HEIGHT, in the order
 //! they are painted. Colours are tones the window's theme resolves. Text is measured through
-//! `Measure`, so the engine places labels by the widths the window will really draw.
+//! `Measure`, so the engine places labels by the widths the window will really draw. A frame also
+//! carries the handles a window wires to controls and what the layout could not do, which the
+//! checks report.
 
 use serde::{Deserialize, Serialize};
+
+use crate::handles::Handle;
 
 pub const WIDTH: f32 = 640.0;
 pub const HEIGHT: f32 = 400.0;
@@ -91,6 +95,30 @@ pub struct Item {
     pub id: Option<String>,
     pub opacity: f32,
     pub mark: Mark,
+    /// A box that holds words: other text and other solid boxes must stay off it. Text is always
+    /// solid.
+    pub solid: bool,
+}
+
+impl Item {
+    pub fn new(id: Option<&str>, mark: Mark) -> Item {
+        Item {
+            id: id.map(str::to_string),
+            opacity: 1.0,
+            mark,
+            solid: false,
+        }
+    }
+
+    pub fn solid(mut self) -> Item {
+        self.solid = true;
+        self
+    }
+
+    pub fn faded(mut self, opacity: f32) -> Item {
+        self.opacity = opacity;
+        self
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -98,6 +126,20 @@ pub struct Frame {
     pub items: Vec<Item>,
     /// What is happening now, in words.
     pub narration: String,
+    /// The controls the figure offers in this state.
+    pub handles: Vec<Handle>,
+    /// What the layout could not do as it should (a label too long for its box, a point that is
+    /// not defined). The checks report these with the state they happened in.
+    pub issues: Vec<Issue>,
+}
+
+/// Something the layout ran into, said so that a model can fix it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Issue {
+    /// The figure must not be shown like this.
+    Error(String),
+    /// It reads, but could be clearer.
+    Warning(String),
 }
 
 /// A box on the stage.
@@ -110,6 +152,33 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// The box spanning two corners in any order.
+    pub fn spanning(a: (f32, f32), b: (f32, f32)) -> Rect {
+        Rect {
+            x: a.0.min(b.0),
+            y: a.1.min(b.1),
+            w: (a.0 - b.0).abs(),
+            h: (a.1 - b.1).abs(),
+        }
+    }
+
+    pub fn grown(&self, by: f32) -> Rect {
+        Rect {
+            x: self.x - by,
+            y: self.y - by,
+            w: self.w + 2.0 * by,
+            h: self.h + 2.0 * by,
+        }
+    }
+
+    pub fn center(&self) -> (f32, f32) {
+        (self.x + self.w / 2.0, self.y + self.h / 2.0)
+    }
+
+    pub fn contains(&self, p: (f32, f32)) -> bool {
+        p.0 >= self.x && p.0 <= self.x + self.w && p.1 >= self.y && p.1 <= self.y + self.h
+    }
+
     pub fn overlaps(&self, other: &Rect, pad: f32) -> bool {
         self.x < other.x + other.w + pad
             && other.x < self.x + self.w + pad
@@ -124,6 +193,14 @@ impl Rect {
             && self.y + self.h <= outer.y + outer.h
     }
 }
+
+/// The whole stage.
+pub const STAGE: Rect = Rect {
+    x: 0.0,
+    y: 0.0,
+    w: WIDTH,
+    h: HEIGHT,
+};
 
 /// How wide a run of text is drawn, in stage units.
 pub trait Measure {
@@ -141,6 +218,46 @@ impl Measure for Rough {
 }
 
 impl Text {
+    /// Text at (x, y), starting there, in the highest tone, proportional and regular.
+    pub fn new(x: f32, y: f32, text: impl Into<String>, size: f32) -> Text {
+        Text {
+            x,
+            y,
+            text: text.into(),
+            size,
+            anchor: Anchor::Start,
+            mono: false,
+            medium: false,
+            tone: Tone::Hi,
+            halo: false,
+        }
+    }
+
+    pub fn anchor(mut self, anchor: Anchor) -> Text {
+        self.anchor = anchor;
+        self
+    }
+
+    pub fn mono(mut self) -> Text {
+        self.mono = true;
+        self
+    }
+
+    pub fn medium(mut self) -> Text {
+        self.medium = true;
+        self
+    }
+
+    pub fn tone(mut self, tone: Tone) -> Text {
+        self.tone = tone;
+        self
+    }
+
+    pub fn halo(mut self) -> Text {
+        self.halo = true;
+        self
+    }
+
     /// The box the text fills.
     pub fn bounds(&self, m: &dyn Measure) -> Rect {
         text_box(
@@ -178,6 +295,48 @@ pub fn text_box(
 }
 
 impl Mark {
+    /// A solid line through `points`.
+    pub fn line(points: Vec<(f32, f32)>, tone: Tone, width: f32) -> Mark {
+        Mark::Line {
+            points,
+            tone,
+            dashed: false,
+            width,
+        }
+    }
+
+    pub fn dashed(points: Vec<(f32, f32)>, tone: Tone, width: f32) -> Mark {
+        Mark::Line {
+            points,
+            tone,
+            dashed: true,
+            width,
+        }
+    }
+
+    pub fn rect(r: Rect, radius: f32, fill: Fill, tone: Tone) -> Mark {
+        Mark::Rect {
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
+            radius,
+            fill,
+            tone,
+        }
+    }
+
+    pub fn dot(at: (f32, f32), r: f32, tone: Tone) -> Mark {
+        Mark::Circle {
+            cx: at.0,
+            cy: at.1,
+            r,
+            fill: Fill::Solid,
+            tone,
+            width: 0.0,
+        }
+    }
+
     /// The box the mark fills.
     pub fn bounds(&self, m: &dyn Measure) -> Rect {
         match self {

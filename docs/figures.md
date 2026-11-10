@@ -69,6 +69,42 @@ Checks: 2 to 6 actors, at most 24 events, events naming actors that
 exist, arrivals after sends; the drawing at every event's start and end
 and halfway between.
 
+### Flow
+
+Boxes and arrows: processes, causes and effects, decisions, state
+machines, cycles, hierarchies and trees.
+
+Spec: `arrange` (`down`, `right` or `ring`), `nodes` (id, label, shape:
+box, round, decision, terminal or circle; tone), `edges` (from, to, label,
+tone, dashed) and `steps`.
+
+Layout (`flow/layers.rs`, `flow/layout.rs`): a layered layout in the
+Sugiyama manner. A depth-first search in the spec's order turns back the
+edges that close a loop; longest-path layering, with each source moved
+next to what it feeds; a placeholder in each layer a long edge passes;
+barycentre sweeps that keep the order with the fewest crossings; then
+each layer placed as near as it can to its neighbours while keeping its
+order and gaps (an isotonic regression, solved exactly). Edges leave and
+enter through ports spread along a node's side, run straight across the
+gaps between layers and through their placeholders' slots, so no edge can
+pass through a box. `ring` sets nodes clockwise around an ellipse and
+draws edges between neighbours as arcs. Labels wrap inside their shape;
+edge labels go beside their line, clear of boxes and other lines.
+
+Checks: 2 to 16 nodes, at most 24 edges, at most 8 on a ring, edges and
+steps that name real elements; a label that does not fit its shape, too
+many nodes side by side, and too many layers are errors that say what to
+change.
+
+## Steps
+
+Flow and the kinds after it share `steps::Step`: one sentence of
+narration, the ids that appear at that step (`show`) and the ids to light
+(`focus`). An element no step shows is there from the start. Positions
+never depend on the step, so nothing jumps as the learner steps on. The
+checks refuse a step that names an unknown id, shows an element twice, or
+lights one before it appears.
+
 ## Adding a kind
 
 1. A module `crates/incipit-scene/src/<kind>/` with the spec types (serde,

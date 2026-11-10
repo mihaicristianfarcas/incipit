@@ -64,10 +64,12 @@ pub enum Mark {
         dashed: bool,
         width: f32,
     },
-    /// A filled shape (an arrow's head).
+    /// A closed shape: filled with the tone (an arrow's head), washed with it, or outlined in it
+    /// over the stage's colour (a diamond) or over nothing.
     Polygon {
         points: Vec<(f32, f32)>,
         tone: Tone,
+        fill: Fill,
     },
     Rect {
         x: f32,
@@ -357,6 +359,20 @@ impl Mark {
             Mark::Text(t) => t.bounds(m),
         }
     }
+}
+
+/// An arrow's head at `b`, pointing away from `a`.
+pub fn arrow_head(a: (f32, f32), b: (f32, f32), size: f32) -> Vec<(f32, f32)> {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = (dx * dx + dy * dy).sqrt().max(1e-3);
+    let (ux, uy) = (dx / len, dy / len);
+    let base = (b.0 - ux * size, b.1 - uy * size);
+    let half = size * 0.42;
+    vec![
+        b,
+        (base.0 - uy * half, base.1 + ux * half),
+        (base.0 + uy * half, base.1 - ux * half),
+    ]
 }
 
 fn around(points: &[(f32, f32)], pad: f32) -> Rect {

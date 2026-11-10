@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use super::spec::{Actor, ActorShape, Event, Sequence};
 use crate::draw::{
-    text_box, Anchor, Fill, Frame, Item, Mark, Measure, Rect, Text, Tone, HEIGHT, WIDTH,
+    arrow_head, text_box, Anchor, Fill, Frame, Item, Mark, Measure, Rect, Text, Tone, HEIGHT, WIDTH,
 };
 use crate::labels::Labels;
 use crate::ticks::{nice_ticks, tick_label};
@@ -182,20 +182,6 @@ fn glyph(actor: &Actor, cx: f32, tone: Tone, out: &mut Vec<Item>) {
             ));
         }
     }
-}
-
-/// An arrow's head at `b`, pointing away from `a`.
-fn head(a: (f32, f32), b: (f32, f32), size: f32) -> Vec<(f32, f32)> {
-    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
-    let len = (dx * dx + dy * dy).sqrt().max(1e-3);
-    let (ux, uy) = (dx / len, dy / len);
-    let base = (b.0 - ux * size, b.1 - uy * size);
-    let half = size * 0.42;
-    vec![
-        b,
-        (base.0 - uy * half, base.1 + ux * half),
-        (base.0 + uy * half, base.1 - ux * half),
-    ]
 }
 
 /// The figure as it stands at `now` (in the spec's time units). `focus` is the id of an element
@@ -449,8 +435,9 @@ pub fn layout(spec: &Sequence, now: f32, focus: Option<&str>, m: &dyn Measure) -
                     l.mid.push(item(
                         Some(id),
                         Mark::Polygon {
-                            points: head(a, b, 7.0),
+                            points: arrow_head(a, b, 7.0),
                             tone,
+                            fill: Fill::Solid,
                         },
                     ));
                 }

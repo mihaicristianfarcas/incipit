@@ -8,10 +8,12 @@
 pub mod check;
 pub mod draw;
 pub mod figure;
+pub mod flow;
 pub mod handles;
 pub mod labels;
 pub mod schema;
 pub mod sequence;
+pub mod steps;
 pub mod ticks;
 
 pub use check::{check, Report};
@@ -19,5 +21,6 @@ pub use draw::{
     Anchor, Fill, Frame, Issue, Item, Mark, Measure, Rect, Rough, Text, Tone, HEIGHT, WIDTH,
 };
 pub use figure::{layout, Figure, Kind, Pace, Sample, Spec, State};
+pub use flow::Flow;
 pub use handles::{grab, Drag, Handle, Setter, Slider, Target};
 pub use sequence::Sequence;

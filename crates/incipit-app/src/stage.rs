@@ -129,12 +129,28 @@ fn paint(frame: &Frame, bounds: Bounds<Pixels>, t: Theme, window: &mut Window, c
                     window.paint_path(path, shade(ink(*tone, t)));
                 }
             }
-            Mark::Polygon { points, tone } => {
-                let mut path = PathBuilder::fill();
+            Mark::Polygon { points, tone, fill } => {
                 let points: Vec<_> = points.iter().map(|(x, y)| at(*x, *y)).collect();
-                path.add_polygon(&points, true);
-                if let Ok(path) = path.build() {
-                    window.paint_path(path, shade(ink(*tone, t)));
+                let ink = ink(*tone, t);
+                let inside = match fill {
+                    Fill::Solid => Some(ink),
+                    Fill::Tint => Some(ink.opacity(0.28)),
+                    Fill::Paper => Some(paper),
+                    Fill::None => None,
+                };
+                if let Some(colour) = inside {
+                    let mut path = PathBuilder::fill();
+                    path.add_polygon(&points, true);
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, shade(colour));
+                    }
+                }
+                if matches!(fill, Fill::Paper | Fill::None) {
+                    let mut path = PathBuilder::stroke(px(1.2 * s));
+                    path.add_polygon(&points, true);
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, shade(ink));
+                    }
                 }
             }
             Mark::Rect {

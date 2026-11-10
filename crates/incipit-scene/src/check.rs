@@ -124,6 +124,82 @@ struct Solid {
     id: Option<String>,
     name: String,
     rect: Rect,
+    outline: Outline,
+}
+
+/// The true outline of a solid, for telling whether a line passes through it rather than near
+/// its corners.
+enum Outline {
+    Box(Rect),
+    Round { cx: f32, cy: f32, r: f32 },
+    Shape(Vec<(f32, f32)>),
+}
+
+/// How deep a line must go into a solid to cross it: touching an outline is not crossing it.
+const GRAZE: f32 = 1.0;
+
+impl Outline {
+    fn of(mark: &Mark, rect: Rect) -> Outline {
+        match mark {
+            Mark::Circle { cx, cy, r, .. } => Outline::Round {
+                cx: *cx,
+                cy: *cy,
+                r: *r,
+            },
+            Mark::Polygon { points, .. } => Outline::Shape(points.clone()),
+            _ => Outline::Box(rect),
+        }
+    }
+
+    fn crossed_by(&self, a: (f32, f32), b: (f32, f32)) -> bool {
+        match self {
+            Outline::Box(r) => {
+                r.w > 2.0 * GRAZE && r.h > 2.0 * GRAZE && crosses(a, b, &r.grown(-GRAZE))
+            }
+            Outline::Round { cx, cy, r } => distance_to_segment((*cx, *cy), a, b) < r - GRAZE,
+            Outline::Shape(points) => {
+                let len = (b.0 - a.0).hypot(b.1 - a.1);
+                let n = (len / 2.0).ceil().max(1.0) as usize;
+                (0..=n).any(|i| {
+                    let t = i as f32 / n as f32;
+                    let p = (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+                    inside_by(points, p, GRAZE)
+                })
+            }
+        }
+    }
+}
+
+fn distance_to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 > 0.0 {
+        (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (a.0 + dx * t - p.0).hypot(a.1 + dy * t - p.1)
+}
+
+/// Whether `p` is inside the convex shape `points` and at least `depth` from its outline.
+fn inside_by(points: &[(f32, f32)], p: (f32, f32), depth: f32) -> bool {
+    let n = points.len();
+    if n < 3 {
+        return false;
+    }
+    let area: f32 = (0..n)
+        .map(|i| {
+            let (a, b) = (points[i], points[(i + 1) % n]);
+            a.0 * b.1 - b.0 * a.1
+        })
+        .sum();
+    let sign = area.signum();
+    (0..n).all(|i| {
+        let (a, b) = (points[i], points[(i + 1) % n]);
+        let len = (b.0 - a.0).hypot(b.1 - a.1).max(1e-6);
+        let cross = (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0);
+        cross * sign / len > depth
+    })
 }
 
 fn geometry(frame: &Frame, m: &dyn Measure, found: &mut Found, place: &str) {
@@ -154,6 +230,7 @@ fn geometry(frame: &Frame, m: &dyn Measure, found: &mut Found, place: &str) {
                 id: item.id.clone(),
                 name,
                 rect,
+                outline: Outline::of(&item.mark, rect),
             });
         }
     }
@@ -182,7 +259,10 @@ fn geometry(frame: &Frame, m: &dyn Measure, found: &mut Found, place: &str) {
             if solid.id.as_deref() == Some(id) || solid.id.is_none() {
                 continue;
             }
-            if points.windows(2).any(|w| crosses(w[0], w[1], &solid.rect)) {
+            if points
+                .windows(2)
+                .any(|w| solid.outline.crossed_by(w[0], w[1]))
+            {
                 found.warning(
                     &format!("the line of \"{id}\" crosses {}", solid.name),
                     place,
@@ -282,6 +362,14 @@ mod tests {
         };
         assert!(crosses((0.0, 15.0), (30.0, 15.0), &r));
         assert!(!crosses((0.0, 25.0), (30.0, 25.0), &r));
+    }
+
+    #[test]
+    fn a_line_into_a_diamond_crosses_it_and_one_past_its_corner_does_not() {
+        let diamond = Outline::Shape(vec![(0.0, -10.0), (20.0, 0.0), (0.0, 10.0), (-20.0, 0.0)]);
+        assert!(diamond.crossed_by((0.0, 30.0), (0.0, 0.0)));
+        assert!(!diamond.crossed_by((15.0, 30.0), (15.0, 6.0)));
+        assert!(!diamond.crossed_by((0.0, 30.0), (0.0, 10.0)));
     }
 
     #[test]

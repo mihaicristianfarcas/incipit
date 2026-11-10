@@ -4,6 +4,7 @@ pub mod error;
 pub mod fields;
 pub(crate) mod frontmatter;
 pub mod graph;
+pub mod history;
 pub mod kind;
 pub mod links;
 pub mod path;

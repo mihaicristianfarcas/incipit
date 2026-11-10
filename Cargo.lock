@@ -3434,6 +3434,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "incipit-graph"
+version = "0.0.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "incipit-learn"
 version = "0.0.0"
 dependencies = [

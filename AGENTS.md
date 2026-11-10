@@ -58,7 +58,7 @@ for what the app does, not for how.
   never time spent or taps.
 - **A refactor changes no behaviour**, including what is on screen and the
   files in a vault. Keep refactors in commits of their own.
-- **No copied code.** Incipit is licensed under the GPL-3.0. Never take code
+- **No copied code.** Incipit is licensed under the AGPL-3.0. Never take code
   from a source whose license is not compatible with it. Vendored code keeps
   its license and notice beside it (`vendor/`, `third_party/`), and what was
   changed in it is written down (`third_party/PATCHES.md`).

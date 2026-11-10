@@ -45,4 +45,4 @@ run it, and say in the pull request what was verified and how.
 ## License
 
 By contributing you agree that your contribution is licensed under the
-[GPL-3.0](LICENSE).
+[AGPL-3.0](LICENSE).

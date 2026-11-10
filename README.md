@@ -42,5 +42,5 @@ the rules, for people and for AI agents alike;
 
 ## License
 
-[GPL-3.0](LICENSE). Vendored code keeps its own license beside it
+[AGPL-3.0](LICENSE). Vendored code keeps its own license beside it
 (`vendor/`, `third_party/`).

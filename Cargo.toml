@@ -1,0 +1,35 @@
+# Incipit: a local-first app for learning from books. One workspace: libraries with no UI in them
+# (figures, math, books), the look (incipit-ui) and the app.
+[workspace]
+resolver = "2"
+members = [
+    "crates/incipit-scene",
+    "crates/incipit-math",
+    "crates/incipit-book",
+    "crates/incipit-ui",
+    "crates/incipit-app",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.96"
+repository = "https://github.com/mihaicristianfarcas/incipit"
+license = "GPL-3.0-only"
+# An application and its private libraries, not crates for crates.io.
+publish = false
+
+# GPUI at the revision Helio pins: incipit-ui began as Helio's kit and is written against it.
+[workspace.dependencies]
+gpui = { git = "https://github.com/zed-industries/zed.git", rev = "4278ff36ef76916c719dfdd1557efd4401206985" }
+gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "4278ff36ef76916c719dfdd1557efd4401206985", features = ["font-kit", "wayland", "x11"] }
+incipit-ui = { path = "crates/incipit-ui" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+[patch."https://github.com/zed-industries/zed.git"]
+# GPUI's sum_tree names Zed's GPL-licensed profiling shim though profiling is off; vendor/ holds the
+# same no-op API under Apache-2.0 (from Helio).
+ztracing = { path = "vendor/ztracing" }
+ztracing_macro = { path = "vendor/ztracing_macro" }

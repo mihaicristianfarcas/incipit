@@ -1,0 +1,13 @@
+[package]
+name = "incipit-book"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+pdfium-render = "0.9.5"
+scraper = "0.29.0"
+zip = { version = "9.5.0", default-features = false, features = ["deflate"] }

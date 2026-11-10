@@ -1,0 +1,61 @@
+# Architecture
+
+One Cargo workspace. The libraries know nothing of the window; the window
+is thin and draws what they compute.
+
+```
+incipit-app ──▶ incipit-ui ──▶ gpui
+     │
+     ├──▶ incipit-scene     figures: spec → layout → marks → checks
+     ├──▶ incipit-math      LaTeX → Typst → a picture with a baseline
+     └──▶ incipit-book      PDF pages, EPUB blocks, anchors for notes
+```
+
+| Crate | What it is | Depends on GPUI |
+|---|---|---|
+| `incipit-scene` | The figure engine. A figure is a typed spec (`Sequence`); `layout` turns it and a moment in time into a list of marks (lines, boxes, text); `check` refuses a spec whose drawing would be wrong | no |
+| `incipit-math` | Typesets LaTeX: mitex converts it to Typst, Typst lays it out, and the result is a raster with its size and baseline | no |
+| `incipit-book` | Opens books. `Pdf` draws pages through pdfium and gives each character's place; `Book` turns an EPUB into headings, paragraphs and pictures; `Anchor` ties a note to a passage and finds it again | no |
+| `incipit-ui` | The look: theme, controls, icons, motion, window chrome. It began as Helio's kit | yes |
+| `incipit-app` | The window: one module per page | yes |
+
+## Decisions
+
+**No web view.** Books, math and figures are drawn by the app itself. The
+price is three things a browser gives for free, each answered by a crate
+above.
+
+**Figures are specs, not drawings.** A model never writes coordinates or
+code. It fills a spec whose shape is a JSON Schema (`incipit_scene::schema`);
+the engine places everything, including labels, and then checks the drawing
+at many moments: every mark inside the frame, no two texts overlapping, no
+text too small, every number finite. A failed check is a sentence that goes
+back to the model. This removes whole kinds of error instead of detecting
+them, and keeps the model's reply short.
+
+**Math is typeset by Typst.** Books and models write LaTeX; mitex
+translates it. The mitex files Typst loads are vendored in
+`third_party/mitex` with two patches for the Typst version in use
+(`third_party/PATCHES.md`). Formulas are rasters made at the screen's
+density, typeset once for each theme and kept.
+
+**PDFs go through pdfium.** It is a native library, loaded when the first
+PDF is opened, one pinned build fetched by `tools/setup`. It gives the
+picture of a page and the box of every character, which is what selection
+and highlights are made from.
+
+**EPUBs become native text.** A book's HTML is parsed and reduced to
+blocks; it is never run or displayed as HTML.
+
+**A note is tied to words.** An `Anchor` keeps a position and the passage
+itself. When the text has moved, the words find the place again.
+
+**GPUI is pinned** to one revision of Zed's repository, in the workspace
+`Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,
+so that no code under a license of Zed's own is linked.
+
+## Not built yet
+
+The vault, model providers, flashcards and review, quizzes, the graph of
+ideas, and the remaining figure kinds. This page describes them when they
+exist.

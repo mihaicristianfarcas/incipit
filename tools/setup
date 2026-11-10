@@ -1,0 +1,33 @@
+#!/bin/sh
+# Once per clone: the git hooks, the pdfium library the reader draws PDFs
+# with (lib/, not in git: a binary for one platform), and two sample books
+# (samples/, not in git) the app's Reader page opens.
+#
+# pdfium comes from bblanchon/pdfium-binaries, one pinned build. Its archive
+# for macOS arm64 is checked against a SHA-256; the other platforms' archives
+# have not been downloaded by anyone yet, so they have no checksum here.
+set -e
+cd "$(dirname "$0")/.."
+git config core.hooksPath .githooks
+
+build=chromium/8152
+case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) name=pdfium-mac-arm64 sum=30b0c3f55448840f0947b54bedbe35185bbaccbadd35b8cd960270d6fa6caf80 ;;
+    Darwin-x86_64) name=pdfium-mac-x64 sum= ;;
+    Linux-x86_64) name=pdfium-linux-x64 sum= ;;
+    Linux-aarch64) name=pdfium-linux-arm64 sum= ;;
+    *) echo "setup: no pdfium build named for $(uname -s) $(uname -m); see docs/development.md" >&2; exit 1 ;;
+esac
+if [ ! -d lib/lib ]; then
+    mkdir -p lib
+    curl -fL "https://github.com/bblanchon/pdfium-binaries/releases/download/$build/$name.tgz" -o lib/pdfium.tgz
+    if [ -n "$sum" ]; then
+        echo "$sum  lib/pdfium.tgz" | shasum -a 256 -c -
+    fi
+    tar -xzf lib/pdfium.tgz -C lib
+fi
+
+mkdir -p samples
+[ -f samples/paper.pdf ] || curl -fL https://arxiv.org/pdf/1706.03762 -o samples/paper.pdf
+[ -f samples/book.epub ] || curl -fL https://www.gutenberg.org/ebooks/5001.epub3.images -o samples/book.epub
+echo "setup: done"

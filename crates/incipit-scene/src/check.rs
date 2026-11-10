@@ -1,17 +1,22 @@
-//! Checks a figure before anyone sees it. First the spec's own sense (ids, references, times), then
-//! the geometry of what the engine drew at many moments: everything on the stage, no text over
-//! other text, nothing too small to read, no number that is not one. The geometry rules are what
-//! any readable figure keeps, not a list of mistakes seen before. Each problem says what to change,
-//! so it can go back to the model as it is.
+//! Checks a figure before anyone sees it. First the spec's own sense (ids, references, ranges: each
+//! kind's `structure`), then what the engine drew in every state a learner could reach (each kind's
+//! `samples`): everything on the stage, no text over other text or over a box that holds words,
+//! nothing too small to read, no number that is not one, and whatever the layout itself could not
+//! do. The geometry rules are what any readable figure keeps, not a list of mistakes seen before.
+//! Each problem says what to change, and the first state it was seen in, so it can go back to the
+//! model as it is.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
-use crate::draw::{Fill, Frame, Mark, Measure, Rect, HEIGHT, WIDTH};
-use crate::sequence::layout;
-use crate::spec::{Event, Sequence};
+use crate::draw::{Frame, Issue, Mark, Measure, Rect, STAGE};
+use crate::figure::{Figure, Sample};
 
 /// The smallest text a figure may hold, in stage units.
-const MIN_TEXT: f32 = 9.0;
+pub const MIN_TEXT: f32 = 9.0;
+
+/// At most this many problems of each kind are reported: past that, the first ones are what a
+/// model should fix, and the rest often follow from them.
+const MOST: usize = 12;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Report {
@@ -19,6 +24,8 @@ pub struct Report {
     pub errors: Vec<String>,
     /// The figure reads, but could be clearer.
     pub warnings: Vec<String>,
+    /// How many states were drawn and looked at.
+    pub states: usize,
 }
 
 impl Report {
@@ -27,124 +34,89 @@ impl Report {
     }
 }
 
-/// Everything wrong with `spec`. The geometry is only looked at once the spec makes sense.
-pub fn check(spec: &Sequence, m: &dyn Measure) -> Report {
+/// Everything wrong with `figure`. The geometry is only looked at once the spec makes sense.
+pub fn check(figure: &Figure, m: &dyn Measure) -> Report {
+    let spec = figure.spec();
     let mut report = Report {
-        errors: structure(spec),
+        errors: spec.structure(),
         warnings: Vec::new(),
+        states: 0,
     };
+    if spec.title().trim().is_empty() {
+        report
+            .errors
+            .insert(0, "the figure has no title".to_string());
+    }
     if !report.ok() {
         return report;
     }
-    let (mut errors, mut warnings) = (BTreeSet::new(), BTreeSet::new());
-    for now in moments(spec) {
-        let frame = layout(spec, now, None, m);
-        geometry(&frame, m, &mut errors, &mut warnings);
+    let mut found = Found::default();
+    let samples = spec.samples();
+    for Sample { state, place } in &samples {
+        let frame = spec.layout(state, m);
+        for issue in &frame.issues {
+            match issue {
+                Issue::Error(e) => found.error(e, place),
+                Issue::Warning(w) => found.warning(w, place),
+            }
+        }
+        geometry(&frame, m, &mut found, place);
     }
-    report.errors.extend(errors);
-    report.warnings.extend(warnings);
+    report.states = samples.len();
+    report.errors.extend(found.errors());
+    report.warnings.extend(found.warnings());
     report
 }
 
-/// The moments looked at: every stop, halfway between each two, and a lost message's last reach.
-fn moments(spec: &Sequence) -> Vec<f32> {
-    let stops = spec.stops();
-    let mut out = stops.clone();
-    out.extend(stops.windows(2).map(|w| (w[0] + w[1]) / 2.0));
-    out.push(spec.end() + 0.4);
-    out
+/// Problems by their words, each with the first state it was seen in, in the order seen.
+#[derive(Default)]
+struct Found {
+    errors: BTreeMap<String, (usize, String)>,
+    warnings: BTreeMap<String, (usize, String)>,
 }
 
-fn valid_id(id: &str) -> bool {
-    let mut chars = id.chars();
-    chars.next().is_some_and(|c| c.is_ascii_lowercase())
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-}
+impl Found {
+    fn error(&mut self, text: &str, place: &str) {
+        let n = self.errors.len();
+        self.errors
+            .entry(text.to_string())
+            .or_insert((n, place.to_string()));
+    }
 
-fn structure(spec: &Sequence) -> Vec<String> {
-    let mut errors = Vec::new();
-    if spec.title.trim().is_empty() {
-        errors.push("the figure has no title".to_string());
+    fn warning(&mut self, text: &str, place: &str) {
+        let n = self.warnings.len();
+        self.warnings
+            .entry(text.to_string())
+            .or_insert((n, place.to_string()));
     }
-    if !(2..=6).contains(&spec.actors.len()) {
-        errors.push(format!(
-            "a sequence has 2 to 6 actors, this one has {}",
-            spec.actors.len()
-        ));
+
+    fn errors(&self) -> Vec<String> {
+        Self::list(&self.errors)
     }
-    if spec.events.is_empty() {
-        errors.push("a sequence needs events".to_string());
+
+    fn warnings(&self) -> Vec<String> {
+        Self::list(&self.warnings)
     }
-    if spec.events.len() > 24 {
-        errors.push(format!(
-            "a sequence holds at most 24 events, this one has {}: show one idea",
-            spec.events.len()
-        ));
-    }
-    let mut seen = BTreeSet::new();
-    let ids = spec
-        .actors
-        .iter()
-        .map(|a| a.id.as_str())
-        .chain(spec.events.iter().map(Event::id));
-    for id in ids {
-        if !valid_id(id) {
-            errors.push(format!(
-                "id \"{id}\" must be lowercase letters, digits and _ , starting with a letter"
-            ));
-        }
-        if !seen.insert(id) {
-            errors.push(format!(
-                "id \"{id}\" is used twice: every actor and event needs its own"
-            ));
-        }
-    }
-    let actors: BTreeSet<&str> = spec.actors.iter().map(|a| a.id.as_str()).collect();
-    let known = actors.iter().copied().collect::<Vec<_>>().join(", ");
-    for a in &spec.actors {
-        if a.label.trim().is_empty() {
-            errors.push(format!("actor \"{}\" has no label", a.id));
-        }
-    }
-    for e in &spec.events {
-        let id = e.id();
-        for actor in e.actors() {
-            if !actors.contains(actor) {
-                errors.push(format!(
-                    "event \"{id}\" names actor \"{actor}\", which does not exist ({known})"
-                ));
-            }
-        }
-        let at = e.at();
-        if !at.is_finite() || !(0.0..=1000.0).contains(&at) {
-            errors.push(format!(
-                "event \"{id}\" is at {at}: times are numbers from 0 to 1000"
-            ));
-        }
-        match e {
-            Event::Message { arrive, .. } => {
-                if !arrive.is_finite() || *arrive < at {
-                    errors.push(format!(
-                        "message \"{id}\" arrives at {arrive}, before it is sent at {at}"
-                    ));
+
+    fn list(found: &BTreeMap<String, (usize, String)>) -> Vec<String> {
+        let mut out: Vec<(&usize, String)> = found
+            .iter()
+            .map(|(text, (n, place))| {
+                if place.is_empty() {
+                    (n, text.clone())
+                } else {
+                    (n, format!("{text} ({place})"))
                 }
-            }
-            Event::Span { until, .. } => {
-                if !until.is_finite() || *until <= at {
-                    errors.push(format!(
-                        "span \"{id}\" ends at {until}, which is not after its start at {at}"
-                    ));
-                }
-            }
-            Event::State { text, .. } => {
-                if text.trim().is_empty() {
-                    errors.push(format!("state \"{id}\" has no text"));
-                }
-            }
-            Event::Crash { .. } | Event::Recover { .. } => {}
+            })
+            .collect();
+        out.sort_by_key(|(n, _)| **n);
+        let more = out.len().saturating_sub(MOST);
+        let mut out: Vec<String> = out.into_iter().take(MOST).map(|(_, t)| t).collect();
+        if more > 0 {
+            out.push(format!("and {more} more like these"));
         }
+        out
     }
-    errors
 }
 
 /// What a box on the stage is, for a message about it.
@@ -154,18 +126,7 @@ struct Solid {
     rect: Rect,
 }
 
-fn geometry(
-    frame: &Frame,
-    m: &dyn Measure,
-    errors: &mut BTreeSet<String>,
-    warnings: &mut BTreeSet<String>,
-) {
-    let stage = Rect {
-        x: 0.0,
-        y: 0.0,
-        w: WIDTH,
-        h: HEIGHT,
-    };
+fn geometry(frame: &Frame, m: &dyn Measure, found: &mut Found, place: &str) {
     let mut solids: Vec<Solid> = Vec::new();
     for item in &frame.items {
         let rect = item.mark.bounds(m);
@@ -174,36 +135,26 @@ fn geometry(
             .iter()
             .all(|v| v.is_finite())
         {
-            errors.insert(format!("{name} has a position that is not a number"));
+            found.error(
+                &format!("{name} has a position that is not a number"),
+                place,
+            );
             continue;
         }
-        if !rect.inside(&stage) {
-            errors.insert(format!("{name} runs off the figure: shorten it"));
+        if !rect.inside(&STAGE) {
+            found.error(&format!("{name} runs off the figure: shorten it"), place);
         }
-        match &item.mark {
-            Mark::Text(t) => {
-                if t.size < MIN_TEXT {
-                    errors.insert(format!("{name} is too small to read"));
-                }
-                solids.push(Solid {
-                    id: item.id.clone(),
-                    name,
-                    rect,
-                });
+        if let Mark::Text(t) = &item.mark {
+            if t.size < MIN_TEXT {
+                found.error(&format!("{name} is too small to read"), place);
             }
-            // A state's box: text and other boxes stay off it.
-            Mark::Rect {
-                fill: Fill::Paper,
-                h,
-                ..
-            } if item.id.is_some() && *h <= 20.0 => {
-                solids.push(Solid {
-                    id: item.id.clone(),
-                    name,
-                    rect,
-                });
-            }
-            _ => {}
+        }
+        if matches!(item.mark, Mark::Text(_)) || item.solid {
+            solids.push(Solid {
+                id: item.id.clone(),
+                name,
+                rect,
+            });
         }
     }
     for (i, a) in solids.iter().enumerate() {
@@ -212,14 +163,17 @@ fn geometry(
                 continue;
             }
             if a.rect.overlaps(&b.rect, 0.0) {
-                errors.insert(format!(
-                    "{} overlaps {}: shorten one of them or move the two apart in time",
-                    a.name, b.name
-                ));
+                found.error(
+                    &format!(
+                        "{} overlaps {}: shorten one of them, or move the two apart",
+                        a.name, b.name
+                    ),
+                    place,
+                );
             }
         }
     }
-    // A message's line through another element's words.
+    // A line of one element through another element's words.
     for item in &frame.items {
         let (Some(id), Mark::Line { points, .. }) = (&item.id, &item.mark) else {
             continue;
@@ -229,7 +183,10 @@ fn geometry(
                 continue;
             }
             if points.windows(2).any(|w| crosses(w[0], w[1], &solid.rect)) {
-                warnings.insert(format!("the line of \"{id}\" crosses {}", solid.name));
+                found.warning(
+                    &format!("the line of \"{id}\" crosses {}", solid.name),
+                    place,
+                );
             }
         }
     }
@@ -241,13 +198,13 @@ fn describe(id: Option<&str>, mark: &Mark) -> String {
         Mark::Text(t) => format!("the text \"{}\"{of}", t.text),
         Mark::Rect { .. } => format!("the box{of}"),
         Mark::Line { .. } => format!("the line{of}"),
-        Mark::Polygon { .. } => format!("the arrow{of}"),
+        Mark::Polygon { .. } => format!("the shape{of}"),
         Mark::Circle { .. } => format!("the mark{of}"),
     }
 }
 
 /// Whether the segment from `a` to `b` passes through `rect` (Liang–Barsky).
-fn crosses(a: (f32, f32), b: (f32, f32), rect: &Rect) -> bool {
+pub fn crosses(a: (f32, f32), b: (f32, f32), rect: &Rect) -> bool {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let (mut t0, mut t1) = (0.0f32, 1.0f32);
     for (p, q) in [
@@ -272,76 +229,66 @@ fn crosses(a: (f32, f32), b: (f32, f32), rect: &Rect) -> bool {
     t0 < t1
 }
 
+/// Whether `id` is a name a spec may give: lowercase letters, digits and _, starting with a letter.
+pub fn valid_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Errors for ids that are malformed or used twice.
+pub fn unique_ids<'a>(ids: impl IntoIterator<Item = &'a str>, errors: &mut Vec<String>) {
+    let mut seen = std::collections::BTreeSet::new();
+    for id in ids {
+        if !valid_id(id) {
+            errors.push(format!(
+                "id \"{id}\" must be lowercase letters, digits and _, starting with a letter"
+            ));
+        }
+        if !seen.insert(id) {
+            errors.push(format!(
+                "id \"{id}\" is used twice: every element needs its own"
+            ));
+        }
+    }
+}
+
+/// An error when `id` is not among `known`, listing what is.
+pub fn known_id(
+    what: &str,
+    id: &str,
+    known: &std::collections::BTreeSet<&str>,
+    errors: &mut Vec<String>,
+) {
+    if !known.contains(id) {
+        let list = known.iter().copied().collect::<Vec<_>>().join(", ");
+        errors.push(format!(
+            "{what} names \"{id}\", which does not exist ({list})"
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::Rough;
-    use crate::schema::example;
 
     #[test]
-    fn the_example_is_clean() {
-        let report = check(&example(), &Rough);
-        assert!(report.ok(), "{:#?}", report.errors);
+    fn a_segment_through_a_box_crosses_it_and_one_beside_it_does_not() {
+        let r = Rect {
+            x: 10.0,
+            y: 10.0,
+            w: 10.0,
+            h: 10.0,
+        };
+        assert!(crosses((0.0, 15.0), (30.0, 15.0), &r));
+        assert!(!crosses((0.0, 25.0), (30.0, 25.0), &r));
     }
 
     #[test]
-    fn a_missing_actor_is_named() {
-        let mut spec = example();
-        if let Event::Message { to, .. } = &mut spec.events[0] {
-            *to = "nobody".into();
-        }
-        let report = check(&spec, &Rough);
-        assert!(
-            report
-                .errors
-                .iter()
-                .any(|e| e.contains("\"nobody\", which does not exist")),
-            "{report:#?}"
-        );
-    }
-
-    #[test]
-    fn a_reply_before_its_send_is_refused() {
-        let mut spec = example();
-        if let Event::Message { at, arrive, .. } = &mut spec.events[0] {
-            (*at, *arrive) = (3.0, 1.0);
-        }
-        assert!(!check(&spec, &Rough).ok());
-    }
-
-    /// Never seen before, and still caught: two states at the same moment on neighbouring actors,
-    /// with text wide enough to collide.
-    #[test]
-    fn colliding_text_is_caught_by_geometry_alone() {
-        let mut spec = example();
-        for (id, actor) in [("wide_a", "a"), ("wide_b", "b")] {
-            spec.events.push(Event::State {
-                id: id.into(),
-                actor: actor.into(),
-                at: 0.2,
-                text: "a very long state that keeps going and going".into(),
-                tone: crate::Tone::Mid,
-                narration: String::new(),
-            });
-        }
-        let report = check(&spec, &Rough);
-        assert!(
-            report.errors.iter().any(|e| e.contains("overlaps")),
-            "{report:#?}"
-        );
-    }
-
-    #[test]
-    fn text_off_the_stage_is_caught() {
-        let mut spec = example();
-        spec.actors[0].sublabel = "x".repeat(120);
-        let report = check(&spec, &Rough);
-        assert!(
-            report
-                .errors
-                .iter()
-                .any(|e| e.contains("runs off the figure")),
-            "{report:#?}"
-        );
+    fn a_problem_is_reported_once_with_the_first_state_it_was_seen_in() {
+        let mut found = Found::default();
+        found.error("x overlaps y", "at step 2");
+        found.error("x overlaps y", "at step 3");
+        assert_eq!(found.errors(), vec!["x overlaps y (at step 2)"]);
     }
 }

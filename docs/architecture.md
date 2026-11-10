@@ -17,7 +17,7 @@ incipit-app ──▶ incipit-ui ──▶ gpui
 
 | Crate | What it is | Depends on GPUI |
 |---|---|---|
-| `incipit-scene` | The figure engine. A figure is a typed spec (`Sequence`); `layout` turns it and a moment in time into a list of marks (lines, boxes, text); `check` refuses a spec whose drawing would be wrong | no |
+| `incipit-scene` | The figure engine. A figure is a typed spec (`Figure`, one variant per kind); `layout` turns it and a `State` (a moment, a step, parameters, moved points) into marks (lines, shapes, boxes, text) and the handles a window wires to controls; `check` refuses a spec whose drawing would be wrong. [figures.md](figures.md) | no |
 | `incipit-math` | Typesets LaTeX: mitex converts it to Typst, Typst lays it out, and the result is a raster with its size and baseline | no |
 | `incipit-book` | Opens books. `Pdf` draws pages through pdfium and gives each character's place, and `PdfWorker` does so on a thread of its own; `Book` turns an EPUB into headings, paragraphs and pictures; `Anchor` ties a note to a passage and finds it again | no |
 | `incipit-learn` | Spaced repetition as pure logic: `schedule` applies one FSRS-6 review to a `Card` and returns the log line, `preview` gives the four buttons' waits, `build_queue` orders what to review (learning steps, overdue reviews, then new cards up to the daily limit), `today_counts` and `streaks` feed the Today page. Time and timezone are arguments; there is no storage | no |
@@ -36,10 +36,12 @@ above.
 **Figures are specs, not drawings.** A model never writes coordinates or
 code. It fills a spec whose shape is a JSON Schema (`incipit_scene::schema`);
 the engine places everything, including labels, and then checks the drawing
-at many moments: every mark inside the frame, no two texts overlapping, no
+in many states: every mark inside the frame, no two texts overlapping, no
 text too small, every number finite. A failed check is a sentence that goes
 back to the model. This removes whole kinds of error instead of detecting
-them, and keeps the model's reply short.
+them, and keeps the model's reply short. Controls a figure offers (sliders,
+points to drag) are data in each frame, so the window needs no code per
+kind. The kinds and their checks: [figures.md](figures.md).
 
 **Math is typeset by Typst.** Books and models write LaTeX; mitex
 translates it. The mitex files Typst loads are vendored in
@@ -77,6 +79,6 @@ so that no code under a license of Zed's own is linked.
 
 ## Not built yet
 
-Pages in the window that use the vault, flashcards and review (their scheduling is in `incipit-learn`), quizzes, the graph of
-ideas, and the remaining figure kinds. This page describes them when they
-exist.
+Pages in the window that use the vault, flashcards and review (their
+scheduling is in `incipit-learn`), quizzes and the graph of ideas. This page
+describes them when they exist.

@@ -1,5 +1,5 @@
-//! What a model writes for a figure: who is in it and what happens when. No positions, sizes or
-//! colours beyond a tone: those are the engine's.
+//! What a model writes for a sequence figure: who is in it and what happens when. No positions,
+//! sizes or colours beyond a tone: those are the engine's.
 
 use serde::{Deserialize, Serialize};
 

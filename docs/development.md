@@ -35,11 +35,16 @@ screenshots are taken:
 | `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected |
 | `INCIPIT_CONTENTS` | On the Reader page: starts with the book's contents open |
 | `INCIPIT_PART` | On the Reader page: the page (PDF) or block (EPUB) to start at, counted from 0 |
-| `INCIPIT_FIGURE` | On the Figure page: a JSON file holding a figure's spec, instead of the built-in example |
-| `INCIPIT_AT` | On the Figure page: the moment to show |
+| `INCIPIT_FIGURE` | On the Figure page: a JSON file holding a figure's spec (or a model's reply with it under `structured_output`), instead of the built-in examples |
+| `INCIPIT_KIND` | On the Figure page: the kind whose example to show (`sequence`, …; `figure kinds` lists them) |
+| `INCIPIT_AT` | On the Figure page: the moment to show, for a figure on a clock |
+| `INCIPIT_STEP` | On the Figure page: the step to show, counted from 1 |
+| `INCIPIT_PARAMS` | On the Figure page: parameter values, as `a=2,b=0.5` |
+| `INCIPIT_POINTS` | On the Figure page: points moved, as `a=0.2:0.4` (in the figure's own units) |
 
 ```sh
 INCIPIT_PAGE=reader INCIPIT_BOOK=epub INCIPIT_NOTE=1 INCIPIT_SHOT=shots/reader.png cargo run -p incipit-app
+INCIPIT_PAGE=figure INCIPIT_KIND=sequence INCIPIT_AT=3 INCIPIT_SHOT=shots/figure.png cargo run -p incipit-app
 ```
 
 `shots/` is not in git.
@@ -48,7 +53,7 @@ INCIPIT_PAGE=reader INCIPIT_BOOK=epub INCIPIT_NOTE=1 INCIPIT_SHOT=shots/reader.p
 
 | Command | Does |
 |---|---|
-| `cargo run -p incipit-scene --example figure -- schema` | Prints the JSON Schema of a figure's spec; `guide` prints the instructions a model gets; `check FILE` checks a spec |
+| `cargo run -p incipit-scene --example figure -- kinds` | Lists the figure kinds; `schema KIND` prints the JSON Schema a model fills in, `guide KIND` the instructions it gets, `example KIND` the built-in example, `check FILE` what the checks say of a spec |
 | `cargo run -p incipit-math --example probe -- FILE` | Typesets each line of a file as LaTeX and prints the ones that fail |
 | `cargo run -p incipit-book --example look -- lib/lib FILE.pdf` | Opens a PDF and prints its size, timings and first text; `look - FILE.epub` does the same for an EPUB |
 

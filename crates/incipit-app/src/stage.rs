@@ -1,6 +1,8 @@
 //! Draws the figure engine's marks on a GPUI canvas, in the theme's colours, and measures text for
 //! the engine with the window's own text system, so labels are placed by the widths really drawn.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
@@ -80,11 +82,17 @@ fn ink(tone: Tone, t: Theme) -> Hsla {
     .into()
 }
 
-/// The figure, filling the width it is given at the stage's proportions.
-pub fn stage(frame: Frame, width: f32, t: Theme) -> impl IntoElement {
+/// The figure, filling the width it is given at the stage's proportions. `origin` learns where it
+/// was drawn, so a pointer can be turned into stage units.
+pub fn stage(
+    frame: Frame,
+    width: f32,
+    t: Theme,
+    origin: Rc<Cell<Point<Pixels>>>,
+) -> impl IntoElement {
     let height = width * HEIGHT / WIDTH;
     canvas(
-        |_, _, _| (),
+        move |bounds, _, _| origin.set(bounds.origin),
         move |bounds, _, window, cx| paint(&frame, bounds, t, window, cx),
     )
     .w(px(width))

@@ -7,6 +7,7 @@ members = [
     "crates/incipit-math",
     "crates/incipit-book",
     "crates/incipit-learn",
+    "crates/incipit-graph",
     "crates/incipit-ui",
     "crates/incipit-app",
 ]

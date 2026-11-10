@@ -1,0 +1,10 @@
+[package]
+name = "incipit-graph"
+description = "The graph of ideas: a force layout and the geometry of its picture, with no window in it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true

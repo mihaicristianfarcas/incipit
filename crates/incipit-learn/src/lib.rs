@@ -1,0 +1,32 @@
+//! Spaced repetition for Incipit's flashcards: the FSRS-6 scheduler and the review queue, as pure
+//! logic. There is no storage, no clock and no randomness here: a card, a rating and the time (in
+//! milliseconds since the Unix epoch) go in, and the next card and a log record come out, so every
+//! result is the same on every run and on every machine.
+//!
+//! The scheduler is a port of the earlier app's `shared/fsrs.ts`, not a binding to a Rust FSRS
+//! crate: the `fsrs` crate pulls in a machine-learning framework for the optimizer, which is not
+//! needed, and `rs-fsrs` schedules the learning steps and same-day reviews differently, which would
+//! change the intervals a learner already knows. Intervals are not fuzzed, as in the original.
+//!
+//! - [`card`]: [`Card`], [`Rating`], [`State`] and the [`Review`] log record.
+//! - [`params`]: the 21 FSRS-6 weights, desired retention and the learning steps.
+//! - [`schedule`]: one review, the preview of the four buttons, recall probability.
+//! - [`queue`]: which cards to show now and in what order, and the counts for the Today page.
+//! - [`streak`]: the forgiving streak of study days.
+
+pub mod card;
+pub mod params;
+pub mod queue;
+pub mod schedule;
+pub mod streak;
+
+pub use card::{Card, Rating, Review, State};
+pub use params::Params;
+pub use queue::{build_queue, today_counts, Candidate, Queue, QueueOptions, TodayCounts};
+pub use schedule::{credit, format_interval, preview, retrievability, schedule, Preview};
+pub use streak::{streaks, Streaks};
+
+/// Milliseconds in a day.
+pub const DAY_MS: i64 = 86_400_000;
+/// Milliseconds in a minute.
+pub const MINUTE_MS: i64 = 60_000;

@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::draw::{Frame, Measure};
+use crate::flow::Flow;
 use crate::handles::{Drag, Target};
 use crate::sequence::Sequence;
 
@@ -17,21 +18,24 @@ use crate::sequence::Sequence;
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Figure {
     Sequence(Sequence),
+    Flow(Flow),
 }
 
 /// The kinds of figure, in the order a person would look for them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Kind {
     Sequence,
+    Flow,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 1] = [Kind::Sequence];
+    pub const ALL: [Kind; 2] = [Kind::Sequence, Kind::Flow];
 
     /// The name a spec's `kind` field holds.
     pub fn name(self) -> &'static str {
         match self {
             Kind::Sequence => "sequence",
+            Kind::Flow => "flow",
         }
     }
 
@@ -39,6 +43,7 @@ impl Kind {
     pub fn label(self) -> &'static str {
         match self {
             Kind::Sequence => "Sequence",
+            Kind::Flow => "Flow",
         }
     }
 
@@ -46,6 +51,9 @@ impl Kind {
     pub fn purpose(self) -> &'static str {
         match self {
             Kind::Sequence => "who tells whom what, over time: messages between actors",
+            Kind::Flow => {
+                "boxes and arrows: processes, causes, decisions, state machines, cycles, trees"
+            }
         }
     }
 
@@ -139,12 +147,14 @@ impl Figure {
     pub fn spec(&self) -> &dyn Spec {
         match self {
             Figure::Sequence(s) => s,
+            Figure::Flow(f) => f,
         }
     }
 
     pub fn kind(&self) -> Kind {
         match self {
             Figure::Sequence(_) => Kind::Sequence,
+            Figure::Flow(_) => Kind::Flow,
         }
     }
 

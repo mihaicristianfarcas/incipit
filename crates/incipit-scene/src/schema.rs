@@ -6,7 +6,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::figure::{Figure, Kind};
-use crate::sequence;
+use crate::{flow, sequence};
 
 /// A strict object with these fields, in this order.
 pub fn fields(fields: Vec<(&str, Value)>) -> Value {
@@ -52,6 +52,15 @@ pub fn one_of(names: &[&str]) -> Value {
     json!({ "type": "string", "enum": names })
 }
 
+/// Steps that bring elements in and light them (`steps::Step`).
+pub fn steps() -> Value {
+    list(fields(vec![
+        ("narration", text()),
+        ("show", texts()),
+        ("focus", texts()),
+    ]))
+}
+
 /// The tones a model may pick; the window turns each into a colour of its theme.
 pub fn tone() -> Value {
     one_of(&["hi", "mid", "lo", "lit", "red", "green", "blue"])
@@ -61,6 +70,7 @@ pub fn tone() -> Value {
 pub fn schema(kind: Kind) -> Value {
     let mut of = match kind {
         Kind::Sequence => sequence::schema(),
+        Kind::Flow => flow::schema(),
     };
     if let Some(Value::Object(properties)) = of.get_mut("properties") {
         let mut with_kind = Map::new();
@@ -97,6 +107,7 @@ one idea, and build it up a little at each step.";
 pub fn guide(kind: Kind) -> String {
     let own = match kind {
         Kind::Sequence => sequence::GUIDE,
+        Kind::Flow => flow::GUIDE,
     };
     format!("{COMMON}\n\n{own}")
 }
@@ -105,6 +116,7 @@ pub fn guide(kind: Kind) -> String {
 pub fn example(kind: Kind) -> Figure {
     match kind {
         Kind::Sequence => Figure::Sequence(sequence::example()),
+        Kind::Flow => Figure::Flow(flow::example()),
     }
 }
 

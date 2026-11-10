@@ -1,8 +1,11 @@
 //! A text field: one line (scrolling sideways) or several (wrapping and
 //! growing). Built on GPUI's input handler, so IME composition, the
-//! character palette and dictation work as in any native field.
+//! character palette and dictation work as in any native field. Every
+//! change can be undone. A field made with `markdown()` is a place to write
+//! notes: `markup` says how its text looks and what Enter and Tab do there.
 
 use std::ops::Range;
+use std::time::Instant;
 
 use gpui::{
     actions, div, fill, point, prelude::*, px, size, App, Bounds, ClipboardItem, Context,
@@ -13,6 +16,7 @@ use gpui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::markup::{self, History, Moment};
 use crate::theme::{Radius, Theme, Type};
 
 actions!(
@@ -45,6 +49,10 @@ actions!(
         Escape,
         Tab,
         TabBack,
+        Undo,
+        Redo,
+        Bold,
+        Italic,
         ShowCharacterPalette,
     ]
 );
@@ -90,6 +98,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Escape, c),
         KeyBinding::new("tab", Tab, c),
         KeyBinding::new("shift-tab", TabBack, c),
+        KeyBinding::new(&format!("{cmd}-z"), Undo, c),
+        KeyBinding::new(&format!("{cmd}-shift-z"), Redo, c),
+        KeyBinding::new(&format!("{cmd}-b"), Bold, c),
+        KeyBinding::new(&format!("{cmd}-i"), Italic, c),
     ]);
     if cfg!(target_os = "macos") {
         cx.bind_keys([
@@ -124,6 +136,10 @@ pub struct TextField {
     password: bool,
     disabled: bool,
     mono: bool,
+    /// A place to write Markdown (`markup`): its marks show what they mean, Enter makes a line
+    /// and carries a list on, and the field is as tall as its text.
+    markdown: bool,
+    history: History,
     selecting: bool,
     /// Laid out last frame: for the mouse and the IME.
     layout: Option<Layout>,
@@ -160,6 +176,8 @@ impl TextField {
             password: false,
             disabled: false,
             mono: false,
+            markdown: false,
+            history: History::default(),
             selecting: false,
             layout: None,
             scroll_x: px(0.0),
@@ -173,6 +191,13 @@ impl TextField {
 
     pub fn multiline(mut self) -> Self {
         self.multiline = true;
+        self
+    }
+
+    /// Several lines of Markdown: see `markup`.
+    pub fn markdown(mut self) -> Self {
+        self.multiline = true;
+        self.markdown = true;
         self
     }
 
@@ -314,6 +339,7 @@ impl TextField {
         } else {
             new.replace('\n', " ")
         };
+        self.history.before_change(self.moment(), Instant::now());
         self.text.replace_range(range.clone(), &new);
         let at = range.start + new.len();
         self.selected = at..at;
@@ -474,8 +500,64 @@ impl TextField {
         }
     }
 
-    fn enter(&mut self, _: &Enter, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(FieldEvent::Submit);
+    fn enter(&mut self, _: &Enter, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.markdown {
+            cx.emit(FieldEvent::Submit);
+            return;
+        }
+        if !self.selected.is_empty() {
+            self.edit(self.selected.clone(), "\n", window, cx);
+            return;
+        }
+        let (range, new) = markup::enter(&self.text, self.selected.start);
+        self.edit(range, &new, window, cx);
+    }
+
+    fn moment(&self) -> Moment {
+        Moment {
+            text: self.text.clone(),
+            selected: self.selected.clone(),
+        }
+    }
+
+    fn restore(&mut self, moment: Moment, window: &mut Window, cx: &mut Context<Self>) {
+        self.text = moment.text;
+        self.selected = moment.selected;
+        self.reversed = false;
+        self.marked = None;
+        window.invalidate_character_coordinates();
+        cx.emit(FieldEvent::Changed);
+        cx.notify();
+    }
+
+    fn undo(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(moment) = self.history.undo(self.moment()) {
+            self.restore(moment, window, cx);
+        }
+    }
+
+    fn redo(&mut self, _: &Redo, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(moment) = self.history.redo(self.moment()) {
+            self.restore(moment, window, cx);
+        }
+    }
+
+    /// Wrap the selection in a Markdown mark, or take the mark away.
+    fn mark(&mut self, mark: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.markdown || self.disabled {
+            return;
+        }
+        let (range, new, kept) = markup::toggle(&self.text, self.selected.clone(), mark);
+        self.edit(range, &new, window, cx);
+        self.selected = kept;
+    }
+
+    fn bold(&mut self, _: &Bold, window: &mut Window, cx: &mut Context<Self>) {
+        self.mark("**", window, cx);
+    }
+
+    fn italic(&mut self, _: &Italic, window: &mut Window, cx: &mut Context<Self>) {
+        self.mark("*", window, cx);
     }
 
     fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
@@ -490,12 +572,32 @@ impl TextField {
         cx.emit(FieldEvent::Cancel);
     }
 
+    /// Tab moves on to the next control, as everywhere, except on a list item of a Markdown
+    /// field, which it indents (Shift+Tab brings it back).
     fn tab(&mut self, _: &Tab, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus_next(cx);
+        if self.markdown && markup::in_list(&self.text, self.cursor()) {
+            let caret = self.selected.clone();
+            let start = self.line_start(self.cursor());
+            self.edit(start..start, "  ", window, cx);
+            self.selected = caret.start + 2..caret.end + 2;
+        } else {
+            window.focus_next(cx);
+        }
     }
 
     fn tab_back(&mut self, _: &TabBack, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus_prev(cx);
+        let start = self.line_start(self.cursor());
+        if self.markdown
+            && markup::in_list(&self.text, self.cursor())
+            && self.text[start..].starts_with("  ")
+        {
+            let caret = self.selected.clone();
+            self.edit(start..start + 2, "", window, cx);
+            self.selected =
+                caret.start.saturating_sub(2).max(start)..caret.end.saturating_sub(2).max(start);
+        } else {
+            window.focus_prev(cx);
+        }
     }
 
     fn show_character_palette(
@@ -755,14 +857,63 @@ impl IntoElement for FieldElement {
     }
 }
 
+/// The runs of a Markdown field's text: each stretch in the look `markup` gives it.
+fn markdown_runs(text: &str, t: Theme, window: &Window) -> Vec<TextRun> {
+    let style = window.text_style();
+    markup::looks(text)
+        .into_iter()
+        .map(|(len, look)| {
+            let mut font = style.font();
+            if look.mono {
+                font.family = crate::mono_font();
+            }
+            if look.bold {
+                font.weight = gpui::FontWeight::SEMIBOLD;
+            }
+            if look.italic {
+                font.style = gpui::FontStyle::Italic;
+            }
+            let color = match look.tone {
+                markup::Tone::Plain => t.primary,
+                markup::Tone::Dim => t.quaternary,
+                markup::Tone::Link => t.accent,
+                markup::Tone::Quote => t.secondary,
+            };
+            TextRun {
+                len,
+                font,
+                color: color.into(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }
+        })
+        .collect()
+}
+
 fn shape(
     text: &str,
     size: Pixels,
     color: gpui::Hsla,
     marked: Option<&Range<usize>>,
     wrap: Option<Pixels>,
+    looks: Option<Theme>,
     window: &Window,
 ) -> Vec<WrappedLine> {
+    if let (Some(t), None) = (looks, marked) {
+        let runs = markdown_runs(text, t, window);
+        return window
+            .text_system()
+            .shape_text(
+                SharedString::from(text.to_string()),
+                size,
+                &runs,
+                wrap,
+                None,
+            )
+            .map(|l| l.into_vec())
+            .unwrap_or_default();
+    }
     let style = window.text_style();
     let run = TextRun {
         len: text.len(),
@@ -843,12 +994,13 @@ impl Element for FieldElement {
             field.shown()
         };
         let size = px(self.size);
+        let looks = (field.markdown && !field.text.is_empty()).then_some(self.theme);
         let layout = window.request_measured_layout(style, move |known, available, window, _cx| {
             let width = known.width.or(match available.width {
                 gpui::AvailableSpace::Definite(w) => Some(w),
                 _ => None,
             });
-            let lines = shape(&text, size, gpui::black(), None, width, window);
+            let lines = shape(&text, size, gpui::black(), None, width, looks, window);
             let rows: usize = lines
                 .iter()
                 .map(|l| l.wrap_boundaries().len() + 1)
@@ -893,6 +1045,7 @@ impl Element for FieldElement {
             color.into(),
             marked.as_ref(),
             wrap,
+            (field.markdown && !placeholder && !field.disabled).then_some(t),
             window,
         );
         let mut starts = Vec::with_capacity(lines.len());
@@ -1048,6 +1201,8 @@ pub struct Field {
     theme: Theme,
     chrome: bool,
     min_rows: usize,
+    /// The text's size, when not the body's.
+    size: Option<f32>,
 }
 
 pub fn field(field: &Entity<TextField>, theme: Theme) -> Field {
@@ -1056,6 +1211,7 @@ pub fn field(field: &Entity<TextField>, theme: Theme) -> Field {
         theme,
         chrome: true,
         min_rows: 1,
+        size: None,
     }
 }
 
@@ -1070,6 +1226,12 @@ impl Field {
         self.min_rows = rows;
         self
     }
+
+    /// Text of this size, on lines 1.6 times as tall: for writing at length.
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = Some(size);
+        self
+    }
 }
 
 impl RenderOnce for Field {
@@ -1079,8 +1241,8 @@ impl RenderOnce for Field {
         let focused = f.focus.is_focused(window);
         let disabled = f.disabled;
         let multiline = f.multiline;
-        let text_size = Type::BODY;
-        let line_height = 18.0;
+        let text_size = self.size.unwrap_or(Type::BODY);
+        let line_height = self.size.map(|s| (s * 1.6).round()).unwrap_or(18.0);
         let entity = self.field.clone();
         div()
             .id(ElementId::Name(
@@ -1116,6 +1278,10 @@ impl RenderOnce for Field {
             .on_action(window.listener_for(&entity, TextField::escape))
             .on_action(window.listener_for(&entity, TextField::tab))
             .on_action(window.listener_for(&entity, TextField::tab_back))
+            .on_action(window.listener_for(&entity, TextField::undo))
+            .on_action(window.listener_for(&entity, TextField::redo))
+            .on_action(window.listener_for(&entity, TextField::bold))
+            .on_action(window.listener_for(&entity, TextField::italic))
             .on_action(window.listener_for(&entity, TextField::show_character_palette))
             .on_mouse_down(
                 MouseButton::Left,

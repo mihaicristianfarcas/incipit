@@ -14,6 +14,7 @@ pub mod icon;
 pub mod instance;
 pub mod login;
 pub mod markdown;
+pub mod markup;
 pub mod menus;
 pub mod motion;
 pub mod text_field;

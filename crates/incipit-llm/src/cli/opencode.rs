@@ -9,6 +9,9 @@
 //! command under the OS sandbox (`sandbox::sandboxed_shell`). Models are `provider/model`, and
 //! the effort is the model's variant (`provider/model#low`), left out for a model that has none.
 //! OpenCode takes its folder from `PWD`, not from where it was started, so every run sets it.
+//!
+//! The live test needs OpenCode 2 and makes one call to a free model:
+//! `cargo test -p incipit-llm -- --ignored opencode_` (`INCIPIT_OPENCODE_MODEL` picks another).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -604,7 +607,6 @@ fi"#,
         assert!(fake::args(&program).contains(&"ses_9".to_string()));
     }
 
-    /// Run with: cargo test -p incipit-llm -- --ignored opencode_answers_live
     #[test]
     #[ignore = "requires OpenCode 2; makes one small call to a free model"]
     fn opencode_answers_live() {

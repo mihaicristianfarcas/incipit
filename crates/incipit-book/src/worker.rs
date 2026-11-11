@@ -1,10 +1,11 @@
 //! A PDF on a thread of its own. pdfium is slow enough to stall a window (a page takes a fifth of a
 //! second in a debug build) and must be used from one thread at a time, so one named thread owns
-//! the document: it is asked for pages, or for the text of pages without drawing them, over a
-//! channel, and answers each through the callback that came with the request. When several
-//! requests wait, the newest is answered first: it is the page on screen now.
+//! the document: it is asked for pages, or for the text of a run of pages without drawing them
+//! (cut at its ends, for a chapter that starts or ends part-way down a page), over a channel, and
+//! answers each through the callback that came with the request. When several requests wait, the
+//! newest is answered first: it is the page on screen now.
 //!
-//! The test reads the sample paper `tools/setup` downloads, with the pdfium it puts in `lib/`:
+//! The tests read the sample paper `tools/setup` downloads, with the pdfium it puts in `lib/`:
 //! `cargo test -p incipit-book -- --ignored`.
 
 use std::ops::Range;
@@ -13,7 +14,7 @@ use std::sync::mpsc::{channel, Sender};
 
 use anyhow::{anyhow, Result};
 
-use crate::pdf::{Entry, Page, Pdf};
+use crate::pdf::{Cut, Entry, Page, Pdf};
 
 /// What is known of a PDF as soon as it is open.
 #[derive(Clone, Debug)]
@@ -33,9 +34,10 @@ enum Request {
         pixel_width: u32,
         reply: Reply,
     },
-    /// The text of pages, none drawn.
+    /// The text of a run of pages, none drawn.
     Text {
         pages: Range<usize>,
+        cut: Cut,
         reply: TextReply,
     },
 }
@@ -81,9 +83,7 @@ impl PdfWorker {
                                 pixel_width,
                                 reply,
                             } => reply(pdf.page(index, pixel_width)),
-                            Request::Text { pages, reply } => {
-                                reply(pages.map(|index| pdf.text(index)).collect())
-                            }
+                            Request::Text { pages, cut, reply } => reply(pdf.texts(pages, cut)),
                         }
                         pending.extend(waiting.try_iter());
                     }
@@ -110,15 +110,17 @@ impl PdfWorker {
         });
     }
 
-    /// Ask for the text of `pages`, each page's as `Page::text` gives it, without drawing them.
-    /// `reply` runs on the PDF's thread.
+    /// Ask for the text of `pages`, each page's as `Page::text` gives it, without drawing them;
+    /// the run is cut at its ends as `cut` says. `reply` runs on the PDF's thread.
     pub fn text(
         &self,
         pages: Range<usize>,
+        cut: Cut,
         reply: impl FnOnce(Result<Vec<String>>) + Send + 'static,
     ) {
         let _ = self.requests.send(Request::Text {
             pages,
+            cut,
             reply: Box::new(reply),
         });
     }
@@ -139,7 +141,7 @@ mod tests {
             PdfWorker::open(root().join("lib/lib"), root().join("samples/paper.pdf")).unwrap();
         assert!(info.sizes.len() > 3);
         let (send, receive) = channel();
-        worker.text(1..3, move |texts| {
+        worker.text(1..3, Cut::default(), move |texts| {
             let _ = send.send(texts);
         });
         let texts = receive.recv().unwrap().unwrap();
@@ -151,5 +153,28 @@ mod tests {
         let drawn = receive.recv().unwrap().unwrap();
         assert_eq!(texts[1], drawn.text().into_iter().collect::<String>());
         assert!(texts[0].contains("attention"));
+    }
+
+    #[test]
+    #[ignore = "requires pdfium in lib/ and the sample paper from tools/setup"]
+    fn the_text_of_a_run_of_pages_comes_cut_as_asked() {
+        let (worker, _) =
+            PdfWorker::open(root().join("lib/lib"), root().join("samples/paper.pdf")).unwrap();
+        let ask = |cut: Cut| {
+            let (send, receive) = channel();
+            worker.text(1..2, cut, move |texts| {
+                let _ = send.send(texts);
+            });
+            receive.recv().unwrap().unwrap().remove(0)
+        };
+        let whole = ask(Cut::default());
+        // Between the tops of "2 Background" and "3 Model Architecture" on the second page.
+        let section = ask(Cut {
+            top: Some(0.44),
+            bottom: Some(0.8),
+        });
+        assert!(whole.starts_with("1 Introduction"));
+        assert!(section.starts_with("2 Background"));
+        assert!(section.len() < whole.len() && whole.contains(section.as_str()));
     }
 }

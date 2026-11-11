@@ -45,7 +45,7 @@ screenshots are taken:
 
 | Variable | Does |
 |---|---|
-| `INCIPIT_PAGE` | Opens on `today` (the default), `library`, `reader`, `notes`, `review`, `brain`, `math`, `figure` or `settings` |
+| `INCIPIT_PAGE` | Opens on `today` (the default), `library`, `reader`, `notes`, `review`, `brain`, `concepts` (the Brain's list of concepts), `math`, `figure` or `settings` |
 | `INCIPIT_VAULT` | A folder: the vault there is opened (made, if it is not one yet) without asking. Use a temporary folder for checks, never a vault of your own |
 | `INCIPIT_HOME` | A folder for the app's own files (the list of vaults), instead of the system's place for app data |
 | `INCIPIT_SHOT` | A file name: the window is saved there as a PNG after a moment, and the app quits (macOS) |
@@ -53,6 +53,7 @@ screenshots are taken:
 | `INCIPIT_OPEN` | Words of a title: opens the first book of the vault whose title has them |
 | `INCIPIT_FIND` | Opens the find sheet with these words typed |
 | `INCIPIT_NODE` | Opens the Brain page with these words typed in its find field and Enter pressed: the nodes whose titles have them are ringed, and the best one is selected, brought to the middle, and its card shown |
+| `INCIPIT_CONCEPT` | Opens the Brain page on the page of the concept whose title best matches these words, once the vault is open |
 | `INCIPIT_AGENT` | `demo` opens the agent's sheet on a made-up finished run (a request, three steps, closing words, two changed files, Undo); no model is called and its Undo changes nothing. Any other words open the sheet and have the agent do them in the vault once it is open. This runs an agent with your own login |
 | `INCIPIT_ASK` | With `INCIPIT_NOTE` on the Reader page: `explain`, `cards` or `figure` puts the selection to the chosen model, `quiz` the page; `session` (with `INCIPIT_NOTE=session`) sends a turn in the session. This calls a model with your own login |
 | `INCIPIT_WAIT` | With `INCIPIT_SHOT`: seconds to wait before the picture, instead of 1.5 |

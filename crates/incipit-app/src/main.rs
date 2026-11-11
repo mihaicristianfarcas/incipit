@@ -92,11 +92,15 @@ impl Root {
             Ok("notes") => Page::Notes,
             Ok("review") => Page::Review,
             Ok("library") => Page::Library,
-            Ok("brain") => Page::Brain,
+            Ok("brain") | Ok("concepts") => Page::Brain,
             Ok("figure") => Page::Figure,
             Ok("settings") => Page::Settings,
-            // A node to show is on the Brain page.
-            _ if std::env::var_os("INCIPIT_NODE").is_some() => Page::Brain,
+            // A node or a concept to show is on the Brain page.
+            _ if std::env::var_os("INCIPIT_NODE").is_some()
+                || std::env::var_os("INCIPIT_CONCEPT").is_some() =>
+            {
+                Page::Brain
+            }
             _ => Page::Today,
         };
         if let Some(path) = std::env::var_os("INCIPIT_SHOT") {
@@ -148,10 +152,33 @@ impl Root {
         )
         .detach();
         let notes = cx.new(|cx| notes::NotesView::new(workspace.clone(), cx));
+        // A concept a note links to opens on its page.
+        cx.subscribe(
+            &notes,
+            |this: &mut Self, _, open: &notes::OpenConcept, cx| {
+                this.open(Kind::Concept, &open.0, cx);
+                cx.notify();
+            },
+        )
+        .detach();
         let brain = cx.new(|cx| brain::BrainView::new(workspace.clone(), cx));
         // A document opened from the picture opens where find would open it.
         cx.subscribe(&brain, |this: &mut Self, _, open: &brain::Open, cx| {
             this.open(open.0, &open.1, cx);
+            cx.notify();
+        })
+        .detach();
+        // A concept's text is edited in Notes.
+        cx.subscribe(&brain, |this: &mut Self, _, edit: &brain::Edit, cx| {
+            let id = edit.0.clone();
+            this.notes.update(cx, |notes, cx| notes.select(id, cx));
+            this.page = Page::Notes;
+            cx.notify();
+        })
+        .detach();
+        // A passage a concept came from opens in the reader, at its place.
+        cx.subscribe(&brain, |this: &mut Self, _, read: &brain::Read, cx| {
+            this.read(&read.0, cx);
             cx.notify();
         })
         .detach();
@@ -233,15 +260,21 @@ impl Root {
         }
     }
 
-    /// Shows a document on the page that shows it: notes and concepts on Notes, cards on Review,
-    /// a book in the reader (in the Library when its file is not there), and what belongs to a
-    /// book in the Library.
+    /// Shows a document on the page that shows it: notes on Notes, a concept on its page on the
+    /// Brain, cards on Review, a book in the reader (in the Library when its file is not there),
+    /// and what belongs to a book in the Library.
     fn open(&mut self, kind: Kind, id: &DocId, cx: &mut Context<Self>) {
         match kind {
-            Kind::Note | Kind::Concept => {
+            Kind::Note => {
                 let id = id.clone();
                 self.notes.update(cx, |notes, cx| notes.select(id, cx));
                 self.page = Page::Notes;
+            }
+            Kind::Concept => {
+                let id = id.clone();
+                self.brain
+                    .update(cx, |brain, cx| brain.show_concept(id, cx));
+                self.page = Page::Brain;
             }
             // Choosing the book takes the window to the reader.
             Kind::Book => {
@@ -251,6 +284,29 @@ impl Root {
             }
             Kind::Card => self.page = Page::Review,
             Kind::Annotation | Kind::Session | Kind::Figure => self.page = Page::Library,
+        }
+    }
+
+    /// Opens the reader at a passage of a book of the vault: at once when the book is open, else
+    /// once the Library has opened it. A book whose file is not there shows the Library.
+    fn read(&mut self, source: &incipit_vault::Source, cx: &mut Context<Self>) {
+        let book = DocId::from(source.book.as_str());
+        let part = match (source.page, source.block) {
+            (Some(page), _) => page.saturating_sub(1) as usize,
+            (None, Some(block)) => block as usize,
+            (None, None) => 0,
+        };
+        let there = self
+            .reader
+            .update(cx, |reader, cx| reader.go_to(&book, part, cx));
+        if there {
+            self.page = Page::Reader;
+        } else if !self
+            .library
+            .update(cx, |library, cx| library.open(&book, cx))
+        {
+            self.reader.update(cx, |reader, _| reader.go_to = None);
+            self.page = Page::Library;
         }
     }
 

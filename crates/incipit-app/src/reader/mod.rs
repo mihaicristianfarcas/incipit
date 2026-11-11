@@ -125,6 +125,8 @@ pub struct ReaderView {
     /// The width there is for the book itself, beside the margin and the contents.
     pub(self) room: f32,
     drawn: UnboundedSender<Drawn>,
+    /// The page or block to show once the book being opened is open.
+    pub go_to: Option<usize>,
     demo: bool,
     _draft_events: Subscription,
     _reply_events: Subscription,
@@ -193,6 +195,7 @@ impl ReaderView {
             margin: true,
             room: f32::MAX,
             drawn,
+            go_to: None,
             demo: std::env::var_os("INCIPIT_NOTE").is_some(),
             _draft_events: draft_events,
             _reply_events: reply_events,
@@ -222,6 +225,23 @@ impl ReaderView {
         self.epub = book.epub;
         self.book = Some(book);
         self.open_book(cx);
+    }
+
+    /// Shows page or block `part` of the book `id`: now, when it is the book open (true), or
+    /// once the book opened next is open.
+    pub fn go_to(&mut self, id: &DocId, part: usize, cx: &mut Context<Self>) -> bool {
+        let open = self.book.as_ref().and_then(|b| b.id.as_ref()) == Some(id)
+            && matches!(self.state, State::Open(_));
+        if !open {
+            self.go_to = Some(part);
+            return false;
+        }
+        self.list.scroll_to(ListOffset {
+            item_ix: part,
+            offset_in_item: px(0.0),
+        });
+        cx.notify();
+        true
     }
 
     /// The notes the vault keeps on the open book.
@@ -409,9 +429,11 @@ impl ReaderView {
                 match opened {
                     Ok(opened) => {
                         this.list.reset(opened.parts());
-                        let part = std::env::var("INCIPIT_PART")
-                            .ok()
-                            .and_then(|p| p.parse().ok());
+                        let part = this.go_to.take().or_else(|| {
+                            std::env::var("INCIPIT_PART")
+                                .ok()
+                                .and_then(|p| p.parse().ok())
+                        });
                         if let Some(item_ix) = part {
                             this.list.scroll_to(ListOffset {
                                 item_ix,

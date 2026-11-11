@@ -1,5 +1,6 @@
-//! The Brain's graph: the vault's notes, concepts and books and the links between them, gathered
-//! from the vault on the window's thread and laid out by `incipit-graph` off it. The picture keeps
+//! The Brain's graph: the vault's notes, concepts and books and the links between them (and from
+//! what was made from a book, or a concept that came from one, to the book), gathered from the
+//! vault on the window's thread and laid out by `incipit-graph` off it. The picture keeps
 //! its `Layout` once it is back on the window's thread, so a node can be held under the pointer
 //! while the rest follows: the page steps it once per frame (`step`) for as long as it moves. A
 //! step of a drag on 3,000 nodes takes about 1.4 ms in a release build (`the_timing_of_a_drag` in
@@ -54,9 +55,17 @@ pub fn gather(vault: &Vault) -> Gathered {
                 edges.push((from, *to));
             }
         }
-        // What was written about a book hangs on the book.
-        let book = doc.source().map(|s| DocId::from(s.book.as_str()));
-        if let Some(to) = book.as_ref().and_then(|b| at.get(b)) {
+        // What was written about a book hangs on the book, and a concept on the books it came
+        // from.
+        let mut books: Vec<DocId> = doc
+            .source()
+            .map(|s| DocId::from(s.book.as_str()))
+            .into_iter()
+            .collect();
+        if let Some(concept) = doc.fields::<incipit_vault::Concept>() {
+            books.extend(concept.sources.iter().map(|s| DocId::from(s.book.as_str())));
+        }
+        for to in books.iter().filter_map(|b| at.get(b)) {
             edges.push((from, *to));
         }
     }
@@ -189,6 +198,29 @@ mod tests {
         edges.push((1, 0));
         edges.push((2, 2));
         (ids, titles, kinds, edges)
+    }
+
+    #[test]
+    fn a_concept_hangs_on_the_books_it_came_from() {
+        use incipit_vault::{Concept, Doc, Source, VaultPath};
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let book = Doc::new_at(Kind::Book, VaultPath::new("library/B/book.md").unwrap());
+        let book = vault.add(book).unwrap();
+        let mut concept = Doc::new(Kind::Concept);
+        concept.set_title("Idea");
+        concept.set_fields(&Concept {
+            sources: vec![Source {
+                book: book.id().as_str().into(),
+                page: Some(1),
+                ..Source::default()
+            }],
+            ..Concept::default()
+        });
+        let concept = vault.add(concept).unwrap();
+        let (ids, _, _, edges) = gather(&vault);
+        let at = |id: &DocId| ids.iter().position(|i| i == id).unwrap();
+        assert_eq!(edges, [(at(concept.id()), at(book.id()))]);
     }
 
     #[test]

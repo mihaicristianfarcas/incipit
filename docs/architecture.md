@@ -54,6 +54,16 @@ was said so far as turns. A session is a document beside its book, saved
 after each finished turn, and takes the place of the answer it started
 from.
 
+**How well a concept is known is worked out, not stored.** The concept
+pages (`concepts` in the app) follow the earlier app's measure: the recall
+the learner would have now of the cards about the concept, from their
+replayed schedules, where a card never reviewed counts as nothing
+recalled, and the best grade of an explanation of it; with neither, the
+concept is not practised, which is not the same as 0. Which cards and notes
+are about a concept, and what a concept builds on, are links in their
+properties ([vault.md](vault.md)), and a recall of a card also gives part
+of a review to the cards on what its ideas build on.
+
 **Math is typeset by Typst.** Books and models write LaTeX; mitex
 translates it. The mitex files Typst loads are vendored in
 `third_party/mitex` with two patches for the Typst version in use

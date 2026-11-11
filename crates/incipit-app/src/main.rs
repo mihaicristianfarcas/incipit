@@ -282,7 +282,7 @@ fn main() {
         .with_assets(incipit_ui::Assets)
         .run(|cx: &mut App| {
             incipit_ui::init(cx);
-            let options = incipit_ui::window_options(
+            let mut options = incipit_ui::window_options(
                 "Incipit",
                 "dev.mihaicristian.incipit",
                 1180.0,
@@ -290,6 +290,7 @@ fn main() {
                 (720.0, 480.0),
                 cx,
             );
+            options.focus = std::env::var_os("INCIPIT_SHOT").is_none();
             let window = cx
                 .open_window(options, |window, cx| {
                     incipit_ui::glass::dress(window);
@@ -305,6 +306,9 @@ fn main() {
             cx.on_action(move |_: &Find, cx| {
                 let _ = window.update(cx, |root, window, cx| root.find(window, cx));
             });
-            cx.activate(true);
+            // A run that only takes a picture stays behind whatever the person is working in.
+            if std::env::var_os("INCIPIT_SHOT").is_none() {
+                cx.activate(true);
+            }
         });
 }

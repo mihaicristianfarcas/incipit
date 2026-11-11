@@ -52,7 +52,9 @@ impl Selection {
 
 /// A passage the learner marked, with what they wrote about it (nothing, for a highlight). A
 /// passage that runs over several parts has an anchor in each. When a model was asked about the
-/// passage, `asked` is the question and `words` the answer as far as it has come.
+/// passage, `asked` is the question and `words` the answer as far as it has come. When the answer
+/// was talked over with the tutor, `turns` is the conversation, which opens with that question
+/// and answer.
 #[derive(Default)]
 pub struct Note {
     pub id: u64,
@@ -67,6 +69,8 @@ pub struct Note {
     pub problem: Option<String>,
     /// The figure the model made for the passage, once it passed the engine's checks.
     pub figure: Option<incipit_scene::Figure>,
+    /// The tutor session the card stands for, if it is one; `doc` is then the session's.
+    pub turns: Vec<incipit_vault::fields::Turn>,
 }
 
 impl Note {

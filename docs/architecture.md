@@ -46,6 +46,14 @@ a figure for a passage is made in two steps (`figures.rs` in the app): the
 model picks a kind, then fills that kind's spec, and is told what the
 engine refused up to three times before the app gives up.
 
+**A tutor session sends the whole conversation each turn.** The reader's
+session sheet (`reader/session.rs` in the app) keeps the turns itself and
+no provider keeps any: each turn is one request with the same fixed
+instructions, the passage and the text around it as material, and what
+was said so far as turns. A session is a document beside its book, saved
+after each finished turn, and takes the place of the answer it started
+from.
+
 **Math is typeset by Typst.** Books and models write LaTeX; mitex
 translates it. The mitex files Typst loads are vendored in
 `third_party/mitex` with two patches for the Typst version in use
@@ -82,5 +90,5 @@ so that no code under a license of Zed's own is linked.
 
 ## Not built yet
 
-Tutor sessions, the agent that works on the vault, and more figure
-kinds. This page describes them when they exist.
+The agent that works on the vault, and more figure kinds. This page
+describes them when they exist.

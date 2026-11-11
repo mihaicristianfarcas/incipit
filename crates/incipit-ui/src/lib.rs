@@ -29,8 +29,8 @@ use gpui::{
 };
 
 pub use chrome::{
-    caption_buttons, drag_area, nav_count, nav_dot, nav_list, nav_row, page, page_strip, sidebar,
-    sidebar_foot, sidebar_header,
+    caption_buttons, caption_inset, drag_area, nav_count, nav_dot, nav_list, nav_row, page,
+    page_strip, sidebar, sidebar_foot, sidebar_header,
 };
 pub use controls::*;
 pub use focus::{

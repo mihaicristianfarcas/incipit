@@ -62,6 +62,16 @@ pub fn drag_area() -> Div {
 /// The caption buttons' height, as Windows 11 draws them.
 const CAPTION_HEIGHT: Pixels = px(32.0);
 
+/// How much of the window's top right the caption buttons cover, so a bar
+/// that reaches that corner can keep its own controls clear of them.
+pub fn caption_inset() -> f32 {
+    if cfg!(windows) {
+        3.0 * Metrics::CAPTION_BUTTON
+    } else {
+        0.0
+    }
+}
+
 /// Windows: minimize, maximize (or restore) and close at the window's top
 /// right, over everything (sheets too: the window can always be closed).
 /// Windows' own glyphs (Segoe Fluent Icons; Segoe MDL2 Assets before Windows

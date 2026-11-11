@@ -1,6 +1,10 @@
-//! The spikes' window: a sidebar of three pages (Reader, Math, Figure), each drawn natively in
-//! GPUI with incipit-ui. For checks without clicking: INCIPIT_PAGE=reader|math|figure opens that
-//! page, INCIPIT_SHOT=file.png saves the window there and quits.
+//! Incipit's window: a sidebar of pages (Today, Library, Reader, Notes, Review, Brain, Math,
+//! Figure, Settings), each drawn natively in GPUI with incipit-ui, and the find sheet over them.
+//! For checks without clicking, environment switches open a page in a given state and save a
+//! picture of the window: docs/development.md lists them.
+
+// A release build on Windows is a window, not a console program with a window.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod brain;
 mod figure;

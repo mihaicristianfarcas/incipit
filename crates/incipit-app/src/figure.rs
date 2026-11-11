@@ -58,6 +58,13 @@ impl FigureView {
         };
         let mut state = figure.as_ref().map(Figure::start).unwrap_or_default();
         opened_in(&mut state);
+        // Walk to the step asked for, so what each step sets on the way is set.
+        if let Ok(figure) = &figure {
+            let asked = std::mem::take(&mut state.step);
+            for step in 1..=asked {
+                state = figure.step_to(&state, step);
+            }
+        }
         cx.notify();
         FigureView {
             figure,
@@ -124,8 +131,8 @@ impl FigureView {
             }
             Pace::Steps(n) => {
                 let to = self.state.step as i32 + by;
-                if (0..n as i32).contains(&to) {
-                    self.state.step = to as usize;
+                if let (true, Ok(figure)) = ((0..n as i32).contains(&to), &self.figure) {
+                    self.state = figure.step_to(&self.state, to as usize);
                 }
             }
             Pace::Still => {}

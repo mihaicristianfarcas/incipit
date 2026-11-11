@@ -190,6 +190,23 @@ pub fn add_card(vault: &Vault, front: &str, back: &str) -> Result<Doc, String> {
     vault.add(doc).map_err(|e| e.to_string())
 }
 
+/// A card made from a passage of a book: it remembers where it came from.
+pub fn add_card_about(
+    vault: &Vault,
+    front: &str,
+    back: &str,
+    source: &incipit_vault::Source,
+) -> Result<Doc, String> {
+    let mut doc = Doc::new(Kind::Card);
+    doc.set_source(Some(source));
+    doc.set_fields(&Card {
+        front: front.trim().to_owned(),
+        back: back.trim().to_owned(),
+        ..Card::default()
+    });
+    vault.add(doc).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

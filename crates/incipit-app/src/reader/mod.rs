@@ -14,6 +14,7 @@
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at; =answer for a model's answer),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block).
 
+mod asking;
 mod model;
 mod rows;
 
@@ -28,7 +29,7 @@ use gpui::{
     ListAlignment, ListOffset, ListState, Pixels, Point, Render, RenderImage, Subscription, Window,
 };
 use incipit_book::{Anchor, Block, Book, Entry, Page, PdfInfo, PdfWorker};
-use incipit_llm::{Cancel, Event, Request, Update};
+use incipit_llm::Cancel;
 use incipit_ui::{
     button, drag_area, field, floating, icon_button, FieldEvent, IconName, Metrics, TextField,
     Theme, Type,
@@ -50,11 +51,6 @@ const ZOOM: f32 = 1.15;
 /// The text column of an EPUB, and its text's sizes.
 const COLUMN: f32 = 600.0;
 const TEXT: (f32, f32, f32) = (13.0, 26.0, 17.0);
-/// What the model is told when asked about a passage. Short, because the margin is narrow.
-const TUTOR: &str = "You are helping a learner who is reading a book. Answer about the passage \
-    they marked, plainly and briefly: at most about 120 words, in Markdown without headings. Use \
-    the text around the passage only to understand it.";
-const EXPLAIN: &str = "Explain this passage.";
 
 fn root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
@@ -227,6 +223,17 @@ impl ReaderView {
         }
     }
 
+    /// Where a passage is, as the vault writes it.
+    fn source(&self, book: &DocId, first: &Anchor) -> Source {
+        Source {
+            book: book.as_str().to_owned(),
+            page: (!self.epub).then_some(first.part as u32 + 1),
+            block: self.epub.then_some(first.part as u32),
+            quote: Some(first.quote.clone()),
+            ..Source::default()
+        }
+    }
+
     /// Keep a note in the vault, beside its book: the passage as its source, the words as its
     /// text, and for an answer what was asked and which model wrote it. A passage that runs over
     /// several pages is kept by its first.
@@ -246,13 +253,7 @@ impl ReaderView {
             (None, true) => "highlight",
             (None, false) => "comment",
         });
-        doc.set_source(Some(&Source {
-            book: book.as_str().to_owned(),
-            page: (!self.epub).then_some(first.part as u32 + 1),
-            block: self.epub.then_some(first.part as u32),
-            quote: Some(first.quote.clone()),
-            ..Source::default()
-        }));
+        doc.set_source(Some(&self.source(&book, first)));
         doc.set_fields(&Annotation {
             answer: words.to_owned(),
             request: asked.map(|(question, _)| question.to_owned()),
@@ -413,7 +414,7 @@ impl ReaderView {
                 anchors: vec![anchor],
                 words: words.into(),
                 asked: (std::env::var("INCIPIT_NOTE").as_deref() == Ok("answer"))
-                    .then(|| EXPLAIN.to_owned()),
+                    .then(|| asking::EXPLAIN.to_owned()),
                 ..Note::default()
             });
             self.open = Some(id);
@@ -515,122 +516,6 @@ impl ReaderView {
             }
         }
         cx.notify();
-    }
-
-    fn explain(&mut self, cx: &mut Context<Self>) {
-        let anchors = self.anchors();
-        self.selection = None;
-        self.menu = None;
-        if !anchors.is_empty() {
-            self.margin = true;
-            self.ask(anchors, EXPLAIN.to_owned(), cx);
-        }
-        cx.notify();
-    }
-
-    /// The text around a passage, for the model to understand it by: its page, or its paragraph
-    /// with the two either side.
-    fn around(&self, part: usize) -> String {
-        let State::Open(opened) = &self.state else {
-            return String::new();
-        };
-        match &opened.doc {
-            Doc::Pdf(pdf) => pdf
-                .pages
-                .get(&part)
-                .map(|held| held.text.iter().collect())
-                .unwrap_or_default(),
-            Doc::Epub(book) => {
-                let from = part.saturating_sub(2);
-                let to = (part + 3).min(book.blocks.len());
-                book.blocks[from..to]
-                    .iter()
-                    .map(|(_, chars)| chars.iter().collect::<String>())
-                    .collect::<Vec<_>>()
-                    .join("\n\n")
-            }
-        }
-    }
-
-    /// Put a question about a passage to the model. The answer fills a card as it arrives and
-    /// is kept in the vault when it is whole.
-    fn ask(&mut self, anchors: Vec<Anchor>, question: String, cx: &mut Context<Self>) {
-        let passage: String = anchors
-            .iter()
-            .map(|a| a.quote.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
-        let title = self.book.as_ref().map(|b| b.title.clone());
-        let around = anchors.first().map(|a| self.around(a.part));
-        let mut request = Request::new(TUTOR).with_material("passage", passage);
-        if let Some(around) = around.filter(|a| !a.is_empty()) {
-            request = request.with_material("text around the passage", around);
-        }
-        if let Some(title) = title {
-            request = request.with_material("title of the book", title);
-        }
-        let asking = self.models.read(cx).ask(request.ask(question.clone()));
-        let id = self.id();
-        let mut note = Note {
-            id,
-            anchors,
-            asked: Some(question),
-            ..Note::default()
-        };
-        self.open = Some(id);
-        let mut asking = match asking {
-            Ok(asking) => asking,
-            Err(problem) => {
-                note.problem = Some(problem);
-                self.notes.push(note);
-                return;
-            }
-        };
-        note.waiting = true;
-        self.notes.push(note);
-        self.answers.insert(id, asking.cancel.clone());
-        cx.spawn(async move |this, cx| {
-            while let Some(update) = asking.updates.next().await {
-                let alive = this.update(cx, |this, cx| {
-                    let done = matches!(update, Update::Done(_));
-                    if done {
-                        this.answers.remove(&id);
-                    }
-                    let Some(at) = this.notes.iter().position(|n| n.id == id) else {
-                        return false;
-                    };
-                    match update {
-                        Update::Event(Event::Text(more)) => this.notes[at].words.push_str(&more),
-                        Update::Event(_) => {}
-                        Update::Done(Ok(answer)) => {
-                            let note = &this.notes[at];
-                            let asked = note.asked.clone().unwrap_or_default();
-                            let doc = this.keep(
-                                &note.anchors,
-                                &answer.text,
-                                Some((&asked, &answer.model)),
-                                cx,
-                            );
-                            let note = &mut this.notes[at];
-                            note.words = answer.text;
-                            note.doc = doc;
-                            note.waiting = false;
-                        }
-                        Update::Done(Err(e)) => {
-                            let note = &mut this.notes[at];
-                            note.waiting = false;
-                            note.problem = Some(e.to_string());
-                        }
-                    }
-                    cx.notify();
-                    !done
-                });
-                if !matches!(alive, Ok(true)) {
-                    break;
-                }
-            }
-        })
-        .detach();
     }
 
     fn zoom(&mut self, by: f32, cx: &mut Context<Self>) {
@@ -862,6 +747,12 @@ impl ReaderView {
                     .ghost()
                     .icon(IconName::Message)
                     .on_click(cx.listener(|this, _, window, cx| this.start_note(true, window, cx))),
+            )
+            .child(
+                button("reader-cards", "Cards", t)
+                    .ghost()
+                    .icon(IconName::Bolt)
+                    .on_click(cx.listener(|this, _, _, cx| this.make_cards(cx))),
             );
         Some(deferred(anchored().position(at).snap_to_window().child(menu)).into_any_element())
     }

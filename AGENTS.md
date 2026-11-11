@@ -148,6 +148,7 @@ home; other pages link to it and do not repeat it.
 | `README.md` | What Incipit is, its state, where to start |
 | `docs/architecture.md` | The crates, what each is for, and the decisions behind them |
 | `docs/development.md` | Building, running, the tools, taking screenshots |
+| `docs/vault.md` | What is in a vault's folder: the files, their properties, links, logs, history |
 | `AGENTS.md`, `CONTRIBUTING.md` | People and agents changing it |
 | `SECURITY.md` | Reporting a vulnerability, and what is trusted |
 

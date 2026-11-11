@@ -9,8 +9,9 @@ incipit-app ──▶ incipit-ui ──▶ gpui
      ├──▶ incipit-scene     figures: spec → layout → marks → checks
      ├──▶ incipit-math      LaTeX → Typst → a picture with a baseline
      ├──▶ incipit-book      PDF pages, EPUB blocks, anchors for notes
-     └──▶ incipit-learn     FSRS-6 scheduling, the review queue, streaks
-     └──▶ incipit-graph     force layout and geometry of the graph of ideas
+     ├──▶ incipit-learn     FSRS-6 scheduling, the review queue, streaks
+     ├──▶ incipit-graph     force layout and geometry of the graph of ideas
+     └──▶ incipit-vault     the learner's files, their links, search and history
 ```
 
 | Crate | What it is | Depends on GPUI |
@@ -19,8 +20,8 @@ incipit-app ──▶ incipit-ui ──▶ gpui
 | `incipit-math` | Typesets LaTeX: mitex converts it to Typst, Typst lays it out, and the result is a raster with its size and baseline | no |
 | `incipit-book` | Opens books. `Pdf` draws pages through pdfium and gives each character's place, and `PdfWorker` does so on a thread of its own; `Book` turns an EPUB into headings, paragraphs and pictures; `Anchor` ties a note to a passage and finds it again | no |
 | `incipit-learn` | Spaced repetition as pure logic: `schedule` applies one FSRS-6 review to a `Card` and returns the log line, `preview` gives the four buttons' waits, `build_queue` orders what to review (learning steps, overdue reviews, then new cards up to the daily limit), `today_counts` and `streaks` feed the Today page. Time and timezone are arguments; there is no storage | no |
-| `incipit-book` | Opens books. `Pdf` draws pages through pdfium and gives each character's place; `Book` turns an EPUB into headings, paragraphs and pictures; `Anchor` ties a note to a passage and finds it again | no |
 | `incipit-graph` | The picture of the graph of ideas, with no drawing in it. `Layout` is a force layout (Barnes-Hut repulsion, springs, gravity, collision by radius) that the caller steps, on a background thread, until it settles; it keeps positions when the graph changes, can pin a dragged node and exports positions to keep. `View`, `SpatialIndex` and `choose_labels` give the window the fit-to-view transform, the node under a point or in a rectangle, and the names that fit | no |
+| `incipit-vault` | The vault. Every record is a `Doc`, a Markdown file with YAML properties and a `kind`; `Vault` holds the index, the links and backlinks and the search, writes files whole, announces every change, hears edits made by other programs, and keeps history with Jujutsu through its library ([vault.md](vault.md)) | no |
 | `incipit-ui` | The look: theme, controls, icons, motion, window chrome. It began as Helio's kit | yes |
 | `incipit-app` | The window: one module per page | yes |
 
@@ -68,6 +69,6 @@ so that no code under a license of Zed's own is linked.
 
 ## Not built yet
 
-The vault, model providers, the flashcards themselves and the review screen (their scheduling is in `incipit-learn`), quizzes, the graph of
+Pages in the window that use the vault, model providers, flashcards and review (their scheduling is in `incipit-learn`), quizzes, the graph of
 ideas, and the remaining figure kinds. This page describes them when they
 exist.

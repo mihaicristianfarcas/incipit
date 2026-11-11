@@ -446,6 +446,13 @@ impl ReaderView {
             Ok("cards") => self.make_cards(cx),
             Ok("quiz") => self.start_quiz(cx),
             Ok("figure") => self.make_figure(cx),
+            // With INCIPIT_NOTE=session: the learner's next turn, sent to the model.
+            Ok("session") => {
+                self.reply.update(cx, |reply, cx| {
+                    reply.set_text("Give me one everyday comparison for that.", cx)
+                });
+                self.send_turn(cx);
+            }
             _ => {}
         }
     }

@@ -1,5 +1,6 @@
 //! The models the app can ask, for every page: which providers there are and whether each can
-//! be used now, which one the learner chose, signing in, and asking. The providers themselves
+//! be used now, which one the learner chose, signing in, asking, and having an agent work on
+//! the files of a folder inside the provider's sandbox. The providers themselves
 //! (`incipit-llm`) block and report through a callback on a thread of their own; here each
 //! update crosses to the window over a channel the page awaits, so an answer appears as it is
 //! written and nothing checks on a timer.
@@ -8,7 +9,7 @@
 //! `secrets` beside it, readable only by their owner. One provider does every job it can: the
 //! learner picks one, not one per job.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::channel::mpsc::{unbounded, UnboundedReceiver};
@@ -17,7 +18,8 @@ use gpui::{Context, EventEmitter};
 use incipit_llm::cli::login;
 use incipit_llm::{
     spawn_with, Answer, Cancel, Choice, Claude, Codex, Error, Event, FileSecrets, Job,
-    MemorySecrets, Provider, Registry, Request, SecretStore, Settings, Status, Structured, Update,
+    MemorySecrets, Provider, Registry, Request, Sandbox, SecretStore, Settings, Status, Structured,
+    Update,
 };
 
 /// A provider as the Settings page shows it.
@@ -33,6 +35,20 @@ pub struct Offered {
 pub struct Asking<T = Answer> {
     pub updates: UnboundedReceiver<Update<T>>,
     pub cancel: Cancel,
+}
+
+/// Why a provider that was looked at cannot work now and what to do about it, or `None` when
+/// it can.
+fn not_ready(name: &str, status: &Status) -> Option<String> {
+    let why = match status {
+        Status::Ready { .. } => return None,
+        Status::Missing { install } => format!("is not installed. {install}"),
+        Status::Outdated { version, detail } => format!("{version} is too old. {detail}"),
+        Status::SignedOut { detail } => format!("is not signed in. {detail}"),
+    };
+    Some(format!(
+        "{name} {why} Settings shows the models that can be used."
+    ))
 }
 
 pub struct Models {
@@ -285,5 +301,71 @@ impl Models {
             },
         );
         Ok(Asking { updates, cancel })
+    }
+
+    /// Have the agent the learner chose work on the files in `folder`: `request` holds the
+    /// app's instructions and what the learner asked for. The agent runs in the provider's own
+    /// OS sandbox (`incipit_llm::sandbox`): it reads and writes in `folder`, never in the
+    /// `.jj` there, and neither writes anywhere else nor reaches the network. Its updates say
+    /// what it is doing; the last holds its closing words. The error says what the learner can
+    /// do when no agent can work.
+    pub fn act(&self, request: Request, folder: &Path) -> Result<Asking, String> {
+        let (provider, request) = self
+            .registry
+            .prepare(&self.settings, Job::Agent, request)
+            .map_err(|e| e.to_string())?;
+        let looked_at = self.offered.iter().find(|o| o.id == provider.id());
+        if let Some(status) = looked_at.and_then(|o| o.status.as_ref()) {
+            if let Some(problem) = not_ready(provider.name(), status) {
+                return Err(problem);
+            }
+        }
+        let folder = folder.to_path_buf();
+        let sandbox = Sandbox {
+            write: true,
+            read_also: Vec::new(),
+        };
+        let (send, updates) = unbounded();
+        let cancel = spawn_with(
+            move |cancel: &Cancel, on: &mut dyn FnMut(Event)| {
+                provider.agent(&request, &folder, &sandbox, cancel, on)
+            },
+            move |update| {
+                let _ = send.unbounded_send(update);
+            },
+        );
+        Ok(Asking { updates, cancel })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_provider_that_is_ready_has_no_problem() {
+        let ready = Status::Ready {
+            version: None,
+            detail: None,
+        };
+        assert_eq!(not_ready("Codex", &ready), None);
+    }
+
+    #[test]
+    fn a_provider_that_cannot_work_says_why_and_where_to_go() {
+        let missing = Status::Missing {
+            install: "Get it from its website.".into(),
+        };
+        assert_eq!(
+            not_ready("Codex", &missing).unwrap(),
+            "Codex is not installed. Get it from its website. Settings shows the models that can \
+             be used."
+        );
+        let signed_out = Status::SignedOut {
+            detail: "Sign in first.".into(),
+        };
+        let words = not_ready("Claude Code", &signed_out).unwrap();
+        assert!(words.starts_with("Claude Code is not signed in. Sign in first."));
+        assert!(words.contains("Settings"));
     }
 }

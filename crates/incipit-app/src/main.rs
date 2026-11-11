@@ -1,11 +1,13 @@
 //! Incipit's window: a sidebar of pages (Today, Library, Reader, Notes, Review, Brain, Math,
-//! Figure, Settings), each drawn natively in GPUI with incipit-ui, and the find sheet over them.
+//! Figure, Settings), each drawn natively in GPUI with incipit-ui, and over them the find sheet
+//! and the sheet of the agent that works on the vault, each opened with a key from any page.
 //! For checks without clicking, environment switches open a page in a given state and save a
 //! picture of the window: docs/development.md lists them.
 
 // A release build on Windows is a window, not a console program with a window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod agent;
 mod brain;
 mod figure;
 mod figures;
@@ -29,7 +31,7 @@ use gpui::{actions, div, prelude::*, px, AnyElement, App, Context, Entity, KeyBi
 use incipit_ui::{Glide, IconName, Theme, Type};
 use incipit_vault::Kind;
 
-actions!(incipit, [Find]);
+actions!(incipit, [Find, Act]);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Page {
@@ -76,6 +78,9 @@ struct Root {
     find: Entity<find::FindView>,
     /// The find sheet is open.
     finding: bool,
+    agent: Entity<agent::AgentView>,
+    /// The agent's sheet is open.
+    acting: bool,
 }
 
 impl Root {
@@ -197,9 +202,32 @@ impl Root {
             })
             .detach();
         }
+        let agent = cx.new(|cx| agent::AgentView::new(workspace.clone(), models.clone(), cx));
+        cx.subscribe(&agent, |this: &mut Self, _, _: &agent::Closed, cx| {
+            this.acting = false;
+            cx.notify();
+        })
+        .detach();
+        // INCIPIT_AGENT=demo shows a made-up run; other words are run for real.
+        let acting = match std::env::var("INCIPIT_AGENT") {
+            Ok(words) if !words.trim().is_empty() => {
+                agent.update(cx, |agent, cx| {
+                    if words.trim() == "demo" {
+                        agent.show_demo(cx);
+                    } else {
+                        agent.run_words(&words, cx);
+                    }
+                    agent.start(window, cx);
+                });
+                true
+            }
+            _ => false,
+        };
         Root {
             find,
             finding: false,
+            agent,
+            acting,
             page,
             glide: Glide::new(cx),
             figure,
@@ -216,8 +244,17 @@ impl Root {
 
     /// Open the find sheet, empty.
     fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.acting = false;
         self.finding = true;
         self.find.update(cx, |find, cx| find.start("", window, cx));
+        cx.notify();
+    }
+
+    /// Open the agent's sheet: empty, or on the run that is going on or ended last.
+    fn act(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.finding = false;
+        self.acting = true;
+        self.agent.update(cx, |agent, cx| agent.start(window, cx));
         cx.notify();
     }
 
@@ -280,6 +317,7 @@ impl Render for Root {
             )
             .children(incipit_ui::caption_buttons(window, t))
             .when(self.finding, |root| root.child(self.find.clone()))
+            .when(self.acting, |root| root.child(self.agent.clone()))
     }
 }
 
@@ -314,14 +352,20 @@ fn main() {
                     cx.new(|cx| Root::new(window, cx))
                 })
                 .expect("the window opens");
-            let key = if cfg!(target_os = "macos") {
-                "cmd-k"
+            let (find, act) = if cfg!(target_os = "macos") {
+                ("cmd-k", "cmd-j")
             } else {
-                "ctrl-k"
+                ("ctrl-k", "ctrl-j")
             };
-            cx.bind_keys([KeyBinding::new(key, Find, None)]);
+            cx.bind_keys([
+                KeyBinding::new(find, Find, None),
+                KeyBinding::new(act, Act, None),
+            ]);
             cx.on_action(move |_: &Find, cx| {
                 let _ = window.update(cx, |root, window, cx| root.find(window, cx));
+            });
+            cx.on_action(move |_: &Act, cx| {
+                let _ = window.update(cx, |root, window, cx| root.act(window, cx));
             });
             // A run that only takes a picture stays behind whatever the person is working in.
             if std::env::var_os("INCIPIT_SHOT").is_none() {

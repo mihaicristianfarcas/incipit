@@ -25,6 +25,12 @@ Early. One window, with these pages, on a vault of plain files:
 | Figure | A figure made from a typed spec, checked, then played, stepped and scrubbed: a sequence, a flow diagram or a plot with parameters to drag ([docs/figures.md](docs/figures.md)). The figures made in the reader are listed under it |
 | Settings | The vault's folder, and which model answers ([docs/models.md](docs/models.md)) |
 
+From any page, ⌘K (Ctrl+K) finds a document, and ⌘J (Ctrl+J) opens the
+agent: you say what should be done in the vault, the command-line agent
+chosen in Settings does it inside the vault's folder, and the sheet lists
+what it changed, with Undo. The agent's sheet has been looked at with a
+made-up run only; no agent has been run from it yet.
+
 It has been built and run on macOS (Apple silicon), Ubuntu (aarch64) and
 Windows 11 (ARM64).
 

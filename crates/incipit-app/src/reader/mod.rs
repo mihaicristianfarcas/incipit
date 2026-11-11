@@ -12,7 +12,7 @@
 //! around it go to the model as material, never as instructions.
 //!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at; =answer for a model's answer),
-//! INCIPIT_ASK=explain|cards|quiz (with INCIPIT_NOTE: ask the model about the selection or the page),
+//! INCIPIT_ASK=explain|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block).
 
 mod asking;
@@ -78,6 +78,11 @@ enum State {
 
 /// A page drawn by the PDF's thread, ready for the window.
 type Drawn = (usize, Result<(Page, Arc<RenderImage>), String>);
+
+/// The learner asked to see a figure made for a passage.
+pub struct OpenFigure(pub incipit_scene::Figure);
+
+impl gpui::EventEmitter<OpenFigure> for ReaderView {}
 
 pub struct ReaderView {
     workspace: Entity<Workspace>,
@@ -201,7 +206,11 @@ impl ReaderView {
         ) else {
             return;
         };
-        for doc in vault.list(Some(Kind::Annotation)) {
+        let docs = vault
+            .list(Some(Kind::Annotation))
+            .into_iter()
+            .chain(vault.list(Some(Kind::Figure)));
+        for doc in docs {
             let Some(source) = doc.source().filter(|s| s.book == id.as_str()) else {
                 continue;
             };
@@ -211,10 +220,27 @@ impl ReaderView {
                 (None, None) => continue,
             };
             let quote = source.quote.unwrap_or_default();
-            let (words, asked) = doc
-                .fields::<Annotation>()
-                .map(|a| (a.answer, a.request))
-                .unwrap_or_default();
+            // A figure made for a passage comes back as its card; one whose spec no longer
+            // reads (the file was edited by hand) is left out rather than shown broken.
+            let figure = if doc.kind() == Kind::Figure {
+                let Some(figure) = doc
+                    .fields::<incipit_vault::Figure>()
+                    .and_then(|f| f.spec)
+                    .and_then(|spec| serde_json::from_value::<incipit_scene::Figure>(spec).ok())
+                else {
+                    continue;
+                };
+                Some(figure)
+            } else {
+                None
+            };
+            let (words, asked) = match &figure {
+                Some(figure) => (asking::about_figure(figure), None),
+                None => doc
+                    .fields::<Annotation>()
+                    .map(|a| (a.answer, a.request))
+                    .unwrap_or_default(),
+            };
             let number = self.id();
             self.notes.push(Note {
                 id: number,
@@ -227,6 +253,7 @@ impl ReaderView {
                 }],
                 words,
                 asked,
+                figure,
                 ..Note::default()
             });
         }
@@ -371,13 +398,14 @@ impl ReaderView {
         .detach();
     }
 
-    /// INCIPIT_ASK=explain|cards|quiz puts the demonstration's selection to the model, to see a real
+    /// INCIPIT_ASK=explain|cards|quiz|figure puts the demonstration's selection to the model, to see a real
     /// answer arrive without a mouse.
     fn try_demo(&mut self, cx: &mut Context<Self>) {
         match std::env::var("INCIPIT_ASK").as_deref() {
             Ok("explain") => self.explain(cx),
             Ok("cards") => self.make_cards(cx),
             Ok("quiz") => self.start_quiz(cx),
+            Ok("figure") => self.make_figure(cx),
             _ => {}
         }
     }
@@ -780,6 +808,12 @@ impl ReaderView {
                     .on_click(cx.listener(|this, _, window, cx| this.start_note(true, window, cx))),
             )
             .child(
+                button("reader-figure", "Figure", t)
+                    .ghost()
+                    .icon(IconName::Activity)
+                    .on_click(cx.listener(|this, _, _, cx| this.make_figure(cx))),
+            )
+            .child(
                 button("reader-cards", "Cards", t)
                     .ghost()
                     .icon(IconName::Bolt)
@@ -815,9 +849,10 @@ impl ReaderView {
                 cx.notify();
             }));
         if !open {
-            let line = match &note.asked {
-                Some(asked) => asked.clone(),
-                None => note.words.clone(),
+            let line = match (&note.figure, &note.asked) {
+                (Some(figure), _) => figure.title().to_owned(),
+                (None, Some(asked)) => asked.clone(),
+                (None, None) => note.words.clone(),
             };
             return card.child(div().truncate().text_color(t.secondary).child(line));
         }
@@ -831,6 +866,9 @@ impl ReaderView {
                 .child("Thinking…")
                 .into_any_element(),
             (Some(_), None) => incipit_ui::markdown(("answer", id as usize), &note.words, t),
+            (None, None) if note.figure.is_some() => {
+                incipit_ui::markdown(("answer", id as usize), &note.words, t)
+            }
             (None, None) => div()
                 .text_color(t.primary)
                 .child(note.words.clone())
@@ -849,6 +887,16 @@ impl ReaderView {
                 .map(|asked| div().font_weight(gpui::FontWeight::SEMIBOLD).child(asked)),
         )
         .child(words)
+        .children(note.figure.clone().map(|figure| {
+            div().flex().child(
+                button(("note-figure", id as usize), "Open the figure", t)
+                    .icon(IconName::Activity)
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.emit(OpenFigure(figure.clone()));
+                    })),
+            )
+        }))
         .child(
             div().flex().justify_end().child(
                 icon_button(

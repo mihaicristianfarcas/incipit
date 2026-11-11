@@ -17,7 +17,7 @@ use gpui::{Context, EventEmitter};
 use incipit_llm::cli::login;
 use incipit_llm::{
     spawn_with, Answer, Cancel, Choice, Claude, Codex, Error, Event, FileSecrets, Job,
-    MemorySecrets, Registry, Request, SecretStore, Settings, Status, Structured, Update,
+    MemorySecrets, Provider, Registry, Request, SecretStore, Settings, Status, Structured, Update,
 };
 
 /// A provider as the Settings page shows it.
@@ -232,6 +232,32 @@ impl Models {
         let (send, updates) = unbounded();
         let cancel = spawn_with(
             move |cancel: &Cancel, on: &mut dyn FnMut(Event)| provider.text(&request, cancel, on),
+            move |update| {
+                let _ = send.unbounded_send(update);
+            },
+        );
+        Ok(Asking { updates, cancel })
+    }
+
+    /// Run `work` with the provider chosen for figures and forms, on a thread of its own. The
+    /// request it is handed is empty but for the model and effort that were chosen: requests
+    /// made from it go to that model.
+    pub fn work<T, F>(&self, work: F) -> Result<Asking<T>, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&dyn Provider, &Request, &Cancel, &mut dyn FnMut(Event)) -> Result<T, Error>
+            + Send
+            + 'static,
+    {
+        let (provider, chosen) = self
+            .registry
+            .prepare(&self.settings, Job::Figure, Request::new(""))
+            .map_err(|e| e.to_string())?;
+        let (send, updates) = unbounded();
+        let cancel = spawn_with(
+            move |cancel: &Cancel, on: &mut dyn FnMut(Event)| {
+                work(provider.as_ref(), &chosen, cancel, on)
+            },
             move |update| {
                 let _ = send.unbounded_send(update);
             },

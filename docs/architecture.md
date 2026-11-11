@@ -41,7 +41,10 @@ text too small, every number finite. A failed check is a sentence that goes
 back to the model. This removes whole kinds of error instead of detecting
 them, and keeps the model's reply short. Controls a figure offers (sliders,
 points to drag) are data in each frame, so the window needs no code per
-kind. The kinds and their checks: [figures.md](figures.md).
+kind. The kinds and their checks: [figures.md](figures.md). In the reader,
+a figure for a passage is made in two steps (`figures.rs` in the app): the
+model picks a kind, then fills that kind's spec, and is told what the
+engine refused up to three times before the app gives up.
 
 **Math is typeset by Typst.** Books and models write LaTeX; mitex
 translates it. The mitex files Typst loads are vendored in
@@ -79,6 +82,5 @@ so that no code under a license of Zed's own is linked.
 
 ## Not built yet
 
-Pages in the window that use the vault, flashcards and review (their
-scheduling is in `incipit-learn`), quizzes and the graph of ideas. This page
-describes them when they exist.
+Tutor sessions, the agent that works on the vault, and more figure
+kinds. This page describes them when they exist.

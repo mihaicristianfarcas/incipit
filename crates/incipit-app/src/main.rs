@@ -4,6 +4,7 @@
 
 mod brain;
 mod figure;
+mod figures;
 mod find;
 mod library;
 mod math;
@@ -110,6 +111,18 @@ impl Root {
         let reader = cx.new(|cx| reader::ReaderView::new(workspace.clone(), models.clone(), cx));
         let settings =
             cx.new(|cx| settings::SettingsView::new(workspace.clone(), models.clone(), cx));
+        let figure = cx.new(figure::FigureView::new);
+        // A figure made for a passage opens on the Figure page.
+        cx.subscribe(
+            &reader,
+            |this: &mut Self, _, open: &reader::OpenFigure, cx| {
+                let figure = open.0.clone();
+                this.figure.update(cx, |page, cx| page.present(figure, cx));
+                this.page = Page::Figure;
+                cx.notify();
+            },
+        )
+        .detach();
         let library = cx.new(|cx| library::LibraryView::new(workspace.clone(), cx));
         // A book chosen in the library opens in the reader.
         cx.subscribe(
@@ -185,7 +198,7 @@ impl Root {
             finding: false,
             page,
             glide: Glide::new(cx),
-            figure: cx.new(figure::FigureView::new),
+            figure,
             math: cx.new(math::MathView::new),
             notes,
             review: cx.new(|cx| review::ReviewView::new(workspace.clone(), cx)),

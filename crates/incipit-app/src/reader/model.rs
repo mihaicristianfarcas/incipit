@@ -65,6 +65,8 @@ pub struct Note {
     pub waiting: bool,
     /// Why there is no answer, in words for the learner.
     pub problem: Option<String>,
+    /// The figure the model made for the passage, once it passed the engine's checks.
+    pub figure: Option<incipit_scene::Figure>,
 }
 
 impl Note {

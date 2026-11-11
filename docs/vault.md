@@ -30,7 +30,7 @@ properties say what it is.
 
 ```markdown
 ---
-id: 01JC…
+id: …
 kind: card
 title: Why attention replaces recurrence
 created: 2026-11-10T09:12:00Z
@@ -43,7 +43,8 @@ updated: 2026-11-10T09:12:00Z
 ```
 
 - `kind` says what the record is. Without it, the folder says.
-- A file written by hand, without an `id`, is read all the same.
+- A file written by hand, without an `id`, gets one made from its path,
+  which holds for as long as the file stays where it is.
 - Properties the app does not know, their order and their comments are
   kept when a document is rewritten.
 - What a kind adds lives where a person reads it easily: a card's

@@ -15,8 +15,13 @@ Neither folder is in git.
 On Linux, GPUI needs the packages the Linux job in
 `.github/workflows/ci.yml` installs.
 
-Incipit has been built and run on macOS on Apple silicon. Linux and Windows
-are built by CI only.
+Incipit has been built and run on macOS on Apple silicon, and on Ubuntu
+24.04 on aarch64 in a virtual machine, where the window was drawn on a
+virtual display (Xvfb, software Vulkan) and looked at. Windows is built and
+tested by CI only; the window has not been opened there.
+
+`INCIPIT_SHOT` saves a picture on macOS only. On Linux, take the picture of
+the display instead: `xwd -root` under Xvfb.
 
 ## Running
 

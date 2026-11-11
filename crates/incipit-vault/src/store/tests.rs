@@ -335,8 +335,11 @@ fn a_file_with_malformed_frontmatter_is_a_problem_not_a_panic() {
     assert_eq!(fixed.change, Change::Created);
     assert!(vault.problems().is_empty());
     write_outside(&vault, "notes/Fine.md", "---\n: : bad\n---\n");
-    let broken = wait_for(&events, |e| e.path.as_str() == "notes/Fine.md");
-    assert!(matches!(broken.change, Change::Unreadable { .. }));
+    // Writing a file empties it first, and a watcher may announce that moment on its own (it
+    // does on Linux), so wait for the change that says the file cannot be read.
+    wait_for(&events, |e| {
+        e.path.as_str() == "notes/Fine.md" && matches!(e.change, Change::Unreadable { .. })
+    });
     assert!(vault.at(&path("notes/Fine.md")).is_none());
 }
 

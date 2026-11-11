@@ -13,7 +13,7 @@ use futures::channel::{mpsc::unbounded, oneshot};
 use futures::future::Either;
 use futures::{stream, StreamExt};
 use gpui::{div, prelude::*, px, AnyElement, Context, MouseButton, Window};
-use incipit_book::Anchor;
+use incipit_book::{Anchor, Cut};
 use incipit_llm::{Cancel, Event, Update};
 use incipit_ui::{
     button, focus_handle, focus_ring, keep_focus, menu_row, ringed, spinner, IconName, Radius,
@@ -89,7 +89,7 @@ impl ReaderView {
             }
             Doc::Pdf(document) => {
                 let indexes = parts.clone();
-                document.worker.text(parts, move |texts| {
+                document.worker.text(parts, Cut::default(), move |texts| {
                     let gathered = texts
                         .map(|texts| {
                             indexes

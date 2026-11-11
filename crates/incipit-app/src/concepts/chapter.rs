@@ -176,6 +176,7 @@ mod tests {
             title: title.into(),
             depth,
             page,
+            y: None,
         }
     }
 

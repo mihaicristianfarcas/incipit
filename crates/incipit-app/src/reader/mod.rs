@@ -1225,6 +1225,7 @@ fn open_epub(file: &std::path::Path) -> Result<(String, Vec<Entry>, EpubDoc), St
                     title: text.text.clone(),
                     depth: (*level as usize).saturating_sub(1),
                     page: index,
+                    y: None,
                 }),
                 Block::Image { name, bytes } => {
                     if let Some(format) = rows::format_of(name) {

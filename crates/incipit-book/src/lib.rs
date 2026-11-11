@@ -10,5 +10,5 @@ pub mod worker;
 
 pub use anchor::Anchor;
 pub use epub::{Block, Book, Rich, Span};
-pub use pdf::{Entry, Glyph, Page, Pdf};
+pub use pdf::{Cut, Entry, Glyph, Page, Pdf};
 pub use worker::{PdfInfo, PdfWorker};

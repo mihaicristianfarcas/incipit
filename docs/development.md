@@ -29,13 +29,13 @@ screenshots are taken:
 
 | Variable | Does |
 |---|---|
-| `INCIPIT_PAGE` | Opens on `today` (the default), `library`, `reader`, `notes`, `review`, `brain`, `math` or `figure` |
+| `INCIPIT_PAGE` | Opens on `today` (the default), `library`, `reader`, `notes`, `review`, `brain`, `math`, `figure` or `settings` |
 | `INCIPIT_VAULT` | A folder: the vault there is opened (made, if it is not one yet) without asking. Use a temporary folder for checks, never a vault of your own |
 | `INCIPIT_HOME` | A folder for the app's own files (the list of vaults), instead of the system's place for app data |
 | `INCIPIT_SHOT` | A file name: the window is saved there as a PNG after a moment, and the app quits (macOS) |
 | `INCIPIT_BOOK` | `pdf` or `epub`: opens that sample book in the reader, with no vault needed |
 | `INCIPIT_OPEN` | Words of a title: opens the first book of the vault whose title has them |
-| `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected |
+| `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected; `answer` shows the note as a model's answer |
 | `INCIPIT_CONTENTS` | On the Reader page: starts with the book's contents open |
 | `INCIPIT_PART` | On the Reader page: the page (PDF) or block (EPUB) to start at, counted from 0 |
 | `INCIPIT_FIGURE` | On the Figure page: a JSON file holding a figure's spec (or a model's reply with it under `structured_output`), instead of the built-in examples |

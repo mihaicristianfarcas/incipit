@@ -4445,6 +4445,7 @@ dependencies = [
  "incipit-book",
  "incipit-graph",
  "incipit-learn",
+ "incipit-llm",
  "incipit-math",
  "incipit-scene",
  "incipit-ui",

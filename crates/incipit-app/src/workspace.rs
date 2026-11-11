@@ -31,16 +31,20 @@ pub enum Happened {
 
 impl EventEmitter<Happened> for Workspace {}
 
+/// The app's own folder: the system's place for app data, or INCIPIT_HOME.
+pub fn home() -> PathBuf {
+    std::env::var_os("INCIPIT_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::data_dir().map(|d| d.join("Incipit")))
+        .unwrap_or_else(|| PathBuf::from(".incipit-home"))
+}
+
 impl Workspace {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let home = std::env::var_os("INCIPIT_HOME")
-            .map(PathBuf::from)
-            .or_else(|| dirs::data_dir().map(|d| d.join("Incipit")))
-            .unwrap_or_else(|| PathBuf::from(".incipit-home"));
         let mut workspace = Workspace {
             vault: None,
             problem: None,
-            home,
+            home: home(),
         };
         let asked = std::env::var_os("INCIPIT_VAULT").map(PathBuf::from);
         let last = || {

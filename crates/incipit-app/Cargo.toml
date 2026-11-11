@@ -25,6 +25,7 @@ incipit-vault = { path = "../incipit-vault" }
 dirs = "6"
 incipit-learn = { path = "../incipit-learn" }
 incipit-graph = { path = "../incipit-graph" }
+incipit-llm = { path = "../incipit-llm" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]

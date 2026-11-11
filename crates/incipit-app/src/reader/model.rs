@@ -51,13 +51,27 @@ impl Selection {
 }
 
 /// A passage the learner marked, with what they wrote about it (nothing, for a highlight). A
-/// passage that runs over several parts has an anchor in each.
+/// passage that runs over several parts has an anchor in each. When a model was asked about the
+/// passage, `asked` is the question and `words` the answer as far as it has come.
+#[derive(Default)]
 pub struct Note {
     pub id: u64,
     /// The vault's document of it, when it is kept.
     pub doc: Option<incipit_vault::DocId>,
     pub anchors: Vec<Anchor>,
     pub words: String,
+    pub asked: Option<String>,
+    /// The answer is still being written.
+    pub waiting: bool,
+    /// Why there is no answer, in words for the learner.
+    pub problem: Option<String>,
+}
+
+impl Note {
+    /// Whether it has a card in the margin: a highlight alone has none.
+    pub fn in_margin(&self) -> bool {
+        !self.words.is_empty() || self.asked.is_some()
+    }
 }
 
 /// A PDF page as the window holds it.

@@ -6,9 +6,11 @@ mod brain;
 mod figure;
 mod library;
 mod math;
+mod models;
 mod notes;
 mod reader;
 mod review;
+mod settings;
 mod stage;
 mod study;
 mod today;
@@ -30,9 +32,10 @@ enum Page {
     Brain,
     Math,
     Figure,
+    Settings,
 }
 
-const PAGES: [(Page, &str, &str, IconName); 8] = [
+const PAGES: [(Page, &str, &str, IconName); 9] = [
     (Page::Today, "nav-today", "Today", IconName::Clock),
     (Page::Library, "nav-library", "Library", IconName::Display),
     (Page::Reader, "nav-reader", "Reader", IconName::List),
@@ -41,6 +44,12 @@ const PAGES: [(Page, &str, &str, IconName); 8] = [
     (Page::Brain, "nav-brain", "Brain", IconName::Network),
     (Page::Math, "nav-math", "Math", IconName::Type),
     (Page::Figure, "nav-figure", "Figure", IconName::Activity),
+    (
+        Page::Settings,
+        "nav-settings",
+        "Settings",
+        IconName::Settings,
+    ),
 ];
 
 struct Root {
@@ -54,6 +63,7 @@ struct Root {
     brain: Entity<brain::BrainView>,
     today: Entity<today::TodayView>,
     reader: Entity<reader::ReaderView>,
+    settings: Entity<settings::SettingsView>,
 }
 
 impl Root {
@@ -66,6 +76,7 @@ impl Root {
             Ok("library") => Page::Library,
             Ok("brain") => Page::Brain,
             Ok("figure") => Page::Figure,
+            Ok("settings") => Page::Settings,
             _ => Page::Today,
         };
         if let Some(path) = std::env::var_os("INCIPIT_SHOT") {
@@ -85,7 +96,10 @@ impl Root {
             .detach();
         }
         let workspace = cx.new(workspace::Workspace::new);
-        let reader = cx.new(|cx| reader::ReaderView::new(workspace.clone(), cx));
+        let models = cx.new(models::Models::new);
+        let reader = cx.new(|cx| reader::ReaderView::new(workspace.clone(), models.clone(), cx));
+        let settings =
+            cx.new(|cx| settings::SettingsView::new(workspace.clone(), models.clone(), cx));
         let library = cx.new(|cx| library::LibraryView::new(workspace.clone(), cx));
         // A book chosen in the library opens in the reader.
         cx.subscribe(
@@ -130,6 +144,7 @@ impl Root {
             notes,
             review: cx.new(|cx| review::ReviewView::new(workspace.clone(), cx)),
             reader,
+            settings,
             library,
             brain,
             today,
@@ -169,6 +184,7 @@ impl Render for Root {
             Page::Library => self.library.clone().into_any_element(),
             Page::Review => self.review.clone().into_any_element(),
             Page::Reader => self.reader.clone().into_any_element(),
+            Page::Settings => self.settings.clone().into_any_element(),
         };
         let shown = gpui::ElementId::Name(format!("page-{:?}", self.page).into());
         div()

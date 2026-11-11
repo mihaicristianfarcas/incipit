@@ -21,7 +21,9 @@ untrusted, because they come from somewhere else:
   shown as HTML.
 - **What a model writes.** A model's reply is text and data. A figure is a
   typed spec the app checks and draws itself; nothing a model writes is
-  executed by the app.
+  executed by the app. A command-line agent runs the shell commands its
+  model writes, inside the operating system's sandbox: its own folder, no
+  home folder, no network ([docs/models.md](docs/models.md)).
 - **Text inside books given to a model.** A book can contain text meant to
   steer a model. It is passed as material, not as instructions.
 

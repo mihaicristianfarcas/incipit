@@ -90,9 +90,12 @@ impl Root {
             // Nothing says "the page has settled" (fonts shaped, the fade over), so the picture is
             // taken after a fixed moment.
             cx.spawn_in(window, async move |_, cx| {
-                cx.background_executor()
-                    .timer(Duration::from_millis(1500))
-                    .await;
+                // INCIPIT_WAIT=seconds waits longer, for what takes time (a model's answer).
+                let wait = std::env::var("INCIPIT_WAIT")
+                    .ok()
+                    .and_then(|s| s.parse::<f32>().ok())
+                    .map_or(Duration::from_millis(1500), Duration::from_secs_f32);
+                cx.background_executor().timer(wait).await;
                 let _ = cx.update(|window, cx| {
                     if let Err(e) = incipit_ui::snapshot(window, std::path::Path::new(&path)) {
                         eprintln!("snapshot not saved: {e}");

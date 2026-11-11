@@ -12,6 +12,7 @@
 //! around it go to the model as material, never as instructions.
 //!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at; =answer for a model's answer),
+//! INCIPIT_ASK=explain|cards (with INCIPIT_NOTE: ask the model about the selection),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block).
 
 mod asking;
@@ -294,6 +295,7 @@ impl ReaderView {
                 if this.demo && index == 0 {
                     this.demo = false;
                     this.show_demo();
+                    this.try_demo(cx);
                 }
                 cx.notify();
             });
@@ -350,6 +352,7 @@ impl ReaderView {
                         if this.demo && epub {
                             this.demo = false;
                             this.show_demo();
+                            this.try_demo(cx);
                         }
                     }
                     Err(e) => this.state = State::Failed(e),
@@ -358,6 +361,16 @@ impl ReaderView {
             });
         })
         .detach();
+    }
+
+    /// INCIPIT_ASK=explain|cards puts the demonstration's selection to the model, to see a real
+    /// answer arrive without a mouse.
+    fn try_demo(&mut self, cx: &mut Context<Self>) {
+        match std::env::var("INCIPIT_ASK").as_deref() {
+            Ok("explain") => self.explain(cx),
+            Ok("cards") => self.make_cards(cx),
+            _ => {}
+        }
     }
 
     /// A note and a selection to look at, for pictures taken without a mouse.

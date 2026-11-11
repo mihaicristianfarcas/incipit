@@ -45,6 +45,8 @@ use model::{byte_of, find, rich, Doc, EpubDoc, Held, Note, Opened, PdfDoc, Place
 
 /// The margin's width, and the gap between it and the book.
 const MARGIN: f32 = 250.0;
+/// The most height an open card gives what it says before that scrolls.
+const ANSWER: f32 = 260.0;
 const GAP: f32 = 22.0;
 const CONTENTS: f32 = 240.0;
 /// A PDF page's width on screen at its smallest, largest and to start with; a step of zoom.
@@ -882,12 +884,23 @@ impl ReaderView {
                 .line_clamp(3)
                 .child(format!("“{quote}”")),
         )
-        .children(
-            note.asked
-                .clone()
-                .map(|asked| div().font_weight(gpui::FontWeight::SEMIBOLD).child(asked)),
+        // A long answer scrolls inside its card, so the card never outgrows the room the page
+        // keeps for it and its buttons stay in reach.
+        .child(
+            div()
+                .id(("note-words", id as usize))
+                .max_h(px(ANSWER))
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .gap(px(4.0))
+                .children(
+                    note.asked
+                        .clone()
+                        .map(|asked| div().font_weight(gpui::FontWeight::SEMIBOLD).child(asked)),
+                )
+                .child(words),
         )
-        .child(words)
         .children(note.figure.clone().map(|figure| {
             div().flex().child(
                 button(("note-figure", id as usize), "Open the figure", t)

@@ -13,11 +13,12 @@ use incipit_book::{Block, Rich};
 use incipit_ui::Theme;
 
 use super::model::{byte_of, Doc, Note, Opened, Place};
-use super::{ReaderView, State, COLUMN, GAP, MARGIN};
+use super::{ReaderView, State, ANSWER, COLUMN, GAP, MARGIN};
 
 const SERIF: &str = "Charter";
-/// Room kept for a card when placing the next one under it: closed, open, and being written.
-const CARD: (f32, f32, f32) = (44.0, 190.0, 150.0);
+/// Room kept for a card when placing the next one under it: closed, open (the most it can
+/// take: its quote, what it says, its buttons), and being written.
+const CARD: (f32, f32, f32) = (44.0, ANSWER + 160.0, 150.0);
 
 pub fn format_of(name: &str) -> Option<ImageFormat> {
     match name
@@ -197,7 +198,8 @@ impl ReaderView {
         cards.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut floor = f32::MIN;
         let cards = cards.into_iter().map(|(top, room, card)| {
-            let top = top.max(floor);
+            // A card near the foot of its page moves up to stay on it, where there is room.
+            let top = top.min(height - room).max(0.0).max(floor);
             floor = top + room + 8.0;
             div().absolute().top(px(top)).left_0().child(card)
         });

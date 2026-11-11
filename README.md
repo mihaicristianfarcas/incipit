@@ -25,7 +25,8 @@ Early. One window, with these pages, on a vault of plain files:
 | Figure | A figure made from a typed spec, checked, then played, stepped and scrubbed |
 | Settings | The vault's folder, and which model answers ([docs/models.md](docs/models.md)) |
 
-It has been built and run on macOS (Apple silicon) and on Ubuntu (aarch64).
+It has been built and run on macOS (Apple silicon), Ubuntu (aarch64) and
+Windows 11 (ARM64).
 
 ## Running it
 

@@ -15,13 +15,24 @@ Neither folder is in git.
 On Linux, GPUI needs the packages the Linux job in
 `.github/workflows/ci.yml` installs.
 
-Incipit has been built and run on macOS on Apple silicon, and on Ubuntu
-24.04 on aarch64 in a virtual machine, where the window was drawn on a
-virtual display (Xvfb, software Vulkan) and looked at. Windows is built and
-tested by CI only; the window has not been opened there.
+On Windows, `tools/setup` does not run (it is a shell script). By hand:
+unpack `pdfium-win-arm64.tgz` (or `-x64`) of the same pinned build into
+`lib\`, copy `lib\bin\pdfium.dll` to `lib\lib\pdfium.dll`, and put the two
+sample books in `samples\`. The arm64 archive's SHA-256 is
+`8614b10c6a780acc3ae9fdd425d6b61f9d22ae84301b19e1ac82f573930c217c`. The
+build needs `clang` on the `PATH` (the one Visual Studio's build tools or
+LLVM install).
+
+Incipit has been built and run on macOS on Apple silicon; on Ubuntu 24.04
+on aarch64 in a virtual machine, where the window was drawn on a virtual
+display (Xvfb, software Vulkan) and looked at; and on Windows 11 on ARM64
+in a virtual machine, where the Today, Reader (PDF and EPUB), Brain and
+Figure pages were opened and looked at. Nothing was clicked on Linux or
+Windows.
 
 `INCIPIT_SHOT` saves a picture on macOS only. On Linux, take the picture of
-the display instead: `xwd -root` under Xvfb.
+the display instead: `xwd -root` under Xvfb. On Windows, copy the screen
+from a script run in the signed-in session.
 
 ## Running
 

@@ -158,6 +158,25 @@ impl Pdf {
     }
 }
 
+impl Pdf {
+    /// The text of page `index` (from 0), the characters `Page::text` gives, without drawing it.
+    pub fn text(&self, index: usize) -> Result<String> {
+        let page = self
+            .document
+            .pages()
+            .get(index as _)
+            .map_err(|e| anyhow!("page {index}: {e:?}"))?;
+        let text = page
+            .text()
+            .map_err(|e| anyhow!("page {index} has no text: {e:?}"))?;
+        Ok(text
+            .chars()
+            .iter()
+            .map(|c| c.unicode_char().unwrap_or(' '))
+            .collect())
+    }
+}
+
 impl Page {
     /// The character at (x, y) in points: the one under the point, or the nearest on its line.
     pub fn glyph_at(&self, x: f32, y: f32) -> Option<usize> {

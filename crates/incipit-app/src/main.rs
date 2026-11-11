@@ -4,6 +4,7 @@
 
 mod brain;
 mod figure;
+mod find;
 mod library;
 mod math;
 mod models;
@@ -19,8 +20,11 @@ mod workspace;
 
 use std::time::Duration;
 
-use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, Window};
+use gpui::{actions, div, prelude::*, px, AnyElement, App, Context, Entity, KeyBinding, Window};
 use incipit_ui::{Glide, IconName, Theme, Type};
+use incipit_vault::Kind;
+
+actions!(incipit, [Find]);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Page {
@@ -64,6 +68,9 @@ struct Root {
     today: Entity<today::TodayView>,
     reader: Entity<reader::ReaderView>,
     settings: Entity<settings::SettingsView>,
+    find: Entity<find::FindView>,
+    /// The find sheet is open.
+    finding: bool,
 }
 
 impl Root {
@@ -136,7 +143,43 @@ impl Root {
             cx.notify();
         })
         .detach();
+        let find = cx.new(|cx| find::FindView::new(workspace.clone(), cx));
+        cx.subscribe(&find, |this: &mut Self, _, found: &find::Found, cx| {
+            this.finding = false;
+            if let find::Found::Open(kind, id) = found {
+                match kind {
+                    Kind::Note | Kind::Concept => {
+                        let id = id.clone();
+                        this.notes.update(cx, |notes, cx| notes.select(id, cx));
+                        this.page = Page::Notes;
+                    }
+                    // Choosing the book takes the window to the reader.
+                    Kind::Book => this.library.update(cx, |library, cx| library.open(id, cx)),
+                    Kind::Card => this.page = Page::Review,
+                    Kind::Annotation | Kind::Session | Kind::Figure => this.page = Page::Library,
+                }
+            }
+            cx.notify();
+        })
+        .detach();
+        if let Ok(words) = std::env::var("INCIPIT_FIND") {
+            let find = find.clone();
+            cx.spawn_in(window, async move |this, cx| {
+                // The vault opens off the window's thread; search once it is there.
+                cx.background_executor()
+                    .timer(Duration::from_millis(600))
+                    .await;
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.finding = true;
+                    find.update(cx, |find, cx| find.start(&words, window, cx));
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
         Root {
+            find,
+            finding: false,
             page,
             glide: Glide::new(cx),
             figure: cx.new(figure::FigureView::new),
@@ -149,6 +192,13 @@ impl Root {
             brain,
             today,
         }
+    }
+
+    /// Open the find sheet, empty.
+    fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.finding = true;
+        self.find.update(cx, |find, cx| find.start("", window, cx));
+        cx.notify();
     }
 
     fn sidebar(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -209,6 +259,7 @@ impl Render for Root {
                     )),
             )
             .children(incipit_ui::caption_buttons(window, t))
+            .when(self.finding, |root| root.child(self.find.clone()))
     }
 }
 
@@ -236,11 +287,21 @@ fn main() {
                 (720.0, 480.0),
                 cx,
             );
-            cx.open_window(options, |window, cx| {
-                incipit_ui::glass::dress(window);
-                cx.new(|cx| Root::new(window, cx))
-            })
-            .expect("the window opens");
+            let window = cx
+                .open_window(options, |window, cx| {
+                    incipit_ui::glass::dress(window);
+                    cx.new(|cx| Root::new(window, cx))
+                })
+                .expect("the window opens");
+            let key = if cfg!(target_os = "macos") {
+                "cmd-k"
+            } else {
+                "ctrl-k"
+            };
+            cx.bind_keys([KeyBinding::new(key, Find, None)]);
+            cx.on_action(move |_: &Find, cx| {
+                let _ = window.update(cx, |root, window, cx| root.find(window, cx));
+            });
             cx.activate(true);
         });
 }

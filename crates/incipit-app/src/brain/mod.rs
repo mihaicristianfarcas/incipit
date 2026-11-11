@@ -4,22 +4,32 @@
 //! zoomed with the wheel around the pointer, and a node under the pointer lights up with its
 //! neighbours. Dragging a node holds it under the pointer while the rest follows, and let go the
 //! picture settles: while it moves it is stepped once a frame, and once settled it asks for no
-//! more frames. What a press becomes (a click, a drag, a pan) is `press`. Clicking a node says
-//! what it is, and opens a note. INCIPIT_PAGE=brain opens the page.
+//! more frames. What a press becomes (a click, a drag, a pan) is `press`.
+//!
+//! Clicking a node selects it, and a card beside the picture (`panel`) says what it is, opens its
+//! document and lists what it links with. The field at the top left finds nodes by title as one
+//! types (`search`): they are ringed and named, and Enter selects the best one and brings it to
+//! the middle, then the next. The page asks the window to open a document with `Open`.
+//!
+//! Without clicking: INCIPIT_PAGE=brain opens the page, and INCIPIT_NODE=words types the words
+//! into the field and presses Enter once the picture is there.
 
 mod draw;
+mod panel;
 mod picture;
 mod press;
+mod search;
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
     div, prelude::*, px, Bounds, Context, Entity, EventEmitter, IntoElement, MouseButton,
-    MouseMoveEvent, Pixels, Point, Render, Rgba, ScrollWheelEvent, Subscription, Window,
+    MouseMoveEvent, Pixels, Point, Render, Rgba, ScrollHandle, ScrollWheelEvent, Subscription,
+    Window,
 };
 use incipit_graph::{bounds, Point as At, Size as Extent, View};
-use incipit_ui::{button, floating, Theme, Type};
+use incipit_ui::{field, floating, FieldEvent, TextField, Theme, Type};
 use incipit_vault::{DocId, Kind};
 
 use picture::{gather, lay_out, Picture};
@@ -27,8 +37,20 @@ use press::{Motion, Press, Release};
 
 use crate::workspace::{Happened, Workspace};
 
-/// A note the learner asked to open from the picture.
-pub struct OpenNote(pub DocId);
+/// The space between the picture's edge and the cards on it.
+const GAP: f32 = 16.0;
+/// The selected node's card: wide enough for most titles on two lines.
+const PANEL: f32 = 260.0;
+/// The find field's card.
+const FIND: f32 = 240.0;
+/// The least scale a node found is shown at: its name is readable there.
+const FOCUS_SCALE: f32 = 1.0;
+/// How many of the nodes found are named whatever else is in the way; the rest are named where
+/// there is room, as all nodes are.
+const NAMED: usize = 12;
+
+/// A document the learner asked to open from the picture.
+pub struct Open(pub Kind, pub DocId);
 
 pub struct BrainView {
     workspace: Entity<Workspace>,
@@ -42,12 +64,20 @@ pub struct BrainView {
     place: Rc<Cell<Bounds<Pixels>>>,
     hovered: Option<usize>,
     selected: Option<usize>,
+    /// The selected node is to be brought to the middle once the view is known.
+    centre: bool,
     /// The pointer's button is down on the picture.
     press: Option<Press>,
-    _subscription: Subscription,
+    find: Entity<TextField>,
+    /// The nodes whose titles have the words in the find field, best first.
+    found: Vec<usize>,
+    /// Enter is to be pressed in the find field once the picture is there (INCIPIT_NODE).
+    seek: bool,
+    links_scroll: ScrollHandle,
+    _subscriptions: [Subscription; 2],
 }
 
-impl EventEmitter<OpenNote> for BrainView {}
+impl EventEmitter<Open> for BrainView {}
 
 /// The colour of a kind of document in the picture.
 fn ink(kind: Kind, t: Theme) -> Rgba {
@@ -60,19 +90,35 @@ fn ink(kind: Kind, t: Theme) -> Rgba {
 
 impl BrainView {
     pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
-        let subscription =
-            cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
-                // A document made, removed or renamed changes the picture; typing in one does too,
-                // when it adds a link, so every change to a file of the vault lays it out again.
-                match happened {
-                    Happened::Opened => {
-                        this.afresh = true;
-                        this.build(cx);
-                    }
-                    Happened::Changed(event) if event.path.is_markdown() => this.build(cx),
-                    Happened::Changed(_) => {}
+        let heard = cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
+            // A document made, removed or renamed changes the picture; typing in one does too,
+            // when it adds a link, so every change to a file of the vault lays it out again.
+            match happened {
+                Happened::Opened => {
+                    this.afresh = true;
+                    this.build(cx);
                 }
-            });
+                Happened::Changed(event) if event.path.is_markdown() => this.build(cx),
+                Happened::Changed(_) => {}
+            }
+        });
+        let find = cx.new(|cx| TextField::new(cx).placeholder("Find in the graph"));
+        let typed = cx.subscribe(
+            &find,
+            |this: &mut Self, _, event: &FieldEvent, cx| match event {
+                FieldEvent::Changed => this.search(cx),
+                FieldEvent::Submit => this.next(cx),
+                FieldEvent::Cancel => {
+                    this.find.update(cx, |field, cx| field.set_text("", cx));
+                    this.search(cx);
+                }
+            },
+        );
+        let words = std::env::var("INCIPIT_NODE").unwrap_or_default();
+        let seek = !words.trim().is_empty();
+        if seek {
+            find.update(cx, |field, cx| field.set_text(words.trim(), cx));
+        }
         let mut view = BrainView {
             workspace,
             picture: None,
@@ -82,8 +128,13 @@ impl BrainView {
             place: Rc::default(),
             hovered: None,
             selected: None,
+            centre: false,
             press: None,
-            _subscription: subscription,
+            find,
+            found: Vec::new(),
+            seek,
+            links_scroll: ScrollHandle::new(),
+            _subscriptions: [heard, typed],
         };
         view.build(cx);
         view
@@ -134,6 +185,38 @@ impl BrainView {
         self.hovered = None;
         self.press = None;
         self.picture = Some(picture);
+        self.search(cx);
+        if std::mem::take(&mut self.seek) {
+            self.next(cx);
+        }
+        cx.notify();
+    }
+
+    /// Finds the nodes whose titles have the words in the field.
+    fn search(&mut self, cx: &mut Context<Self>) {
+        let query = self.find.read(cx).text().to_string();
+        self.found = match &self.picture {
+            Some(picture) => {
+                let links: Vec<usize> = picture.neighbours.iter().map(Vec::len).collect();
+                search::matches(&picture.titles, &links, &query)
+            }
+            None => Vec::new(),
+        };
+        cx.notify();
+    }
+
+    /// Enter in the find field: the best node found, or the next one after the selected.
+    fn next(&mut self, cx: &mut Context<Self>) {
+        if let Some(node) = search::next_match(&self.found, self.selected) {
+            self.focus(node, cx);
+        }
+    }
+
+    /// Selects `node` and brings it to the middle of the picture.
+    fn focus(&mut self, node: usize, cx: &mut Context<Self>) {
+        self.selected = Some(node);
+        self.centre = true;
+        self.links_scroll.set_offset(Point::default());
         cx.notify();
     }
 
@@ -212,7 +295,12 @@ impl BrainView {
             return;
         };
         match press.released() {
-            Release::Click(node) => self.selected = node,
+            Release::Click(node) => {
+                if node != self.selected {
+                    self.links_scroll.set_offset(Point::default());
+                }
+                self.selected = node;
+            }
             Release::Dropped(node) => {
                 if let Some(picture) = &mut self.picture {
                     picture.let_go(node);
@@ -231,49 +319,69 @@ impl BrainView {
         cx.notify();
     }
 
-    /// What the selected node is, with a way to open it.
-    fn about(&self, t: Theme, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let (picture, node) = (self.picture.as_ref()?, self.selected?);
-        let kind = match picture.kinds[node] {
-            Kind::Note => "Note",
-            Kind::Concept => "Concept",
-            Kind::Book => "Book",
-            _ => "Document",
+    /// Fits the first picture to the page, and brings a node just focused to the middle of what
+    /// the panel leaves free, once the page's size is known.
+    fn place_view(&mut self, viewport: Extent, window: &mut Window) {
+        let Some(picture) = &self.picture else {
+            return;
         };
-        let links = match picture.neighbours[node].len() {
-            0 => "no links".to_string(),
-            1 => "1 link".to_string(),
-            n => format!("{n} links"),
+        if viewport.width <= 0.0 {
+            window.request_animation_frame();
+            return;
+        }
+        if self.view.is_none() {
+            if let Some(world) = bounds(picture.positions(), picture.radii()) {
+                self.view = Some(View::fit(world, viewport, 64.0, 2.4));
+            }
+        }
+        if let (true, Some(view), Some(node)) = (self.centre, self.view, self.selected) {
+            let free = Extent {
+                width: (viewport.width - PANEL - 2.0 * GAP).max(viewport.width / 2.0),
+                height: viewport.height,
+            };
+            let view = View {
+                scale: view.scale.max(FOCUS_SCALE),
+                ..view
+            };
+            self.view = Some(view.centred_on(picture.positions()[node], free));
+            self.centre = false;
+        }
+    }
+
+    /// The find field, and how many it found.
+    fn finder(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let typed = !self.find.read(cx).text().trim().is_empty();
+        let at = self
+            .selected
+            .and_then(|s| self.found.iter().position(|f| *f == s));
+        let said = match (self.found.len(), at) {
+            (0, _) => "No title has these words".to_string(),
+            (n, Some(i)) => format!("{} of {n}", i + 1),
+            (1, None) => "1 found".to_string(),
+            (n, None) => format!("{n} found"),
         };
-        let id = picture.ids[node].clone();
-        let note = picture.kinds[node] == Kind::Note;
-        Some(
-            div().absolute().top(px(16.0)).right(px(16.0)).child(
+        div()
+            .absolute()
+            .top(px(GAP))
+            .left(px(GAP))
+            .w(px(FIND))
+            .child(
                 floating(t)
                     .occlude()
-                    .w(px(240.0))
-                    .p(px(14.0))
-                    .gap(px(6.0))
-                    .child(
-                        div()
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .child(picture.titles[node].clone()),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(Type::META))
-                            .text_color(t.tertiary)
-                            .child(format!("{kind}  ·  {links}")),
-                    )
-                    .when(note, |card| {
-                        card.child(div().pt(px(4.0)).child(
-                            button("brain-open", "Open", t).on_click(
-                                cx.listener(move |_, _, _, cx| cx.emit(OpenNote(id.clone()))),
-                            ),
-                        ))
+                    .p(px(6.0))
+                    .gap(px(4.0))
+                    .child(field(&self.find, t))
+                    .when(typed, |card| {
+                        card.child(
+                            div()
+                                .px(px(4.0))
+                                .pb(px(2.0))
+                                .text_size(px(Type::META))
+                                .text_color(t.tertiary)
+                                .child(said),
+                        )
                     }),
-            ),
-        )
+            )
     }
 }
 
@@ -309,27 +417,27 @@ impl Render for BrainView {
             width: room.width.as_f32(),
             height: room.height.as_f32(),
         };
-        // The first picture is fitted to the page once the page's size is known.
-        if self.view.is_none() {
-            match bounds(picture.positions(), picture.radii()) {
-                Some(world) if viewport.width > 0.0 => {
-                    self.view = Some(View::fit(world, viewport, 64.0, 2.4))
-                }
-                _ => window.request_animation_frame(),
-            }
-        }
+        self.place_view(viewport, window);
         self.measure(window);
         let scene = self.scene(t, viewport);
         let drawing = draw::picture_canvas(scene, self.place.clone(), cx.entity().downgrade());
-        div()
-            .size_full()
+        let stage = div()
+            .flex_1()
+            .min_h_0()
             .relative()
             .overflow_hidden()
             .child(drawing)
             .on_scroll_wheel(
                 cx.listener(|this, event: &ScrollWheelEvent, _, cx| this.wheel(event, cx)),
             )
-            .children(self.about(t, cx))
+            .child(self.finder(t, cx))
+            .children(self.panel(t, window, cx));
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(incipit_ui::page_strip())
+            .child(stage)
             .into_any_element()
     }
 }

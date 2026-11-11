@@ -165,8 +165,8 @@ impl LibraryView {
         }
     }
 
-    /// Open the book with this id in the reader.
-    pub fn open(&mut self, id: &DocId, cx: &mut Context<Self>) {
+    /// Opens the book `id` in the reader; false when the vault has no file for it.
+    pub fn open(&mut self, id: &DocId, cx: &mut Context<Self>) -> bool {
         let shelved = self.books.iter().find(|b| b.id == *id).and_then(|b| {
             Some(Shelved {
                 id: Some(b.id.clone()),
@@ -175,9 +175,11 @@ impl LibraryView {
                 epub: b.format == "epub",
             })
         });
+        let found = shelved.is_some();
         if let Some(shelved) = shelved {
             cx.emit(Chosen(shelved));
         }
+        found
     }
 
     /// Ask for book files and add each, off the window's thread.

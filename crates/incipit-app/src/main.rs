@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use gpui::{actions, div, prelude::*, px, AnyElement, App, Context, Entity, KeyBinding, Window};
 use incipit_ui::{Glide, IconName, Theme, Type};
-use incipit_vault::Kind;
+use incipit_vault::{DocId, Kind};
 
 actions!(incipit, [Find, Act]);
 
@@ -94,6 +94,8 @@ impl Root {
             Ok("brain") => Page::Brain,
             Ok("figure") => Page::Figure,
             Ok("settings") => Page::Settings,
+            // A node to show is on the Brain page.
+            _ if std::env::var_os("INCIPIT_NODE").is_some() => Page::Brain,
             _ => Page::Today,
         };
         if let Some(path) = std::env::var_os("INCIPIT_SHOT") {
@@ -146,11 +148,9 @@ impl Root {
         .detach();
         let notes = cx.new(|cx| notes::NotesView::new(workspace.clone(), cx));
         let brain = cx.new(|cx| brain::BrainView::new(workspace.clone(), cx));
-        // A note opened from the picture opens on the Notes page.
-        cx.subscribe(&brain, |this: &mut Self, _, open: &brain::OpenNote, cx| {
-            let id = open.0.clone();
-            this.notes.update(cx, |notes, cx| notes.select(id, cx));
-            this.page = Page::Notes;
+        // A document opened from the picture opens where find would open it.
+        cx.subscribe(&brain, |this: &mut Self, _, open: &brain::Open, cx| {
+            this.open(open.0, &open.1, cx);
             cx.notify();
         })
         .detach();
@@ -172,17 +172,7 @@ impl Root {
         cx.subscribe(&find, |this: &mut Self, _, found: &find::Found, cx| {
             this.finding = false;
             if let find::Found::Open(kind, id) = found {
-                match kind {
-                    Kind::Note | Kind::Concept => {
-                        let id = id.clone();
-                        this.notes.update(cx, |notes, cx| notes.select(id, cx));
-                        this.page = Page::Notes;
-                    }
-                    // Choosing the book takes the window to the reader.
-                    Kind::Book => this.library.update(cx, |library, cx| library.open(id, cx)),
-                    Kind::Card => this.page = Page::Review,
-                    Kind::Annotation | Kind::Session | Kind::Figure => this.page = Page::Library,
-                }
+                this.open(*kind, id, cx);
             }
             cx.notify();
         })
@@ -239,6 +229,27 @@ impl Root {
             library,
             brain,
             today,
+        }
+    }
+
+    /// Shows a document on the page that shows it: notes and concepts on Notes, cards on Review,
+    /// a book in the reader (in the Library when its file is not there), and what belongs to a
+    /// book in the Library.
+    fn open(&mut self, kind: Kind, id: &DocId, cx: &mut Context<Self>) {
+        match kind {
+            Kind::Note | Kind::Concept => {
+                let id = id.clone();
+                self.notes.update(cx, |notes, cx| notes.select(id, cx));
+                self.page = Page::Notes;
+            }
+            // Choosing the book takes the window to the reader.
+            Kind::Book => {
+                if !self.library.update(cx, |library, cx| library.open(id, cx)) {
+                    self.page = Page::Library;
+                }
+            }
+            Kind::Card => self.page = Page::Review,
+            Kind::Annotation | Kind::Session | Kind::Figure => self.page = Page::Library,
         }
     }
 

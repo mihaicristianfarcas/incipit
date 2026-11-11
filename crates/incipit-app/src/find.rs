@@ -91,7 +91,7 @@ impl FindView {
 }
 
 /// What a kind of document is called beside a result.
-fn kind_word(kind: Kind) -> &'static str {
+pub fn kind_word(kind: Kind) -> &'static str {
     match kind {
         Kind::Note => "Note",
         Kind::Concept => "Concept",

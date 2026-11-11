@@ -12,7 +12,8 @@ use crate::call::{Answer, Cancel, Event, Structured};
 use crate::error::Error;
 use crate::request::Request;
 use crate::schema;
-use crate::settings::{Job, Settings};
+use crate::secret::SecretStore;
+use crate::settings::{Endpoint, Job, Protocol, Settings};
 
 /// A model a provider offers.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,6 +167,19 @@ impl Registry {
         &self.providers
     }
 
+    /// The command-line agents, found where they are installed, and the endpoints in `settings`,
+    /// their keys read from `secrets` when a call needs one.
+    pub fn standard(secrets: Arc<dyn SecretStore>, settings: &Settings) -> Self {
+        let mut registry = Registry::new();
+        registry.add(Arc::new(crate::cli::Codex::new()));
+        registry.add(Arc::new(crate::cli::Claude::new()));
+        registry.add(Arc::new(crate::cli::OpenCode::new()));
+        for endpoint in &settings.endpoints {
+            registry.add(endpoint_provider(endpoint, secrets.clone()));
+        }
+        registry
+    }
+
     /// The provider settings name for `job`, and `request` with the model and effort settings
     /// give it (what the request names itself wins).
     pub fn prepare(
@@ -198,6 +212,29 @@ impl Registry {
         }
         request.effort = request.effort.or(choice.effort);
         Ok((provider, request))
+    }
+}
+
+/// The provider for an endpoint the learner added.
+pub fn endpoint_provider(endpoint: &Endpoint, secrets: Arc<dyn SecretStore>) -> Arc<dyn Provider> {
+    match endpoint.protocol {
+        Protocol::OpenAi => Arc::new(crate::http::OpenAiCompatible::new(
+            endpoint.id.clone(),
+            endpoint.name.clone(),
+            &endpoint.base_url,
+            endpoint.key.clone(),
+            secrets,
+        )),
+        Protocol::Anthropic => Arc::new(crate::http::Anthropic::new(
+            endpoint.id.clone(),
+            endpoint.name.clone(),
+            &endpoint.base_url,
+            endpoint
+                .key
+                .clone()
+                .unwrap_or_else(|| format!("{}.key", endpoint.id)),
+            secrets,
+        )),
     }
 }
 
@@ -322,6 +359,23 @@ mod tests {
             .err()
             .unwrap();
         assert!(error.to_string().contains("Settings"), "{error}");
+    }
+
+    #[test]
+    fn the_standard_registry_has_the_agents_and_the_learners_endpoints() {
+        let mut settings = Settings::default();
+        settings.endpoints.push(Endpoint {
+            id: "ollama".into(),
+            name: "Ollama".into(),
+            protocol: Protocol::OpenAi,
+            base_url: "http://127.0.0.1:11434/v1".into(),
+            key: None,
+        });
+        let registry =
+            Registry::standard(Arc::new(crate::secret::MemorySecrets::default()), &settings);
+        let ids: Vec<&str> = registry.all().iter().map(|p| p.id()).collect();
+        assert_eq!(ids, vec!["codex", "claude", "opencode", "ollama"]);
+        assert!(!registry.get("ollama").unwrap().abilities().agent);
     }
 
     #[test]

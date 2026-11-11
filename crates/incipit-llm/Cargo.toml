@@ -9,7 +9,9 @@ publish.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+base64 = "0.23.1"
 tempfile = "3.27.0"
+ureq = "3.5.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"

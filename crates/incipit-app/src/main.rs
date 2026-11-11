@@ -9,6 +9,7 @@
 
 mod agent;
 mod brain;
+mod concepts;
 mod figure;
 mod figures;
 mod find;

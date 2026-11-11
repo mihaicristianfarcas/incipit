@@ -3,24 +3,27 @@
 //! drag on the stage. The page knows no kind: the controls come from the figure's pace and from the
 //! handles its frame carries. The spec comes from INCIPIT_FIGURE (a JSON file a model wrote) or is
 //! one of the engine's examples, picked with the kind switcher or INCIPIT_KIND; INCIPIT_AT,
-//! INCIPIT_STEP, INCIPIT_PARAMS and INCIPIT_POINTS open it in a given state.
+//! INCIPIT_STEP, INCIPIT_PARAMS and INCIPIT_POINTS open it in a given state. Under the figure are
+//! the figures the open vault keeps (those made for passages in the reader), to show again.
 
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    div, prelude::*, px, Context, FontWeight, IntoElement, MouseButton, Pixels, Point, Render,
-    ScrollHandle, Window,
+    div, prelude::*, px, AnyElement, Context, Entity, FontWeight, IntoElement, MouseButton, Pixels,
+    Point, Render, ScrollHandle, SharedString, Subscription, Window,
 };
 use incipit_scene::{
     check, grab, layout, schema, ticks, Drag, Figure, Handle, Kind, Pace, Report, State, WIDTH,
 };
 use incipit_ui::{
-    button, card, icon_button, page, page_header, segmented, slider, IconName, Theme, Type,
+    button, card, icon_button, page, page_header, rows, section, segmented, setting, slider,
+    IconName, Theme, Type,
 };
 
 use crate::stage::{paper, stage, Shaped};
+use crate::workspace::{Happened, Workspace};
 
 /// Time units played each second.
 const SPEED: f32 = 1.0;
@@ -42,10 +45,24 @@ pub struct FigureView {
     /// Where the stage was drawn in the window, for turning the pointer into stage units.
     origin: Rc<Cell<Point<Pixels>>>,
     scroll: ScrollHandle,
+    workspace: Entity<Workspace>,
+    /// The figures the open vault keeps, newest first, with the passage each was made for.
+    kept: Vec<(Figure, SharedString)>,
+    _heard: Subscription,
 }
 
 impl FigureView {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+        let heard = cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
+            let ours = match happened {
+                Happened::Opened => true,
+                Happened::Changed(event) => event.path.as_str().starts_with("figures/"),
+            };
+            if ours {
+                this.kept = kept(&this.workspace, cx);
+                cx.notify();
+            }
+        });
         let (figure, kind) = match std::env::var("INCIPIT_FIGURE") {
             Ok(path) => (read(&path), None),
             Err(_) => {
@@ -76,6 +93,9 @@ impl FigureView {
             dragging: None,
             origin: Rc::new(Cell::new(Point::default())),
             scroll: ScrollHandle::new(),
+            kept: kept(&workspace, cx),
+            workspace,
+            _heard: heard,
         }
     }
 
@@ -157,6 +177,23 @@ impl FigureView {
         let s = STAGE_WIDTH / WIDTH;
         (p.x.as_f32() / s, p.y.as_f32() / s)
     }
+}
+
+/// The figures in the open vault whose spec still reads, newest first.
+fn kept(workspace: &Entity<Workspace>, cx: &gpui::App) -> Vec<(Figure, SharedString)> {
+    let Some(vault) = workspace.read(cx).vault.clone() else {
+        return Vec::new();
+    };
+    let mut docs = vault.list(Some(incipit_vault::Kind::Figure));
+    docs.sort_by_key(|doc| std::cmp::Reverse(doc.created()));
+    docs.into_iter()
+        .filter_map(|doc| {
+            let spec = doc.fields::<incipit_vault::Figure>()?.spec?;
+            let figure = serde_json::from_value::<Figure>(spec).ok()?;
+            let quote = doc.source().and_then(|s| s.quote).unwrap_or_default();
+            Some((figure, quote.into()))
+        })
+        .collect()
 }
 
 fn read(path: &str) -> Result<Figure, String> {
@@ -357,6 +394,27 @@ impl Render for FigureView {
                     )
             }))
             .child(checked(&report, t));
+        if !self.kept.is_empty() {
+            let kept: Vec<AnyElement> = self
+                .kept
+                .iter()
+                .enumerate()
+                .map(|(index, (figure, quote))| {
+                    let shown = figure.clone();
+                    let detail = (!quote.is_empty()).then(|| quote.clone());
+                    setting(
+                        figure.title().to_owned(),
+                        detail,
+                        button(("fig-kept", index), "Show", t).on_click(
+                            cx.listener(move |this, _, _, cx| this.present(shown.clone(), cx)),
+                        ),
+                        t,
+                    )
+                    .into_any_element()
+                })
+                .collect();
+            body = body.child(section("In your vault", t).child(rows(kept, t)));
+        }
         page("figure", &self.scroll, 760.0, t, body)
     }
 }

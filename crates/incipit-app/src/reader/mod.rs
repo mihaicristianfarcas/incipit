@@ -12,11 +12,12 @@
 //! around it go to the model as material, never as instructions.
 //!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at; =answer for a model's answer),
-//! INCIPIT_ASK=explain|cards (with INCIPIT_NOTE: ask the model about the selection),
+//! INCIPIT_ASK=explain|cards|quiz (with INCIPIT_NOTE: ask the model about the selection or the page),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block).
 
 mod asking;
 mod model;
+mod quiz;
 mod rows;
 
 use std::collections::{HashMap, HashSet};
@@ -101,6 +102,10 @@ pub struct ReaderView {
     asking: bool,
     /// The answers being written, by their note, and what stops each.
     answers: HashMap<u64, Cancel>,
+    /// The quiz that is open, the part of the book it is on, and what stops its writing.
+    quiz: Option<quiz::Quiz>,
+    quiz_on: usize,
+    quiz_stop: Option<Cancel>,
     draft: Entity<TextField>,
     contents: bool,
     margin: bool,
@@ -150,6 +155,9 @@ impl ReaderView {
             composing: None,
             asking: false,
             answers: HashMap::new(),
+            quiz: None,
+            quiz_on: 0,
+            quiz_stop: None,
             draft,
             contents: std::env::var_os("INCIPIT_CONTENTS").is_some(),
             margin: true,
@@ -363,12 +371,13 @@ impl ReaderView {
         .detach();
     }
 
-    /// INCIPIT_ASK=explain|cards puts the demonstration's selection to the model, to see a real
+    /// INCIPIT_ASK=explain|cards|quiz puts the demonstration's selection to the model, to see a real
     /// answer arrive without a mouse.
     fn try_demo(&mut self, cx: &mut Context<Self>) {
         match std::env::var("INCIPIT_ASK").as_deref() {
             Ok("explain") => self.explain(cx),
             Ok("cards") => self.make_cards(cx),
+            Ok("quiz") => self.start_quiz(cx),
             _ => {}
         }
     }
@@ -649,6 +658,15 @@ impl ReaderView {
                     .child(location),
             )
             .child(drag_area().flex_1().h_full())
+            .when(matches!(self.state, State::Open(_)), |bar| {
+                bar.child(
+                    button("reader-quiz", "Quiz", t)
+                        .ghost()
+                        .icon(IconName::CheckCircle)
+                        .tooltip("A short quiz on what is on screen")
+                        .on_click(cx.listener(|this, _, _, cx| this.start_quiz(cx))),
+                )
+            })
             .child(
                 icon_button("reader-smaller", IconName::Minus, "Smaller", t)
                     .ghost()
@@ -942,6 +960,7 @@ impl Render for ReaderView {
             .child(self.bar(t, cx))
             .child(div().flex_1().min_h_0().child(body))
             .children(self.selection_menu(t, cx))
+            .children(self.quiz_sheet(t, cx))
     }
 }
 

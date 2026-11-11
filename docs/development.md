@@ -36,7 +36,7 @@ screenshots are taken:
 | `INCIPIT_BOOK` | `pdf` or `epub`: opens that sample book in the reader, with no vault needed |
 | `INCIPIT_OPEN` | Words of a title: opens the first book of the vault whose title has them |
 | `INCIPIT_FIND` | Opens the find sheet with these words typed |
-| `INCIPIT_ASK` | With `INCIPIT_NOTE` on the Reader page: `explain` or `cards` puts the selection to the chosen model. This calls a model with your own login |
+| `INCIPIT_ASK` | With `INCIPIT_NOTE` on the Reader page: `explain` or `cards` puts the selection to the chosen model, `quiz` the page. This calls a model with your own login |
 | `INCIPIT_WAIT` | With `INCIPIT_SHOT`: seconds to wait before the picture, instead of 1.5 |
 | `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected; `answer` shows the note as a model's answer |
 | `INCIPIT_CONTENTS` | On the Reader page: starts with the book's contents open |

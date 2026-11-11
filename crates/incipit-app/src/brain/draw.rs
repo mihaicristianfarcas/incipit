@@ -1,6 +1,6 @@
-//! The Brain's canvas. What the picture looks like at this view (links, dots, a ring around the
-//! selected node, the names that fit) is worked out before painting, so the paint closure owns
-//! it. The canvas also registers the pointer's listeners for the whole window, not only over the
+//! The Brain's canvas. What the picture looks like at this view (links, dots, rings around the
+//! selected node and the nodes found, the names that fit) is worked out before painting, so the
+//! paint closure owns it. The canvas also registers the pointer's listeners for the whole window, not only over the
 //! picture: a drag that strays over a panel or out of the picture goes on until the button is let
 //! go. A press starts only over the picture itself (its hitbox), so the panels on it take their
 //! own clicks.
@@ -16,7 +16,7 @@ use gpui::{
 use incipit_graph::{choose_labels, LabelConfig, Point as At, Size as Extent};
 use incipit_ui::{rgba, Theme};
 
-use super::{ink, BrainView};
+use super::{ink, BrainView, NAMED};
 
 /// The names' size, in points: small, so that many fit.
 const LABEL: f32 = 11.0;
@@ -95,11 +95,17 @@ impl BrainView {
         };
         let (positions, radii) = (picture.positions(), picture.radii());
         let lit = self.lit();
+        let mut found = vec![false; positions.len()];
+        for node in &self.found {
+            found[*node] = true;
+        }
         let near = |node: usize| {
-            lit.iter()
-                .any(|l| *l == node || picture.neighbours[*l].contains(&node))
+            found[node]
+                || lit
+                    .iter()
+                    .any(|l| *l == node || picture.neighbours[*l].contains(&node))
         };
-        let quiet = !lit.is_empty();
+        let quiet = !lit.is_empty() || !self.found.is_empty();
         let screen = |p: At| view.to_screen(p);
         for (a, b) in &picture.edges {
             let on = quiet && lit.iter().any(|l| l == a || l == b);
@@ -122,17 +128,25 @@ impl BrainView {
                 faded(ink(picture.kinds[node], t), alpha),
             ));
         }
-        if let Some(node) = self.selected {
-            let radius = (radii[node] * view.scale).max(1.5) + RING_GAP;
+        let ring = |node: usize| (radii[node] * view.scale).max(1.5) + RING_GAP;
+        for &node in self.found.iter().filter(|n| Some(**n) != self.selected) {
             scene
                 .rings
-                .push((screen(positions[node]), radius, faded(t.primary, 0.9)));
+                .push((screen(positions[node]), ring(node), faded(t.focus, 0.9)));
         }
+        if let Some(node) = self.selected {
+            scene
+                .rings
+                .push((screen(positions[node]), ring(node), faded(t.primary, 0.9)));
+        }
+        // The lit nodes are named first, then the best of those found.
+        let mut named = lit.clone();
+        named.extend(self.found.iter().take(NAMED).filter(|n| !lit.contains(n)));
         let config = LabelConfig {
             line_height: LABEL * 1.3,
             ..LabelConfig::default()
         };
-        let labels = choose_labels(positions, radii, &view, viewport, &lit, &config, |i| {
+        let labels = choose_labels(positions, radii, &view, viewport, &named, &config, |i| {
             picture.widths.get(i).copied().unwrap_or(0.0)
         });
         for label in labels {

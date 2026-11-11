@@ -52,6 +52,7 @@ screenshots are taken:
 | `INCIPIT_BOOK` | `pdf` or `epub`: opens that sample book in the reader, with no vault needed |
 | `INCIPIT_OPEN` | Words of a title: opens the first book of the vault whose title has them |
 | `INCIPIT_FIND` | Opens the find sheet with these words typed |
+| `INCIPIT_NODE` | Opens the Brain page with these words typed in its find field and Enter pressed: the nodes whose titles have them are ringed, and the best one is selected, brought to the middle, and its card shown |
 | `INCIPIT_AGENT` | `demo` opens the agent's sheet on a made-up finished run (a request, three steps, closing words, two changed files, Undo); no model is called and its Undo changes nothing. Any other words open the sheet and have the agent do them in the vault once it is open. This runs an agent with your own login |
 | `INCIPIT_ASK` | With `INCIPIT_NOTE` on the Reader page: `explain`, `cards` or `figure` puts the selection to the chosen model, `quiz` the page; `session` (with `INCIPIT_NOTE=session`) sends a turn in the session. This calls a model with your own login |
 | `INCIPIT_WAIT` | With `INCIPIT_SHOT`: seconds to wait before the picture, instead of 1.5 |

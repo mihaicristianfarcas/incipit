@@ -7,6 +7,9 @@
 //! ("at capacity", rate limits) is tried again after 30, 90 and 180 s, moving to the next model the
 //! plan offers once the first retry has failed too. A refused model or a failed sign-in is
 //! reported in Codex's own words.
+//!
+//! The live tests need the Codex CLI signed in with ChatGPT and make small model calls:
+//! `cargo test -p incipit-llm -- --ignored codex_` (`INCIPIT_CODEX_MODEL` picks the model).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -675,7 +678,6 @@ exit 1"#,
         );
     }
 
-    /// Run with: cargo test -p incipit-llm -- --ignored codex_answers_live
     #[test]
     #[ignore = "requires the Codex CLI signed in with ChatGPT; makes one small model call"]
     fn codex_answers_live() {
@@ -690,6 +692,39 @@ exit 1"#,
             answer.text.to_lowercase().contains("blue"),
             "{}",
             answer.text
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the Codex CLI signed in with ChatGPT; makes one small model call"]
+    fn codex_fills_a_schema_live() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "colour": { "type": "string" } },
+            "required": ["colour"],
+            "additionalProperties": false
+        });
+        let request = Request::new("Fill in the colour.")
+            .ask("What colour is a clear daytime sky?")
+            .with_model(
+                std::env::var("INCIPIT_CODEX_MODEL").unwrap_or_else(|_| "gpt-6-luna".into()),
+            );
+        let out = crate::provider::structured(
+            &Codex::new(),
+            &request,
+            &schema,
+            &Cancel::new(),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(
+            out.value["colour"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("blue"),
+            "{:?}",
+            out.value
         );
     }
 }

@@ -7,6 +7,9 @@
 //! Plain calls get no tools. Pictures are copied into the call's folder and read with the Read
 //! tool, which is how Claude Code looks at one. Agents get Bash, Read, Grep and Glob (Edit and
 //! Write when they may write) under `--restricted` and the sandbox settings `sandbox` builds.
+//!
+//! The live tests need Claude Code signed in and make small model calls:
+//! `cargo test -p incipit-llm -- --ignored claude_`.
 
 use std::path::{Path, PathBuf};
 
@@ -534,7 +537,6 @@ mod tests {
         assert!(!format!("{status:?}").contains("example.com"));
     }
 
-    /// Run with: cargo test -p incipit-llm -- --ignored claude_answers_live
     #[test]
     #[ignore = "requires Claude Code signed in; makes one small model call"]
     fn claude_answers_live() {
@@ -548,6 +550,37 @@ mod tests {
             answer.text.to_lowercase().contains("blue"),
             "{}",
             answer.text
+        );
+    }
+
+    #[test]
+    #[ignore = "requires Claude Code signed in; makes one small model call"]
+    fn claude_fills_a_schema_live() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "colour": { "type": "string" } },
+            "required": ["colour"],
+            "additionalProperties": false
+        });
+        let request = Request::new("Fill in the colour.")
+            .ask("What colour is a clear daytime sky?")
+            .with_model("haiku");
+        let out = crate::provider::structured(
+            &Claude::new(),
+            &request,
+            &schema,
+            &Cancel::new(),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(
+            out.value["colour"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("blue"),
+            "{:?}",
+            out.value
         );
     }
 }

@@ -164,6 +164,14 @@ fn file(
     let Ok(bytes) = fs::read(&full) else {
         return missing(state, path, origin, events);
     };
+    if bytes.is_empty() && state.by_path.contains_key(path) {
+        // A program that writes a file in place empties it first, and the system may say so
+        // before the words arrive (inotify does). Reading that moment as the document would
+        // drop its id and announce it gone, so a known document that is suddenly empty is left
+        // as it was: the write that follows is the change. One emptied on purpose is read as
+        // empty the next time the vault is opened.
+        return;
+    }
     let print = content_fingerprint(&bytes);
     if state.files.get(path) == Some(&print) {
         return; // the vault's own write, or an edit that changed nothing

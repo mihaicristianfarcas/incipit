@@ -1,14 +1,23 @@
 //! Flashcards between the vault and the scheduler. A card's file never changes when it is
 //! reviewed: its schedule is what the review log says, replayed through `incipit-learn` each time
 //! the vault is read. A rating is one line added to the log. Nothing here draws.
+//!
+//! Recalling a known card after a wait also uses what its ideas build on, so the cards on those
+//! ideas get part of a review (`incipit_learn::credit`), at most once a day each: a card already
+//! in review, rated Good or Easy at least a day after its last review, credits the cards on the
+//! concepts its own concepts build on directly (`concepts::ties::foundations`). This is the
+//! earlier app's rule, replayed the same way from the log and applied to a rating made now.
 
 use std::collections::HashMap;
 
+use incipit_learn::schedule::CREDIT_SHARE;
 use incipit_learn::{
-    build_queue, preview, schedule, streaks, today_counts, Candidate, Params, Preview, Queue,
-    QueueOptions, Rating, Streaks, TodayCounts,
+    build_queue, credit, preview, schedule, streaks, today_counts, Candidate, Params, Preview,
+    Queue, QueueOptions, Rating, State, Streaks, TodayCounts, DAY_MS,
 };
 use incipit_vault::{Card, Doc, DocId, Kind, Review, Vault, REVIEWS};
+
+use crate::concepts::ties::{foundations, Ties};
 
 /// New cards shown in a day, and the most cards in one sitting.
 const NEW_PER_DAY: usize = 20;
@@ -25,6 +34,10 @@ pub struct Deck {
     cards: HashMap<DocId, Entry>,
     log: Vec<incipit_learn::Review>,
     params: Params,
+    /// For each card, the cards a recall of it credits.
+    foundations: HashMap<DocId, Vec<DocId>>,
+    /// When each card was last credited.
+    credited: HashMap<DocId, i64>,
 }
 
 /// Milliseconds since the epoch of an RFC 3339 time; `None` when it is not one.
@@ -53,6 +66,11 @@ impl Deck {
     /// Read the vault's cards and replay its reviews. Lines of the log that cannot be read, or
     /// that name a card that is gone, are passed over.
     pub fn load(vault: &Vault) -> Deck {
+        Deck::load_with(vault, &Ties::read(vault))
+    }
+
+    /// The same, with the vault's ties to concepts already read.
+    pub fn load_with(vault: &Vault, ties: &Ties) -> Deck {
         let params = Params::default();
         let mut cards: HashMap<DocId, Entry> = HashMap::new();
         for doc in vault.list(Some(Kind::Card)) {
@@ -81,17 +99,63 @@ impl Deck {
             .keys()
             .map(|id| (id.as_str().to_owned(), id.clone()))
             .collect();
-        let mut log = Vec::new();
+        let mut deck = Deck {
+            cards,
+            log: Vec::new(),
+            params,
+            foundations: foundations(ties),
+            credited: HashMap::new(),
+        };
         for (at, review) in reviews {
             let (Some(id), Some(rating)) = (by_id.get(&review.card), rating(review.rating)) else {
                 continue;
             };
-            let entry = cards.get_mut(id).expect("ids come from the cards");
-            let (state, line) = schedule(&entry.state, rating, at, &params);
-            entry.state = state;
-            log.push(line);
+            deck.apply(id, rating, at);
         }
-        Deck { cards, log, params }
+        deck
+    }
+
+    /// One rating, replayed from the log or made now: the card's new schedule, and part of a
+    /// review for the cards on what its ideas build on. Nothing happens for a card not in the
+    /// deck.
+    fn apply(&mut self, id: &DocId, rating: Rating, at: i64) {
+        let Some(entry) = self.cards.get_mut(id) else {
+            return;
+        };
+        let before = entry.state.clone();
+        let (state, line) = schedule(&before, rating, at, &self.params);
+        entry.state = state;
+        self.log.push(line);
+        // A known card recalled after a wait: what its ideas build on was used.
+        let recalled = matches!(rating, Rating::Good | Rating::Easy);
+        let waited = before.last_review.is_some_and(|last| at - last >= DAY_MS);
+        if !recalled || before.state != State::Review || !waited {
+            return;
+        }
+        for other in self.foundations.get(id).into_iter().flatten() {
+            let Some(entry) = self.cards.get_mut(other) else {
+                continue;
+            };
+            if self
+                .credited
+                .get(other)
+                .is_some_and(|last| at - last < DAY_MS)
+            {
+                continue;
+            }
+            // `credit` changes only a card in review, and not on the day of its last review; a
+            // card it leaves as it was is not counted as credited.
+            let changes = entry.state.state == State::Review
+                && entry
+                    .state
+                    .last_review
+                    .is_some_and(|last| at - last >= DAY_MS);
+            if !changes {
+                continue;
+            }
+            entry.state = credit(&entry.state, at, CREDIT_SHARE, &self.params);
+            self.credited.insert(other.clone(), at);
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -157,7 +221,9 @@ impl Deck {
         now: i64,
         took: Option<f64>,
     ) -> Result<(), String> {
-        let entry = self.cards.get_mut(id).ok_or("the card is gone")?;
+        if !self.cards.contains_key(id) {
+            return Err("the card is gone".into());
+        }
         let at = chrono::DateTime::from_timestamp_millis(now)
             .ok_or("the clock gives no time")?
             .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -172,9 +238,7 @@ impl Deck {
         vault
             .append_log(REVIEWS, &line)
             .map_err(|e| e.to_string())?;
-        let (state, review) = schedule(&entry.state, rating, now, &self.params);
-        entry.state = state;
-        self.log.push(review);
+        self.apply(id, rating, now);
         Ok(())
     }
 }
@@ -234,6 +298,102 @@ mod tests {
         assert_eq!(again.counts(later, 0).done_today, 2);
         // And the card comes back when it is due.
         assert!(again.queue(later + 30 * DAY, 0).cards.contains(first.id()));
+    }
+
+    /// A vault where a derivative builds on a limit, with a card on each (two on the derivative).
+    fn calculus() -> (tempfile::TempDir, Vault, [DocId; 3]) {
+        use crate::concepts::testing::{card_on, concept};
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        concept(&vault, "Limit", &[], &[]);
+        concept(&vault, "Derivative", &["Limit"], &[]);
+        let limit = card_on(&vault, "What is a limit?", &["[[Limit]]"]);
+        let first = card_on(&vault, "What is a derivative?", &["[[Derivative]]"]);
+        let second = card_on(&vault, "Slope of x²?", &["[[Derivative]]"]);
+        let ids = [limit, first, second].map(|d| d.id().clone());
+        (folder, vault, ids)
+    }
+
+    #[test]
+    fn recalling_a_known_card_after_a_wait_credits_the_cards_its_ideas_build_on() {
+        let (_folder, vault, [limit, first, _]) = calculus();
+        let start = now();
+        let mut deck = Deck::load(&vault);
+        // Easy on a new card takes it straight into review.
+        deck.rate(&vault, &limit, Rating::Easy, start, None)
+            .unwrap();
+        deck.rate(&vault, &first, Rating::Easy, start, None)
+            .unwrap();
+        let known = deck.get(&limit).unwrap().state.clone();
+        deck.rate(&vault, &first, Rating::Good, start + 3 * DAY, None)
+            .unwrap();
+        let credited = deck.get(&limit).unwrap().state.clone();
+        assert!(credited.stability > known.stability);
+        assert!(credited.due >= known.due);
+        // Not a review: the card's own review count and last review stay.
+        assert_eq!(credited.reps, known.reps);
+        assert_eq!(credited.last_review, known.last_review);
+        // The log replays to the same.
+        let again = Deck::load(&vault);
+        assert_eq!(again.get(&limit).unwrap().state, credited);
+    }
+
+    #[test]
+    fn a_foundation_is_credited_once_a_day_at_most() {
+        let (_folder, vault, [limit, first, second]) = calculus();
+        let start = now();
+        let mut deck = Deck::load(&vault);
+        for card in [&limit, &first, &second] {
+            deck.rate(&vault, card, Rating::Easy, start, None).unwrap();
+        }
+        deck.rate(&vault, &first, Rating::Good, start + 3 * DAY, None)
+            .unwrap();
+        let once = deck.get(&limit).unwrap().state.clone();
+        deck.rate(
+            &vault,
+            &second,
+            Rating::Good,
+            start + 3 * DAY + 3_600_000,
+            None,
+        )
+        .unwrap();
+        assert_eq!(deck.get(&limit).unwrap().state, once);
+        // A day after the credit, another recall credits it again.
+        deck.rate(&vault, &second, Rating::Good, start + 5 * DAY, None)
+            .unwrap();
+        assert!(deck.get(&limit).unwrap().state.stability > once.stability);
+    }
+
+    #[test]
+    fn a_lapse_a_card_still_learning_or_no_wait_credits_nothing() {
+        let (_folder, vault, [limit, first, second]) = calculus();
+        let start = now();
+        let mut deck = Deck::load(&vault);
+        deck.rate(&vault, &limit, Rating::Easy, start, None)
+            .unwrap();
+        deck.rate(&vault, &first, Rating::Easy, start, None)
+            .unwrap();
+        let known = deck.get(&limit).unwrap().state.clone();
+        // Forgotten after a wait.
+        deck.rate(&vault, &first, Rating::Again, start + 3 * DAY, None)
+            .unwrap();
+        // Recalled, but still in its first steps.
+        deck.rate(&vault, &second, Rating::Good, start + 3 * DAY, None)
+            .unwrap();
+        deck.rate(&vault, &second, Rating::Good, start + 4 * DAY, None)
+            .unwrap();
+        assert_eq!(deck.get(&limit).unwrap().state, known);
+        // Known, but recalled again on the day of its last review.
+        let (_other, vault, [limit, first, _]) = calculus();
+        let mut deck = Deck::load(&vault);
+        deck.rate(&vault, &limit, Rating::Easy, start, None)
+            .unwrap();
+        deck.rate(&vault, &first, Rating::Easy, start, None)
+            .unwrap();
+        let known = deck.get(&limit).unwrap().state.clone();
+        deck.rate(&vault, &first, Rating::Good, start + 3_600_000, None)
+            .unwrap();
+        assert_eq!(deck.get(&limit).unwrap().state, known);
     }
 
     #[test]

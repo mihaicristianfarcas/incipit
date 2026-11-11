@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::draw::{Frame, Measure};
 use crate::flow::Flow;
 use crate::handles::{Drag, Target};
+use crate::plot::Plot;
 use crate::sequence::Sequence;
 
 /// A figure as a model writes it.
@@ -19,6 +20,7 @@ use crate::sequence::Sequence;
 pub enum Figure {
     Sequence(Sequence),
     Flow(Flow),
+    Plot(Plot),
 }
 
 /// The kinds of figure, in the order a person would look for them.
@@ -26,16 +28,18 @@ pub enum Figure {
 pub enum Kind {
     Sequence,
     Flow,
+    Plot,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 2] = [Kind::Sequence, Kind::Flow];
+    pub const ALL: [Kind; 3] = [Kind::Sequence, Kind::Flow, Kind::Plot];
 
     /// The name a spec's `kind` field holds.
     pub fn name(self) -> &'static str {
         match self {
             Kind::Sequence => "sequence",
             Kind::Flow => "flow",
+            Kind::Plot => "plot",
         }
     }
 
@@ -44,6 +48,7 @@ impl Kind {
         match self {
             Kind::Sequence => "Sequence",
             Kind::Flow => "Flow",
+            Kind::Plot => "Plot",
         }
     }
 
@@ -53,6 +58,9 @@ impl Kind {
             Kind::Sequence => "who tells whom what, over time: messages between actors",
             Kind::Flow => {
                 "boxes and arrows: processes, causes, decisions, state machines, cycles, trees"
+            }
+            Kind::Plot => {
+                "functions of x with parameters to drag: rates, growth, waves, distributions"
             }
         }
     }
@@ -76,6 +84,14 @@ pub trait Spec {
     fn structure(&self) -> Vec<String>;
     /// The states the checks look at: enough that what any learner could reach is covered.
     fn samples(&self) -> Vec<Sample>;
+    /// The state on moving to `step` from `state`. A kind whose steps set parameters sets them
+    /// here, over what the learner had dragged.
+    fn step_to(&self, state: &State, step: usize) -> State {
+        State {
+            step,
+            ..state.clone()
+        }
+    }
 }
 
 /// How a figure moves on.
@@ -148,6 +164,7 @@ impl Figure {
         match self {
             Figure::Sequence(s) => s,
             Figure::Flow(f) => f,
+            Figure::Plot(k) => k,
         }
     }
 
@@ -155,6 +172,7 @@ impl Figure {
         match self {
             Figure::Sequence(_) => Kind::Sequence,
             Figure::Flow(_) => Kind::Flow,
+            Figure::Plot(_) => Kind::Plot,
         }
     }
 
@@ -172,6 +190,10 @@ impl Figure {
 
     pub fn start(&self) -> State {
         self.spec().start()
+    }
+
+    pub fn step_to(&self, state: &State, step: usize) -> State {
+        self.spec().step_to(state, step)
     }
 }
 

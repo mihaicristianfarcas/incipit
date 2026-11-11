@@ -96,9 +96,39 @@ steps that name real elements; a label that does not fit its shape, too
 many nodes side by side, and too many layers are errors that say what to
 change.
 
+### Plot
+
+Functions of x the learner plays with: rates, growth, waves, and
+distributions (a density is a curve, a probability an area under it).
+
+Spec: `x` and `y` axes (a label and a range; a `y` range of 0 to 0 lets
+the engine choose it from what is drawn), `params` (name, label, range and
+start: each is a slider), `layers` and `steps`. A layer is a `curve`, an
+`area` between two functions, a `point`, a `tangent` to a curve, or a
+vertical or horizontal line. A point whose x or y is one parameter's name
+can be dragged, which sets that parameter. A step may set parameters.
+
+Every number that moves is an expression over x and the parameters
+(`expr.rs`): arithmetic, comparisons and a fixed list of functions,
+parsed into a tree and evaluated. It is never run as code, it has no
+loops and no names but the ones the spec declares, and its length and
+nesting are limited.
+
+Layout (`plot/layout.rs`): curves are sampled across the plot, broken
+where they are undefined or jump (an asymptote) and clipped to the plot;
+the ticks are chosen from the range; labels are placed last, clear of
+each other.
+
+Checks: at most 4 parameters and 1 to 8 layers; ranges with a min below
+their max; expressions that parse and use only known names; a dragged
+point's coordinate that is one parameter; steps that set real parameters
+inside their range. The drawing is then looked at across the parameters'
+ranges and the steps, and a point that leaves the plot is an error that
+says where and with which values.
+
 ## Steps
 
-Flow and the kinds after it share `steps::Step`: one sentence of
+Flow and plot share `steps::Step`: one sentence of
 narration, the ids that appear at that step (`show`) and the ids to light
 (`focus`). An element no step shows is there from the start. Positions
 never depend on the step, so nothing jumps as the learner steps on. The

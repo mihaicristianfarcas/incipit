@@ -158,7 +158,8 @@ impl NotesView {
         cx.notify();
     }
 
-    fn select(&mut self, id: DocId, cx: &mut Context<Self>) {
+    /// Open a note, saving the one that was open.
+    pub fn select(&mut self, id: DocId, cx: &mut Context<Self>) {
         self.save(cx);
         self.show(Some(id), cx);
     }

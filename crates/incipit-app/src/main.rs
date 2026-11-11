@@ -2,6 +2,7 @@
 //! GPUI with incipit-ui. For checks without clicking: INCIPIT_PAGE=reader|math|figure opens that
 //! page, INCIPIT_SHOT=file.png saves the window there and quits.
 
+mod brain;
 mod figure;
 mod library;
 mod math;
@@ -24,15 +25,17 @@ enum Page {
     Reader,
     Notes,
     Review,
+    Brain,
     Math,
     Figure,
 }
 
-const PAGES: [(Page, &str, &str, IconName); 6] = [
+const PAGES: [(Page, &str, &str, IconName); 7] = [
     (Page::Library, "nav-library", "Library", IconName::Display),
     (Page::Reader, "nav-reader", "Reader", IconName::List),
     (Page::Notes, "nav-notes", "Notes", IconName::Pencil),
     (Page::Review, "nav-review", "Review", IconName::Bolt),
+    (Page::Brain, "nav-brain", "Brain", IconName::Network),
     (Page::Math, "nav-math", "Math", IconName::Type),
     (Page::Figure, "nav-figure", "Figure", IconName::Activity),
 ];
@@ -45,6 +48,7 @@ struct Root {
     notes: Entity<notes::NotesView>,
     review: Entity<review::ReviewView>,
     library: Entity<library::LibraryView>,
+    brain: Entity<brain::BrainView>,
     reader: Entity<reader::ReaderView>,
 }
 
@@ -56,6 +60,7 @@ impl Root {
             Ok("notes") => Page::Notes,
             Ok("review") => Page::Review,
             Ok("library") => Page::Library,
+            Ok("brain") => Page::Brain,
             Ok("figure") => Page::Figure,
             _ => Page::Notes,
         };
@@ -89,15 +94,26 @@ impl Root {
             },
         )
         .detach();
+        let notes = cx.new(|cx| notes::NotesView::new(workspace.clone(), cx));
+        let brain = cx.new(|cx| brain::BrainView::new(workspace.clone(), cx));
+        // A note opened from the picture opens on the Notes page.
+        cx.subscribe(&brain, |this: &mut Self, _, open: &brain::OpenNote, cx| {
+            let id = open.0.clone();
+            this.notes.update(cx, |notes, cx| notes.select(id, cx));
+            this.page = Page::Notes;
+            cx.notify();
+        })
+        .detach();
         Root {
             page,
             glide: Glide::new(cx),
             figure: cx.new(figure::FigureView::new),
             math: cx.new(math::MathView::new),
-            notes: cx.new(|cx| notes::NotesView::new(workspace.clone(), cx)),
+            notes,
             review: cx.new(|cx| review::ReviewView::new(workspace.clone(), cx)),
             reader,
             library,
+            brain,
         }
     }
 
@@ -129,6 +145,7 @@ impl Render for Root {
             Page::Figure => self.figure.clone().into_any_element(),
             Page::Math => self.math.clone().into_any_element(),
             Page::Notes => self.notes.clone().into_any_element(),
+            Page::Brain => self.brain.clone().into_any_element(),
             Page::Library => self.library.clone().into_any_element(),
             Page::Review => self.review.clone().into_any_element(),
             Page::Reader => self.reader.clone().into_any_element(),

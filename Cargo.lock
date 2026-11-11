@@ -4443,6 +4443,7 @@ dependencies = [
  "gpui_platform",
  "image",
  "incipit-book",
+ "incipit-graph",
  "incipit-learn",
  "incipit-math",
  "incipit-scene",

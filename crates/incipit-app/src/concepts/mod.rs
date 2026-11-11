@@ -2,9 +2,14 @@
 //! (docs/vault.md); what ties cards, notes and concepts to concepts is read from the links in
 //! their properties (`ties`), and the review queue credits cards by those ties (`crate::study`).
 //! How well a concept is known is `known`; what its page and the list of concepts show is `view`.
+//! A chapter is mapped into concepts by the model (`mapping`, with the chapter's text and its
+//! quotes found in `chapter`), and each concept found is added or added to (`upsert`).
 
+pub mod chapter;
 pub mod known;
+pub mod mapping;
 pub mod ties;
+pub mod upsert;
 pub mod view;
 
 /// What tests of concepts make in a throwaway vault.

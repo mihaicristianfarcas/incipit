@@ -139,6 +139,15 @@ impl Root {
             },
         )
         .detach();
+        // A concept a passage introduces opens on its page.
+        cx.subscribe(
+            &reader,
+            |this: &mut Self, _, open: &reader::OpenConcept, cx| {
+                this.open(Kind::Concept, &open.0, cx);
+                cx.notify();
+            },
+        )
+        .detach();
         let library = cx.new(|cx| library::LibraryView::new(workspace.clone(), cx));
         // A book chosen in the library opens in the reader.
         cx.subscribe(

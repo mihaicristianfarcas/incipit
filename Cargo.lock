@@ -4452,6 +4452,7 @@ dependencies = [
  "incipit-vault",
  "serde_json",
  "tempfile",
+ "unicode-normalization",
 ]
 
 [[package]]

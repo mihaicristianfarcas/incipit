@@ -12,12 +12,17 @@
 //! around it go to the model as material, never as instructions. An answer can be talked over
 //! with the tutor in a sheet (`session`), and a page turned into a quiz (`quiz`).
 //!
+//! A chapter can be mapped into concepts from the contents, and the concepts that came from the
+//! book's passages have cards in the margin beside them (`concepts`).
+//!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =session for a tutor session with a made-up conversation),
 //! INCIPIT_ASK=explain|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
-//! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block).
+//! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block),
+//! INCIPIT_MAP=n (map line n of the contents, from 0, into concepts once the book is open).
 
 mod asking;
+mod concepts;
 mod model;
 mod quiz;
 mod rows;
@@ -43,7 +48,7 @@ use incipit_ui::{
 use incipit_vault::{Annotation, DocId, Kind, Source};
 
 use crate::models::Models;
-use crate::workspace::Workspace;
+use crate::workspace::{Happened, Workspace};
 use model::{byte_of, find, rich, Doc, EpubDoc, Held, Note, Opened, PdfDoc, Place, Selection};
 
 /// The margin's width, and the gap between it and the book.
@@ -89,6 +94,11 @@ pub struct OpenFigure(pub incipit_scene::Figure);
 
 impl gpui::EventEmitter<OpenFigure> for ReaderView {}
 
+/// The learner asked to see a concept's page.
+pub struct OpenConcept(pub DocId);
+
+impl gpui::EventEmitter<OpenConcept> for ReaderView {}
+
 pub struct ReaderView {
     workspace: Entity<Workspace>,
     models: Entity<Models>,
@@ -127,9 +137,16 @@ pub struct ReaderView {
     drawn: UnboundedSender<Drawn>,
     /// The page or block to show once the book being opened is open.
     pub go_to: Option<usize>,
+    /// The chapter being mapped into concepts, or mapped last.
+    mapping: Option<concepts::Mapping>,
+    /// The line of the contents under the pointer.
+    hovered_entry: Option<usize>,
+    /// The line of the contents to map once the book is open (INCIPIT_MAP).
+    map_on_open: Option<usize>,
     demo: bool,
     _draft_events: Subscription,
     _reply_events: Subscription,
+    _vault_events: Subscription,
 }
 
 impl ReaderView {
@@ -165,6 +182,15 @@ impl ReaderView {
                     FieldEvent::Changed => {}
                 },
             );
+        // A concept written, changed or removed changes the cards in the margin.
+        let vault_events =
+            cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
+                if let Happened::Changed(event) = happened {
+                    if event.path.parts().next() == Some("concepts") {
+                        this.concept_notes(cx);
+                    }
+                }
+            });
         let (drawn, pages) = unbounded();
         cx.spawn(async move |this, cx| Self::take_pages(this, pages, cx).await)
             .detach();
@@ -196,9 +222,15 @@ impl ReaderView {
             room: f32::MAX,
             drawn,
             go_to: None,
+            mapping: None,
+            hovered_entry: None,
+            map_on_open: std::env::var("INCIPIT_MAP")
+                .ok()
+                .and_then(|n| n.trim().parse().ok()),
             demo: std::env::var_os("INCIPIT_NOTE").is_some(),
             _draft_events: draft_events,
             _reply_events: reply_events,
+            _vault_events: vault_events,
         };
         // The sample books, for looking at the reader without a vault.
         let sample = match std::env::var("INCIPIT_BOOK").as_deref() {
@@ -442,6 +474,11 @@ impl ReaderView {
                         }
                         this.state = State::Open(opened);
                         this.kept_notes(cx);
+                        this.concept_notes(cx);
+                        if let Some(entry) = this.map_on_open.take() {
+                            this.contents = true;
+                            this.map_chapter(entry, cx);
+                        }
                         if this.demo && epub {
                             this.demo = false;
                             this.show_demo();
@@ -797,16 +834,34 @@ impl ReaderView {
             )
     }
 
-    fn contents(&self, entries: &[Entry], t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The book's contents, with the map of a chapter into concepts at the top while there is
+    /// one. The line under the pointer and the line of the chapter on screen have a button that
+    /// maps their chapter.
+    fn contents(
+        &self,
+        entries: &[Entry],
+        t: Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let top = self.list.logical_scroll_top().item_ix;
         let here = entries.iter().rposition(|e| e.page <= top);
+        let status = self.mapping_status(t, window, cx);
+        let mapping = self.mapping_entry();
         let rows = entries.iter().enumerate().map(|(index, entry)| {
             let page = entry.page;
+            let mappable = self.hovered_entry == Some(index) || here == Some(index);
             div()
                 .id(("contents", index))
+                // Its height is its text's: a line is never squeezed to fit the rail.
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(4.0))
                 .pl(px(10.0 + 12.0 * entry.depth.min(3) as f32))
-                .pr(px(10.0))
-                .py(px(5.0))
+                .pr(px(4.0))
+                .py(px(3.0))
+                .min_h(px(30.0))
                 .rounded(px(6.0))
                 .text_size(px(Type::META + 1.0))
                 .text_color(if here == Some(index) {
@@ -817,7 +872,24 @@ impl ReaderView {
                 .when(here == Some(index), |row| row.bg(t.selected))
                 .hover(|row| row.bg(t.hover))
                 .cursor_pointer()
-                .child(entry.title.clone())
+                .child(div().flex_1().min_w_0().child(entry.title.clone()))
+                .when(mapping == Some(index), |row| {
+                    row.child(div().flex_none().p(px(6.0)).child(incipit_ui::spinner(
+                        ("contents-mapping", index),
+                        13.0,
+                        t.secondary,
+                    )))
+                })
+                .when(mappable && mapping != Some(index), |row| {
+                    row.child(self.map_button(index, t, cx))
+                })
+                .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                    let now = if *hovered { Some(index) } else { None };
+                    if *hovered || this.hovered_entry == Some(index) {
+                        this.hovered_entry = now;
+                        cx.notify();
+                    }
+                }))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.list.scroll_to(ListOffset {
                         item_ix: page,
@@ -837,6 +909,7 @@ impl ReaderView {
             .flex()
             .flex_col()
             .gap(px(1.0))
+            .children(status)
             .when(entries.is_empty(), |rail| {
                 rail.child(
                     div()
@@ -897,6 +970,9 @@ impl ReaderView {
 
     /// A note's card in the margin: one line when closed, whole when open.
     fn card(&self, note: &Note, t: Theme, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        if let Some(concept) = &note.concept {
+            return self.concept_card(note, concept, t, cx);
+        }
         let id = note.id;
         let open = self.open == Some(id);
         let quote: String = note
@@ -1084,7 +1160,7 @@ impl Render for ReaderView {
                     .size_full()
                     .flex()
                     .when(self.contents, |row| {
-                        row.child(self.contents(&opened.contents, t, cx))
+                        row.child(self.contents(&opened.contents, t, window, cx))
                     })
                     .child(div().flex_1().min_w_0().h_full().child(rows))
                     .into_any_element()

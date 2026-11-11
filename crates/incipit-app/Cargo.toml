@@ -27,6 +27,7 @@ incipit-learn = { path = "../incipit-learn" }
 incipit-graph = { path = "../incipit-graph" }
 incipit-llm = { path = "../incipit-llm" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+unicode-normalization = "0.1.26"
 
 [dev-dependencies]
 tempfile = "3"

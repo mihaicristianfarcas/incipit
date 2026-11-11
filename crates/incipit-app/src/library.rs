@@ -165,6 +165,21 @@ impl LibraryView {
         }
     }
 
+    /// Open the book with this id in the reader.
+    pub fn open(&mut self, id: &DocId, cx: &mut Context<Self>) {
+        let shelved = self.books.iter().find(|b| b.id == *id).and_then(|b| {
+            Some(Shelved {
+                id: Some(b.id.clone()),
+                title: b.title.clone(),
+                file: b.file.clone()?,
+                epub: b.format == "epub",
+            })
+        });
+        if let Some(shelved) = shelved {
+            cx.emit(Chosen(shelved));
+        }
+    }
+
     /// Ask for book files and add each, off the window's thread.
     fn choose(&mut self, cx: &mut Context<Self>) {
         let Some(vault) = self.workspace.read(cx).vault.clone() else {

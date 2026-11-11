@@ -66,7 +66,6 @@ impl Root {
             Ok("library") => Page::Library,
             Ok("brain") => Page::Brain,
             Ok("figure") => Page::Figure,
-            Ok("notes") => Page::Notes,
             _ => Page::Today,
         };
         if let Some(path) = std::env::var_os("INCIPIT_SHOT") {

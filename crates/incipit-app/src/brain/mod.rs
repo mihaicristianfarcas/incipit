@@ -1,28 +1,31 @@
 //! The Brain: the vault's notes, concepts and books as a picture of what links to what. The
-//! layout (`incipit-graph`) runs off the window's thread and the picture appears when it has
-//! settled; here it is drawn on a canvas, moved by dragging, zoomed with the wheel around the
-//! pointer, and a node under the pointer lights up with its neighbours. Clicking a node says
+//! layout (`picture`, with `incipit-graph`) runs off the window's thread and the picture appears
+//! when it has settled; here it is drawn on a canvas (`draw`), panned by dragging empty space,
+//! zoomed with the wheel around the pointer, and a node under the pointer lights up with its
+//! neighbours. Dragging a node holds it under the pointer while the rest follows, and let go the
+//! picture settles: while it moves it is stepped once a frame, and once settled it asks for no
+//! more frames. What a press becomes (a click, a drag, a pan) is `press`. Clicking a node says
 //! what it is, and opens a note. INCIPIT_PAGE=brain opens the page.
 
+mod draw;
 mod picture;
+mod press;
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    canvas, div, fill, font, prelude::*, px, size, Bounds, Context, Entity, EventEmitter, Hsla,
-    IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, PathBuilder, Pixels, Point, Render,
-    Rgba, ScrollWheelEvent, Subscription, TextRun, Window,
+    div, prelude::*, px, Bounds, Context, Entity, EventEmitter, IntoElement, MouseButton,
+    MouseMoveEvent, Pixels, Point, Render, Rgba, ScrollWheelEvent, Subscription, Window,
 };
-use incipit_graph::{bounds, choose_labels, LabelConfig, Point as At, Size as Extent, View};
+use incipit_graph::{bounds, Point as At, Size as Extent, View};
 use incipit_ui::{button, floating, Theme, Type};
 use incipit_vault::{DocId, Kind};
 
 use picture::{gather, lay_out, Picture};
+use press::{Motion, Press, Release};
 
 use crate::workspace::{Happened, Workspace};
-
-const LABEL: f32 = 11.0;
 
 /// A note the learner asked to open from the picture.
 pub struct OpenNote(pub DocId);
@@ -32,20 +35,27 @@ pub struct BrainView {
     picture: Option<Picture>,
     /// Counts the layouts started, so one that finishes late is dropped.
     asked: u64,
+    /// The next picture is of another vault: laid out afresh and fitted to the page.
+    afresh: bool,
     view: Option<View>,
     /// Where the canvas was last painted, and how large.
     place: Rc<Cell<Bounds<Pixels>>>,
     hovered: Option<usize>,
     selected: Option<usize>,
-    /// Where the pointer was when the last drag of the picture was seen.
-    panning: Option<Point<Pixels>>,
+    /// The pointer's button is down on the picture.
+    press: Option<Press>,
     _subscription: Subscription,
 }
 
 impl EventEmitter<OpenNote> for BrainView {}
 
-fn faded(colour: Rgba, alpha: f32) -> Hsla {
-    Rgba { a: alpha, ..colour }.into()
+/// The colour of a kind of document in the picture.
+fn ink(kind: Kind, t: Theme) -> Rgba {
+    match kind {
+        Kind::Concept => t.accent,
+        Kind::Book => t.attention,
+        _ => t.secondary,
+    }
 }
 
 impl BrainView {
@@ -54,23 +64,25 @@ impl BrainView {
             cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
                 // A document made, removed or renamed changes the picture; typing in one does too,
                 // when it adds a link, so every change to a file of the vault lays it out again.
-                let again = match happened {
-                    Happened::Opened => true,
-                    Happened::Changed(event) => event.path.is_markdown(),
-                };
-                if again {
-                    this.build(cx);
+                match happened {
+                    Happened::Opened => {
+                        this.afresh = true;
+                        this.build(cx);
+                    }
+                    Happened::Changed(event) if event.path.is_markdown() => this.build(cx),
+                    Happened::Changed(_) => {}
                 }
             });
         let mut view = BrainView {
             workspace,
             picture: None,
             asked: 0,
+            afresh: true,
             view: None,
             place: Rc::default(),
             hovered: None,
             selected: None,
-            panning: None,
+            press: None,
             _subscription: subscription,
         };
         view.build(cx);
@@ -84,31 +96,45 @@ impl BrainView {
         };
         self.asked += 1;
         let asked = self.asked;
-        let (ids, titles, kinds, edges) = gather(&vault);
+        let gathered = gather(&vault);
+        let before = match self.afresh {
+            true => None,
+            false => self.picture.as_ref().map(Picture::before),
+        };
         cx.spawn(async move |this, cx| {
             let picture = cx
                 .background_executor()
-                .spawn(async move { lay_out(ids, titles, kinds, edges) })
+                .spawn(async move { lay_out(gathered, before) })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if this.asked != asked {
-                    return;
+                if this.asked == asked {
+                    this.show(picture, cx);
                 }
-                // The same documents keep their place on screen; another set is fitted anew.
-                let same = this
-                    .picture
-                    .as_ref()
-                    .is_some_and(|old| old.ids == picture.ids);
-                if !same {
-                    this.view = None;
-                    this.selected = None;
-                    this.hovered = None;
-                }
-                this.picture = Some(picture);
-                cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Puts a new picture on the page. A change of the same vault keeps the view and the
+    /// selection (found again by its document, as the numbering may have changed); another vault
+    /// is fitted anew.
+    fn show(&mut self, picture: Picture, cx: &mut Context<Self>) {
+        let selected = match self.afresh {
+            true => None,
+            false => self
+                .selected
+                .zip(self.picture.as_ref())
+                .map(|(node, old)| old.ids[node].clone()),
+        };
+        self.selected = selected.and_then(|id| picture.ids.iter().position(|i| *i == id));
+        if self.afresh {
+            self.view = None;
+        }
+        self.afresh = false;
+        self.hovered = None;
+        self.press = None;
+        self.picture = Some(picture);
+        cx.notify();
     }
 
     /// A point of the window as a point of the canvas.
@@ -127,34 +153,74 @@ impl BrainView {
             .node_at(view.to_world(self.local(position)), 4.0 / view.scale)
     }
 
-    fn pressed(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
-        match self.node_at(event.position) {
-            Some(node) => self.selected = Some(node),
-            None => {
-                self.selected = None;
-                self.panning = Some(event.position);
+    fn pressed(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let (Some(picture), Some(view)) = (&self.picture, self.view) else {
+            return;
+        };
+        let at = self.local(position);
+        self.press = Some(match self.node_at(position) {
+            Some(node) => Press::on_node(node, at, picture.positions()[node] - view.to_world(at)),
+            None => Press::on_space(at),
+        });
+        cx.notify();
+    }
+
+    fn moved(&mut self, event: &MouseMoveEvent, over: bool, cx: &mut Context<Self>) {
+        if self.press.is_some() {
+            // The button came up where no release was heard (outside the window).
+            if event.pressed_button != Some(MouseButton::Left) {
+                self.released(cx);
+                return;
+            }
+            self.pressing(self.local(event.position), cx);
+            return;
+        }
+        let under = if over {
+            self.node_at(event.position)
+        } else {
+            None
+        };
+        if under != self.hovered {
+            self.hovered = under;
+            cx.notify();
+        }
+    }
+
+    /// The pointer moved to `at` with the button down.
+    fn pressing(&mut self, at: At, cx: &mut Context<Self>) {
+        let (Some(press), Some(view)) = (&mut self.press, self.view) else {
+            return;
+        };
+        match press.moved(at) {
+            Motion::Still => return,
+            Motion::Pan(by) => self.view = Some(view.pan(by)),
+            Motion::Drag {
+                node,
+                pointer,
+                grab,
+            } => {
+                if let Some(picture) = &mut self.picture {
+                    picture.hold(node, view.to_world(pointer) + grab);
+                }
             }
         }
         cx.notify();
     }
 
-    fn moved(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
-        if let (Some(from), Some(view)) = (self.panning, self.view) {
-            if event.pressed_button != Some(MouseButton::Left) {
-                self.panning = None;
-                return;
-            }
-            let by = event.position - from;
-            self.view = Some(view.pan(At::new(by.x.as_f32(), by.y.as_f32())));
-            self.panning = Some(event.position);
-            cx.notify();
+    fn released(&mut self, cx: &mut Context<Self>) {
+        let Some(press) = self.press.take() else {
             return;
+        };
+        match press.released() {
+            Release::Click(node) => self.selected = node,
+            Release::Dropped(node) => {
+                if let Some(picture) = &mut self.picture {
+                    picture.let_go(node);
+                }
+            }
+            Release::Panned => {}
         }
-        let over = self.node_at(event.position);
-        if over != self.hovered {
-            self.hovered = over;
-            cx.notify();
-        }
+        cx.notify();
     }
 
     fn wheel(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
@@ -166,13 +232,8 @@ impl BrainView {
     }
 
     /// What the selected node is, with a way to open it.
-    fn about(
-        &self,
-        picture: &Picture,
-        t: Theme,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement> {
-        let node = self.selected?;
+    fn about(&self, t: Theme, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (picture, node) = (self.picture.as_ref()?, self.selected?);
         let kind = match picture.kinds[node] {
             Kind::Note => "Note",
             Kind::Concept => "Concept",
@@ -189,6 +250,7 @@ impl BrainView {
         Some(
             div().absolute().top(px(16.0)).right(px(16.0)).child(
                 floating(t)
+                    .occlude()
                     .w(px(240.0))
                     .p(px(14.0))
                     .gap(px(6.0))
@@ -237,6 +299,11 @@ impl Render for BrainView {
                 .child("Notes, concepts and books appear here, joined by their links.")
                 .into_any_element();
         }
+        // While the picture moves (a node held, or settling after one was let go), a step a
+        // frame; once it has settled, no more frames are asked for.
+        if picture.step() {
+            window.request_animation_frame();
+        }
         let room = self.place.get().size;
         let viewport = Extent {
             width: room.width.as_f32(),
@@ -244,166 +311,25 @@ impl Render for BrainView {
         };
         // The first picture is fitted to the page once the page's size is known.
         if self.view.is_none() {
-            match bounds(&picture.positions, &picture.radii) {
+            match bounds(picture.positions(), picture.radii()) {
                 Some(world) if viewport.width > 0.0 => {
                     self.view = Some(View::fit(world, viewport, 64.0, 2.4))
                 }
                 _ => window.request_animation_frame(),
             }
         }
-        let run = |colour: Hsla| TextRun {
-            len: 0,
-            font: font(incipit_ui::ui_font()),
-            color: colour,
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        };
-        if picture.widths.len() != picture.titles.len() {
-            picture.widths = picture
-                .titles
-                .iter()
-                .map(|title| {
-                    let run = TextRun {
-                        len: title.len(),
-                        ..run(Hsla::default())
-                    };
-                    window
-                        .text_system()
-                        .shape_line(title.clone().into(), px(LABEL), &[run], None)
-                        .width
-                        .as_f32()
-                })
-                .collect();
-        }
-        let picture = self.picture.as_ref().expect("checked above");
-        let lit: Vec<usize> = [self.hovered, self.selected]
-            .into_iter()
-            .flatten()
-            .collect();
-        let near = |node: usize| {
-            lit.iter()
-                .any(|l| *l == node || picture.neighbours[*l].contains(&node))
-        };
-        let quiet = !lit.is_empty();
-        let colour = |kind: Kind| match kind {
-            Kind::Concept => t.accent,
-            Kind::Book => t.attention,
-            _ => t.secondary,
-        };
-        // Everything the canvas draws, worked out here so the paint closure owns it.
-        let mut lines = Vec::new();
-        let mut dots = Vec::new();
-        let mut names = Vec::new();
-        if let Some(view) = self.view {
-            let screen = |p: At| view.to_screen(p);
-            for (a, b) in &picture.edges {
-                let on = quiet && lit.iter().any(|l| l == a || l == b);
-                let alpha = if on {
-                    0.9
-                } else if quiet {
-                    0.12
-                } else {
-                    0.35
-                };
-                lines.push((
-                    screen(picture.positions[*a]),
-                    screen(picture.positions[*b]),
-                    faded(t.tertiary, alpha),
-                ));
-            }
-            for (node, at) in picture.positions.iter().enumerate() {
-                let alpha = if !quiet || near(node) { 1.0 } else { 0.25 };
-                dots.push((
-                    screen(*at),
-                    (picture.radii[node] * view.scale).max(1.5),
-                    faded(colour(picture.kinds[node]), alpha),
-                ));
-            }
-            let config = LabelConfig {
-                line_height: LABEL * 1.3,
-                ..LabelConfig::default()
-            };
-            for label in choose_labels(
-                &picture.positions,
-                &picture.radii,
-                &view,
-                viewport,
-                &lit,
-                &config,
-                |i| picture.widths[i],
-            ) {
-                let alpha = if !quiet || near(label.node) {
-                    0.95
-                } else {
-                    0.3
-                };
-                names.push((
-                    picture.titles[label.node].clone(),
-                    label.rect.min,
-                    faded(t.primary, alpha),
-                ));
-            }
-        }
-        let place = self.place.clone();
-        let drawing = canvas(
-            move |bounds: Bounds<Pixels>, _, _| place.set(bounds),
-            move |bounds: Bounds<Pixels>, _, window, cx| {
-                let at = |p: At| bounds.origin + Point::new(px(p.x), px(p.y));
-                for (from, to, colour) in &lines {
-                    let mut path = PathBuilder::stroke(px(1.0));
-                    path.move_to(at(*from));
-                    path.line_to(at(*to));
-                    if let Ok(path) = path.build() {
-                        window.paint_path(path, *colour);
-                    }
-                }
-                for (centre, radius, colour) in &dots {
-                    let corner = at(At::new(centre.x - radius, centre.y - radius));
-                    let dot = Bounds::new(corner, size(px(radius * 2.0), px(radius * 2.0)));
-                    window.paint_quad(fill(dot, *colour).corner_radii(px(*radius)));
-                }
-                for (name, corner, colour) in &names {
-                    let run = TextRun {
-                        len: name.len(),
-                        ..run(*colour)
-                    };
-                    let line = window.text_system().shape_line(
-                        name.clone().into(),
-                        px(LABEL),
-                        &[run],
-                        None,
-                    );
-                    let _ = line.paint(
-                        at(*corner),
-                        px(LABEL * 1.3),
-                        gpui::TextAlign::Left,
-                        None,
-                        window,
-                        cx,
-                    );
-                }
-            },
-        )
-        .size_full();
+        self.measure(window);
+        let scene = self.scene(t, viewport);
+        let drawing = draw::picture_canvas(scene, self.place.clone(), cx.entity().downgrade());
         div()
             .size_full()
             .relative()
             .overflow_hidden()
             .child(drawing)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, event: &MouseDownEvent, _, cx| this.pressed(event, cx)),
-            )
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| this.moved(event, cx)))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _, _| this.panning = None),
-            )
             .on_scroll_wheel(
                 cx.listener(|this, event: &ScrollWheelEvent, _, cx| this.wheel(event, cx)),
             )
-            .children(self.about(picture, t, cx))
+            .children(self.about(t, cx))
             .into_any_element()
     }
 }

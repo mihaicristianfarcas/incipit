@@ -20,7 +20,7 @@ Early. One window, with these pages, on a vault of plain files:
 | Reader | A whole PDF (drawn by pdfium) or EPUB (laid out as native text) with its contents, zoom and text selection across pages. A passage can be highlighted, noted, explained or asked about, and turned into flashcards or a figure; a page into a quiz. An answer can be continued as a session with the tutor, a conversation over several turns that can be kept as a note or made into flashcards. Notes, answers and sessions sit in the margin beside their passage and are kept in the vault |
 | Notes | The vault's notes, written as Markdown in a native field: the marks are dimmed and show what they mean, lists carry on, every change can be undone |
 | Review | Flashcards due today, one at a time, scheduled by FSRS-6 |
-| Brain | The notes, concepts and books as a graph of their links |
+| Brain | The notes, concepts and books as a graph of their links. A node can be dragged and the rest follows, then settles |
 | Math | LaTeX typeset by Typst and drawn in the window, on its own line and inside a sentence |
 | Figure | A figure made from a typed spec, checked, then played, stepped and scrubbed: a sequence, a flow diagram or a plot with parameters to drag ([docs/figures.md](docs/figures.md)). The figures made in the reader are listed under it |
 | Settings | The vault's folder, and which model answers ([docs/models.md](docs/models.md)) |

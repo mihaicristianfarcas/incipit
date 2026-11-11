@@ -158,7 +158,7 @@ impl ReaderView {
                     marks.extend(boxes.into_iter().map(|b| (b, tint(t.attention, 0.32))));
                 }
                 let first = note.anchors.first().is_some_and(|a| a.part == index);
-                if let (Some(top), true, false) = (top, first, note.words.is_empty()) {
+                if let (Some(top), true, true) = (top, first, note.in_margin()) {
                     let room = if self.open == Some(note.id) {
                         CARD.1
                     } else {
@@ -306,7 +306,7 @@ impl ReaderView {
             .notes
             .iter()
             .filter(starts_here)
-            .filter(|n| !n.words.is_empty())
+            .filter(|n| n.in_margin())
         {
             cards.push(self.card(note, t, cx).into_any_element());
         }

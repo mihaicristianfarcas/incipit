@@ -84,11 +84,23 @@ schema check and the secret store are in one place. Calls block on a thread
 of their own and report through a channel or a callback: the window's
 executor and a command line use them the same way, with no async runtime.
 
+**The agent is confined by the provider and undone by the history.** The
+agent's sheet (`agent.rs` in the app) hands the learner's words to
+`Models::act`, which runs the chosen command-line agent in the open
+vault's folder with the sandbox `incipit-llm` builds for it
+([models.md](models.md)): it writes there only, never in `.jj`, and the
+app adds no other way in or out. Its instructions are a constant; the
+learner's words are the request; what it reads in the files is material.
+One request is one entry in the history: the learner's pending work is
+closed before the agent starts, what the agent changed is taken in after
+it, named with the request (`Vault::take_in`), and Undo takes that entry
+out (`Vault::take_out`), keeping what was written since
+([vault.md](vault.md)).
+
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,
 so that no code under a license of Zed's own is linked.
 
 ## Not built yet
 
-The agent that works on the vault, and more figure kinds. This page
-describes them when they exist.
+More figure kinds. This page describes them when they exist.

@@ -1,7 +1,15 @@
 //! A chapter of a book as text for the model, and finding a quote the model picked in it. A
 //! chapter runs from its line in the contents to the next line at its depth or above, so its
-//! sections are in it. A PDF's chapter takes in the page the next one starts on, which it may
-//! share; an EPUB's ends at the block before.
+//! sections are in it. An EPUB's ends at the block before the next line's.
+//!
+//! A PDF's chapter runs to the page the next one starts on, which it may share, and is cut on
+//! its first and last page as the earlier app's `pagesText` cut it: where the contents say how
+//! far down the page its line leads, the chapter takes from its first page only the lines of
+//! text from just above that place down; from its last, only the lines above the place the next
+//! line leads to, which is the top of the page when the contents name only the page. So a
+//! chapter whose successor starts at the top of a page takes nothing from that page, and the
+//! page is not one of its parts. A quote is looked for in the parts, so only in the chapter's
+//! own lines, as the earlier app's `locateInPages` looked.
 //!
 //! Quotes from models are often slightly off (hyphenation, marks, spacing, a word changed at the
 //! edge), so a quote is found as the earlier app's `locateInBlocks` and `locateInPages` find it:
@@ -9,10 +17,13 @@
 //! most of its twelve-letter pieces land, from the earliest of them there. Where the quote is
 //! found as it is, the book's own words there are kept, so the reader finds and marks the
 //! passage again.
+//!
+//! One test reads the sample paper `tools/setup` downloads, with the pdfium it puts in `lib/`:
+//! `cargo test -p incipit-app -- --ignored`.
 
 use std::ops::Range;
 
-use incipit_book::Entry;
+use incipit_book::{Cut, Entry};
 use unicode_normalization::char::is_combining_mark;
 use unicode_normalization::UnicodeNormalization;
 
@@ -23,22 +34,69 @@ pub struct Part {
     pub text: String,
 }
 
-/// The parts chapter `at` of `entries` runs over, in a book of `parts` parts.
-pub fn span(entries: &[Entry], at: usize, parts: usize, pdf: bool) -> Range<usize> {
+/// The parts a chapter runs over and, for a PDF, where the text of its first and last page is
+/// cut.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Span {
+    pub parts: Range<usize>,
+    pub cut: Cut,
+}
+
+/// The cut's allowances, as shares of the page's height, the earlier app's: a chapter takes from
+/// its first page the lines of text whose top is no more than `ABOVE_START` above the place its
+/// line of the contents leads to, and from its last those whose top is more than `ABOVE_NEXT`
+/// above the place the next line leads to.
+const ABOVE_START: f32 = 0.02;
+const ABOVE_NEXT: f32 = 0.005;
+
+/// What chapter `at` of `entries` runs over, in a book of `parts` parts.
+pub fn span(entries: &[Entry], at: usize, parts: usize, pdf: bool) -> Span {
     let Some(entry) = entries.get(at) else {
-        return 0..0;
+        return Span::default();
     };
     let start = entry.page.min(parts);
     let next = entries[at + 1..]
         .iter()
-        .find(|e| e.depth <= entry.depth && e.page >= start)
-        .map(|e| e.page);
-    let end = match next {
+        .find(|e| e.depth <= entry.depth && e.page >= start);
+    let end = match next.map(|e| e.page) {
         Some(next) if pdf && next > start => next + 1,
         Some(next) => next.max(start + 1),
         None => parts,
-    };
-    start..end.min(parts)
+    }
+    .min(parts);
+    let mut cut = Cut::default();
+    if pdf {
+        // A line that names only its page leads to the page's top; the last chapter ends at
+        // the bottom of the last page.
+        let from = entry.y.unwrap_or(0.0);
+        cut.top = (from > 0.0).then_some(from - ABOVE_START);
+        let to = next
+            .filter(|next| next.page + 1 == end)
+            .map_or(1.0, |next| next.y.unwrap_or(0.0));
+        cut.bottom = (to < 1.0).then_some(to - ABOVE_NEXT);
+    }
+    Span {
+        parts: start..end,
+        cut,
+    }
+}
+
+impl Span {
+    /// The chapter's parts from the text of each of its pages, cut as `cut` says. A page the
+    /// cut left nothing of is not one of them.
+    pub fn of_pages(&self, texts: Vec<String>) -> Vec<Part> {
+        let (first, last) = (self.parts.start, self.parts.end.saturating_sub(1));
+        self.parts
+            .clone()
+            .zip(texts)
+            .filter(|(index, text)| {
+                let cut = (*index == first && self.cut.top.is_some())
+                    || (*index == last && self.cut.bottom.is_some());
+                !(cut && text.trim().is_empty())
+            })
+            .map(|(index, text)| Part { index, text })
+            .collect()
+    }
 }
 
 /// The parts in pieces of whole parts, each at most `most` characters unless one part alone is
@@ -180,6 +238,18 @@ mod tests {
         }
     }
 
+    /// A line of a PDF's contents that leads to a place `y` down its page.
+    fn placed(title: &str, depth: usize, page: usize, y: f32) -> Entry {
+        Entry {
+            y: Some(y),
+            ..entry(title, depth, page)
+        }
+    }
+
+    fn cut(top: Option<f32>, bottom: Option<f32>) -> Cut {
+        Cut { top, bottom }
+    }
+
     fn parts(texts: &[&str]) -> Vec<Part> {
         texts
             .iter()
@@ -200,15 +270,147 @@ mod tests {
             entry("2.2 Decoder", 1, 4),
             entry("3 Results", 0, 6),
         ];
-        assert_eq!(span(&contents, 1, 9, false), 2..6);
-        assert_eq!(span(&contents, 2, 9, false), 3..4);
+        assert_eq!(span(&contents, 1, 9, false).parts, 2..6);
+        assert_eq!(span(&contents, 2, 9, false).parts, 3..4);
         // A PDF's chapter keeps the page the next starts on.
-        assert_eq!(span(&contents, 1, 9, true), 2..7);
-        assert_eq!(span(&contents, 4, 9, true), 6..9);
-        assert_eq!(span(&contents, 9, 9, true), 0..0);
+        assert_eq!(span(&contents, 1, 9, true).parts, 2..7);
+        assert_eq!(span(&contents, 4, 9, true).parts, 6..9);
+        assert_eq!(span(&contents, 9, 9, true), Span::default());
         // Two lines on one page: the first still has its page.
         let same = [entry("A", 0, 5), entry("B", 0, 5)];
-        assert_eq!(span(&same, 0, 9, true), 5..6);
+        assert_eq!(span(&same, 0, 9, true).parts, 5..6);
+        // An EPUB's blocks are never cut.
+        assert_eq!(span(&contents, 1, 9, false).cut, Cut::default());
+    }
+
+    #[test]
+    fn a_pdfs_chapter_is_cut_where_its_line_and_the_next_lead_on_their_pages() {
+        let contents = [
+            placed("1 Introduction", 0, 0, 0.25),
+            placed("2 Model", 0, 2, 0.5),
+            placed("2.1 Encoder", 1, 2, 0.75),
+            placed("2.2 Decoder", 1, 2, 0.875),
+            placed("3 Results", 0, 6, 0.5),
+            entry("4 Conclusion", 0, 8),
+            placed("Appendix", 0, 9, 0.0),
+            placed("References", 0, 12, 0.125),
+        ];
+        let chapter = |at| span(&contents, at, 14, true);
+        // From just above the place its line leads to, to just above the next line's.
+        let model = chapter(1);
+        assert_eq!(model.parts, 2..7);
+        assert_eq!(model.cut, cut(Some(0.5 - 0.02), Some(0.5 - 0.005)));
+        // Both on one page.
+        let encoder = chapter(2);
+        assert_eq!(encoder.parts, 2..3);
+        assert_eq!(encoder.cut, cut(Some(0.75 - 0.02), Some(0.875 - 0.005)));
+        // A successor at the top of a page, named by its page alone or with the page's top:
+        // the bottom is above the page, so nothing of that page is taken.
+        let results = chapter(4);
+        assert_eq!(results.parts, 6..9);
+        assert_eq!(results.cut, cut(Some(0.5 - 0.02), Some(-0.005)));
+        let conclusion = chapter(5);
+        assert_eq!(conclusion.parts, 8..10);
+        // A chapter that starts at the top of its page takes the page from its top.
+        assert_eq!(conclusion.cut, cut(None, Some(-0.005)));
+        assert_eq!(chapter(6).cut, cut(None, Some(0.125 - 0.005)));
+        // The last chapter runs to the end of the book.
+        let references = chapter(7);
+        assert_eq!(references.parts, 12..14);
+        assert_eq!(references.cut, cut(Some(0.125 - 0.02), None));
+        // A next line that leads past the book's end cuts nothing.
+        let short = span(&contents, 6, 11, true);
+        assert_eq!((short.parts, short.cut), (9..11, Cut::default()));
+        // The same lines in an EPUB are blocks, and whole.
+        assert_eq!(span(&contents, 1, 14, false).cut, Cut::default());
+    }
+
+    #[test]
+    fn a_page_the_cut_leaves_nothing_of_is_not_a_part_of_the_chapter() {
+        let text = |texts: &[&str]| texts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+        let indexes = |parts: Vec<Part>| parts.iter().map(|p| p.index).collect::<Vec<_>>();
+        // The successor starts at the top of page 8: the chapter is pages 6 and 7.
+        let chapter = Span {
+            parts: 6..9,
+            cut: cut(Some(0.48), Some(-0.005)),
+        };
+        let parts = chapter.of_pages(text(&["3 Results\r\nWe find", "", "\r\n"]));
+        assert_eq!(
+            parts,
+            [
+                Part {
+                    index: 6,
+                    text: "3 Results\r\nWe find".into()
+                },
+                Part {
+                    index: 7,
+                    text: String::new()
+                },
+            ]
+        );
+        // A first page with nothing below the cut goes too; a page in the middle stays.
+        assert_eq!(indexes(chapter.of_pages(text(&["", "", "more"]))), [7, 8]);
+        // Pages that were not cut are kept as they are.
+        let whole = Span {
+            parts: 6..9,
+            cut: Cut::default(),
+        };
+        assert_eq!(indexes(whole.of_pages(text(&["", "", ""]))), [6, 7, 8]);
+        // One page cut at both ends.
+        let one = Span {
+            parts: 4..5,
+            cut: cut(Some(0.4), Some(0.3)),
+        };
+        assert!(one.of_pages(text(&[""])).is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires pdfium in lib/ and the sample paper from tools/setup"]
+    fn a_section_of_the_sample_paper_is_its_own_lines_and_a_quote_is_found_only_there() {
+        let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+        let pdf = incipit_book::Pdf::open(&root.join("lib/lib"), &root.join("samples/paper.pdf"))
+            .unwrap();
+        let contents = pdf.contents();
+        let gathered = |title: &str| {
+            let at = contents.iter().position(|e| e.title == title).unwrap();
+            let chapter = span(&contents, at, pdf.pages(), true);
+            let texts = pdf.texts(chapter.parts.clone(), chapter.cut).unwrap();
+            (chapter.parts.clone(), chapter.of_pages(texts))
+        };
+        // "2 Background" starts and ends part-way down the paper's second page, between the end
+        // of "1 Introduction" and "3 Model Architecture".
+        let (pages, background) = gathered("Background");
+        assert_eq!(pages, 1..2);
+        assert_eq!(background.len(), 1);
+        let text = background[0].text.trim_end();
+        assert!(text.starts_with("2 Background"), "{text}");
+        assert!(text.ends_with("such as [17, 18] and [9]."), "{text}");
+        let found = |quote: &str| locate(&background, quote).map(|f| f.part);
+        assert_eq!(
+            found("the Transformer is the first transduction model relying entirely on self-attention"),
+            Some(1)
+        );
+        // The same page's words above the section and below it are not the section's.
+        assert_eq!(
+            found("Recurrent neural networks, long short-term memory [13] and gated recurrent"),
+            None
+        );
+        assert_eq!(
+            found("Most competitive neural sequence transduction models have an encoder-decoder"),
+            None
+        );
+        // "3 Model Architecture" runs from that page to the one "4 Why Self-Attention" starts
+        // on, and takes neither what is above it nor that section.
+        let (pages, model) = gathered("Model Architecture");
+        assert_eq!(pages, 1..6);
+        assert_eq!(model.len(), 5);
+        assert!(model[0].text.starts_with("3 Model Architecture"));
+        assert!(model[4].text.contains("Positional Encoding"));
+        assert!(!model[4].text.contains("Why Self-Attention"));
+        assert_eq!(
+            locate(&model, "Self-attention, sometimes called intra-attention"),
+            None
+        );
     }
 
     #[test]

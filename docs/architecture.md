@@ -67,7 +67,14 @@ of a review to the cards on what its ideas build on.
 **A chapter is mapped into concepts a piece at a time.** From the reader's
 contents, the model fills a form of a chapter's key concepts (`mapping` in
 the app's `concepts`), with the chapter's text and the vault's concept
-names as material. A chapter is sent in pieces of whole pages or blocks
+names as material. A chapter runs from its line of the contents to the
+next line at its depth or above (`chapter` in the app's `concepts`). In a
+PDF it takes only its own lines of text from the pages it starts and ends
+on, as in the earlier app: from its first page, the lines from where its
+line of the contents leads, when the PDF says how far down the page that
+is; from its last, the lines above where the next line leads, which is
+nothing when that is the top of a page. A concept's quote is looked for
+in that text only. A chapter is sent in pieces of whole pages or blocks
 of at most 45,000 characters, the earlier app's size for one request, so
 a long chapter is read whole rather than cut short; each concept is
 written to the vault, or added to the one there is, as soon as its piece

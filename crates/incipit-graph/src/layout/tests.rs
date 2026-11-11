@@ -1,6 +1,8 @@
 //! Tests of the layout's behaviour: it repeats for a seed, circles do not overlap at rest, hubs
-//! sit among their leaves, unlinked parts stay near, pinned nodes hold, and changing the graph
-//! leaves what was settled where it was. Plus an ignored timing run (see `the_timing_of_a_large_graph`).
+//! sit among their leaves, unlinked parts stay near, pinned nodes hold, a dragged node takes its
+//! neighbours with it and the picture settles again once it is let go, and changing the graph
+//! leaves what was settled where it was. Plus two ignored timing runs (`the_timing_of_a_large_graph`
+//! and `the_timing_of_a_drag`).
 
 use super::*;
 use crate::graph::{Edge, Node};
@@ -202,6 +204,39 @@ fn a_released_node_is_free_to_move_again() {
 }
 
 #[test]
+fn a_dragged_hub_takes_its_leaves_along_and_the_picture_settles_once_let_go() {
+    let mut l = Layout::new(star(12), 23);
+    settle(&mut l);
+    let reach = (1..=12)
+        .map(|i| l.positions()[i].distance(l.positions()[0]))
+        .fold(0.0_f32, f32::max);
+    // A drag: the hub is pinned a little further each step, as a pointer would move it.
+    let from = l.positions()[0];
+    let mut at = from;
+    for _ in 0..120 {
+        at = at + Point::new(5.0, 2.0);
+        assert!(l.pin(id(0), at));
+        l.step();
+        assert_eq!(l.positions()[0], at);
+        assert!(!l.is_settled(), "a held node keeps the layout warm");
+    }
+    assert!(at.distance(from) > 4.0 * reach);
+    for i in 1..=12 {
+        let behind = l.positions()[i].distance(at);
+        assert!(behind < 2.0 * reach, "leaf {i} was left {behind} behind");
+    }
+    assert!(l.release(id(0)));
+    assert!(!l.is_pinned(id(0)) && !l.is_settled());
+    settle(&mut l);
+    let (pos, radii) = (l.positions(), l.radii());
+    for i in 0..pos.len() {
+        for j in i + 1..pos.len() {
+            assert!(pos[i].distance(pos[j]) >= radii[i] + radii[j] - 0.01);
+        }
+    }
+}
+
+#[test]
 fn a_node_given_a_pinned_place_starts_and_stays_there() {
     let mut ns = nodes(0..10);
     ns[4] = Node::new(id(4)).pinned_at(Point::new(-300.0, 50.0));
@@ -338,4 +373,58 @@ fn the_timing_of_a_large_graph() {
         .filter(|&(i, j)| pos[i].distance(pos[j]) < radii[i] + radii[j] - 0.5)
         .count();
     println!("overlapping pairs after settling: {overlaps}");
+}
+
+/// The time of a step while one node of a settled picture of 3,000 nodes and 9,000 links is
+/// dragged: what a window pays for each frame of a drag.
+///
+/// Measured on an Apple M4 Pro, macOS, a release build (`cargo test --release -p incipit-graph --
+/// --ignored --nocapture the_timing_of_a_drag`), one thread, default settings, a random graph of
+/// 3,000 nodes and 8,991 links (a spanning tree plus random links) settled first (321 steps), then
+/// its busiest node pinned 3 units further each step for 300 steps: a step took 1.41 ms at the
+/// median and 2.86 ms at the slowest; let go, it settled again after 265 steps, in 0.31 s. Run it
+/// again to see the figures on another machine; nothing is asserted about them.
+#[test]
+#[ignore = "a timing run: cargo test --release -p incipit-graph -- --ignored --nocapture the_timing"]
+fn the_timing_of_a_drag() {
+    let n = 3000;
+    let mut rng = Rng::new(31);
+    let mut edges = Vec::new();
+    for i in 1..n {
+        edges.push(Edge::new(id(i), id(rng.next_u64() % i), 1.0));
+    }
+    while edges.len() < 9000 {
+        edges.push(Edge::new(
+            id(rng.next_u64() % n),
+            id(rng.next_u64() % n),
+            1.0,
+        ));
+    }
+    let graph = Graph::new(nodes(0..n), edges);
+    println!("{} nodes, {} links", graph.len(), graph.edges().len());
+    let mut l = Layout::new(graph, 32);
+    println!("settled first: {:?}", l.run_until_settled(3000));
+    let hub = (0..l.graph().len())
+        .max_by_key(|&i| l.graph().degree(i))
+        .expect("the graph has nodes");
+    let held = l.graph().nodes()[hub].id;
+    let mut at = l.positions()[hub];
+    let mut times = Vec::new();
+    for _ in 0..300 {
+        at = at + Point::new(3.0, 0.0);
+        let t = std::time::Instant::now();
+        l.pin(held, at);
+        l.step();
+        times.push(t.elapsed());
+    }
+    times.sort();
+    println!(
+        "a step of the drag: median {:?}, slowest {:?}",
+        times[times.len() / 2],
+        times[times.len() - 1]
+    );
+    l.release(held);
+    let t = std::time::Instant::now();
+    let result = l.run_until_settled(3000);
+    println!("let go: {result:?} in {:?}", t.elapsed());
 }

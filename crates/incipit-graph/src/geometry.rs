@@ -1,7 +1,8 @@
 //! Points, rectangles and the transform between the picture's own space ("world") and the
 //! viewport's pixels ("screen"). World space is where the layout puts nodes; a `View` maps it to
-//! the screen with one scale and one offset, so a window can pan, zoom about the pointer, and fit
-//! the whole picture, and a hit-test can go back from a pixel to the world.
+//! the screen with one scale and one offset, so a window can pan, zoom about the pointer, fit the
+//! whole picture or bring one node to the middle, and a hit-test can go back from a pixel to the
+//! world.
 
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Mul, Sub};
@@ -218,6 +219,15 @@ impl View {
         }
     }
 
+    /// The view at the same scale with the world point `p` in the middle of the viewport: how a
+    /// node found by name is brought into sight.
+    pub fn centred_on(&self, p: Point, viewport: Size) -> View {
+        View {
+            scale: self.scale,
+            offset: Point::new(viewport.width / 2.0, viewport.height / 2.0) - p * self.scale,
+        }
+    }
+
     /// Zoom by `factor` keeping the world point under `anchor` (a screen point, usually the
     /// pointer) where it is. The new scale stays within `min..=max`.
     pub fn zoom_at(&self, anchor: Point, factor: f32, min: f32, max: f32) -> View {
@@ -297,6 +307,18 @@ mod tests {
         assert!(before.distance(after) < 1e-3);
         assert!((zoomed.scale - 2.55).abs() < 1e-5);
         assert_eq!(view.zoom_at(anchor, 1000.0, 0.1, 10.0).scale, 10.0);
+    }
+
+    #[test]
+    fn centring_puts_a_point_in_the_middle_and_keeps_the_scale() {
+        let view = View {
+            scale: 0.8,
+            offset: Point::new(-40.0, 12.0),
+        };
+        let p = Point::new(310.0, -95.0);
+        let centred = view.centred_on(p, Size::new(800.0, 600.0));
+        assert_eq!(centred.scale, 0.8);
+        assert!(centred.to_screen(p).distance(Point::new(400.0, 300.0)) < 1e-3);
     }
 
     #[test]

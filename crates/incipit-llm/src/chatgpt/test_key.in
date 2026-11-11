@@ -1,0 +1,23 @@
+// A throwaway RSA key (PKCS#8 DER, in base64) made for the sign-in tests alone, to
+// sign test ID tokens. It protects nothing and is used nowhere else.
+[
+    "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDJp8pfT4SHKulZr6TC21n+IDlQ1TbF6xdc3W/V",
+    "klTjTp5k0SLBP6cWXln4kS/Dpv6MVwgkx5K0vccDQ+7wtrR0g4b34Nt9XUtAmODuajUJuLxKpGSXEoJfw41kbl3D",
+    "1KY847MLowQbTtp00ofcmbJbG8k2jZv1tZAyT5viNZjNH6CNC66+J5vzRtqY34qkWPjxYkZ72UO1RgLFmxzEBC6Q",
+    "pmsB+sl0hoe7H7clwQalgt2eCR/QjzHn6xeech3rF1nw7k8y4t45MlVgeS7Xg8t8oQNiceamA+Lik559sV2Sfi0o",
+    "uS3xt8qE8SK9sdEI4M7Rs4soMoVNpp07A3oT7TFtAgMBAAECggEABJMeo25joIhf7lWufHAq+Lmk6zlHCpLkfwoT",
+    "+ymcbOKv87QN4Inv4bFGw72RcpQTgr4HtIPlh12lyeRs43+VlO4V7gInII8xAZhmQ+pbZSrQdLYJhSbZl9ARIVXi",
+    "oSpuEgQNYAZ09aSijpNnGyFOe0QkWq04PEj/6jBFpkpWetLCS0mgCluCjww3pZhiu+frLdaUwSNFw6FhEuStJrZV",
+    "KSrXYnrvKvcQZLQjPwMZj9Yep23qwoMZDBB896HXcMsWODgp0WNfkm33kSo0ilhOSV591gTJjoG1h2gmu/PcnJeT",
+    "j5PmGm44Omi/tH+Y2UdZjRMbbOx0pCvXVyUNT0s2sQKBgQDn2byoETiOBK7joYwOzq3FAKcIZy5Wfm/vJ7AIFMaX",
+    "ontIvEJo6AQfq64cSQRSj3qExokjYNzytSKZ6IVBPXL3yai5iZC6M0sXvNnmVsEeV4ia3L0EgzWgQk7QjMPebCz7",
+    "QXU4N1WFstVXgZsvRWPqDd9hwa2Owhd4k45pYIgTPQKBgQDeqOe+OwXiOr01t71+oCKZs7txGMCjnuYkGZeP52tp",
+    "0TKScLZUFSS3vLPG1JWwskL6hH5GUShQeazkfGeIf5PD3DfYoi9ooXfWAKSK6myPU4nCL++WG4cvBQ25Ia7wPerj",
+    "nhe4M0pDrej6ljg8G7MpexhkHHTEKI3kj0iQBFy58QKBgE7b5Wo46UaM2zt7kBrdO4edUDLwfXdX7BSpKBunjWC4",
+    "GDzGI8Rw3i4zg7YFM94tBRwyNyT8Zkp7R7iXuPNWxkr3oVbyLnLWzXzWdDr/WRJL7Z/W4setJUlMJGiU6G431xji",
+    "y88CKymdiSkJYVIzxOcwLsGeUb0T0U3mynKXLdF1AoGAQ1yQN8H9hrLEmWLMJmnl7eAtPgsCBL5G2/cOHlAh8/KB",
+    "PUJyNr/qyteBAA9CdiGIF+hLl5RoAOi+wKVOYUJPfvq5voVamGn5KjopjYlcbIQWcjQ0ZJJRdI0v2KlzFmV1EYW7",
+    "oVOLDSypBl66Bp1Ot6bw+yCMxueJ/fLHPiLDttECgYEAyUXBV+uzq4aVhDilwq1wejrh9NNUVWU9LuDFw1MFprSK",
+    "oEyd7R8bsqgnSbGoFmi7nMNVJ7j+OxgEIkX9qasleVcSxyzaD3hH8YEiuVPEkxFZuPWFm8jFOsGC8jhMlq6JaSja",
+    "3e+RR2Xt3b6qYWzuGCxXye2BdzZ0eq4AYd01ML8=",
+]

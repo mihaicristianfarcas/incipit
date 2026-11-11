@@ -167,10 +167,13 @@ impl Registry {
         &self.providers
     }
 
-    /// The command-line agents, found where they are installed, and the endpoints in `settings`,
-    /// their keys read from `secrets` when a call needs one.
+    /// ChatGPT (signed in through `secrets`), the command-line agents, found where they are
+    /// installed, and the endpoints in `settings`, their keys read from `secrets` when a call
+    /// needs one.
     pub fn standard(secrets: Arc<dyn SecretStore>, settings: &Settings) -> Self {
         let mut registry = Registry::new();
+        let signin = Arc::new(crate::chatgpt::SignIn::new(secrets.clone()));
+        registry.add(Arc::new(crate::chatgpt::ChatGpt::new(signin)));
         registry.add(Arc::new(crate::cli::Codex::new()));
         registry.add(Arc::new(crate::cli::Claude::new()));
         registry.add(Arc::new(crate::cli::OpenCode::new()));
@@ -374,7 +377,10 @@ mod tests {
         let registry =
             Registry::standard(Arc::new(crate::secret::MemorySecrets::default()), &settings);
         let ids: Vec<&str> = registry.all().iter().map(|p| p.id()).collect();
-        assert_eq!(ids, vec!["codex", "claude", "opencode", "ollama"]);
+        assert_eq!(
+            ids,
+            vec!["chatgpt", "codex", "claude", "opencode", "ollama"]
+        );
         assert!(!registry.get("ollama").unwrap().abilities().agent);
     }
 

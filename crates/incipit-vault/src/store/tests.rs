@@ -130,6 +130,23 @@ fn two_vaults_are_open_at_once_and_stay_apart() {
 }
 
 #[test]
+fn a_document_emptied_by_a_write_in_progress_is_not_announced_gone() {
+    let (_dir, vault) = new_vault();
+    let doc = vault.add(note("Kept", "Still here.\n")).unwrap();
+    let events = vault.subscribe();
+    write_outside(&vault, doc.path().as_str(), "");
+    // Changes are announced in order, so once this one is heard the empty file was seen.
+    write_outside(&vault, "notes/After.md", "Later.\n");
+    let mut heard = Vec::new();
+    wait_for(&events, |e| {
+        heard.push(e.clone());
+        e.path.as_str() == "notes/After.md"
+    });
+    assert!(heard.iter().all(|e| e.doc.as_ref() != Some(doc.id())));
+    assert_eq!(vault.get(doc.id()).unwrap().body(), "Still here.\n");
+}
+
+#[test]
 fn an_external_edit_is_picked_up() {
     let (_dir, vault) = new_vault();
     let doc = vault.add(note("Shared", "Written in Incipit.\n")).unwrap();

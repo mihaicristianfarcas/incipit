@@ -222,6 +222,8 @@ impl TextField {
         }
         self.selected = self.text.len()..self.text.len();
         self.marked = None;
+        // Another text altogether: Undo must not bring the old one back.
+        self.history = History::default();
         cx.notify();
     }
 

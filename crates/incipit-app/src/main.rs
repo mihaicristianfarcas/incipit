@@ -7,6 +7,8 @@ mod math;
 mod notes;
 mod reader;
 mod stage;
+mod welcome;
+mod workspace;
 
 use std::time::Duration;
 
@@ -43,7 +45,8 @@ impl Root {
             Ok("reader") => Page::Reader,
             Ok("math") => Page::Math,
             Ok("notes") => Page::Notes,
-            _ => Page::Figure,
+            Ok("figure") => Page::Figure,
+            _ => Page::Notes,
         };
         if let Some(path) = std::env::var_os("INCIPIT_SHOT") {
             // Nothing says "the page has settled" (fonts shaped, the fade over), so the picture is
@@ -61,12 +64,13 @@ impl Root {
             })
             .detach();
         }
+        let workspace = cx.new(workspace::Workspace::new);
         Root {
             page,
             glide: Glide::new(cx),
             figure: cx.new(figure::FigureView::new),
             math: cx.new(math::MathView::new),
-            notes: cx.new(notes::NotesView::new),
+            notes: cx.new(|cx| notes::NotesView::new(workspace.clone(), cx)),
             reader: cx.new(reader::ReaderView::new),
         }
     }

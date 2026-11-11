@@ -79,6 +79,17 @@ impl FigureView {
         }
     }
 
+    /// Show a figure made elsewhere (by a model, for a passage) in place of the examples.
+    pub fn present(&mut self, figure: Figure, cx: &mut Context<Self>) {
+        self.state = figure.start();
+        self.figure = Ok(figure);
+        self.kind = None;
+        self.report = None;
+        self.playing = None;
+        self.dragging = None;
+        cx.notify();
+    }
+
     fn show(&mut self, kind: Kind, cx: &mut Context<Self>) {
         let figure = schema::example(kind);
         self.state = figure.start();

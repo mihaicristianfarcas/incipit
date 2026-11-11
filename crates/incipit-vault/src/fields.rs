@@ -118,14 +118,17 @@ impl Fields for Note {
     }
 }
 
-/// A concept's own fields. The body explains it.
+/// A concept's own fields. The body explains it in free Markdown; its other names are the common
+/// `aliases`, and the concepts close to it that it does not need first are links in the common
+/// `related`, so Obsidian reads both as it reads them anywhere.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Concept {
     /// A sentence or two.
     pub summary: String,
-    /// Links to the concepts a learner needs first (`"[[Limit]]"`).
+    /// Links to the concepts a learner needs first (`"[[Limit]]"`). A concept listed here is not
+    /// listed again in `related`.
     pub builds_on: Vec<String>,
-    /// Where the books bring it up.
+    /// The passages it came from: a book and the page or block, with the passage's words.
     pub sources: Vec<Source>,
 }
 
@@ -666,6 +669,37 @@ mod tests {
         let map = back.properties().get("source").unwrap().as_map().unwrap();
         assert_eq!(map.get("page"), Some(&Value::Int(4)));
         assert!(map.get("rects").is_some());
+    }
+
+    #[test]
+    fn a_concept_keeps_its_links_as_quoted_lists_obsidian_reads() {
+        let mut doc = Doc::new(Kind::Concept);
+        doc.set_title("Self-attention");
+        doc.set_aliases(vec!["Intra-attention".into()]);
+        doc.set_related(vec!["[[Recurrence]]".into()]);
+        let concept = Concept {
+            summary: "Each position looks at every other.".into(),
+            builds_on: vec!["[[Attention]]".into(), "[[Softmax]]".into()],
+            sources: vec![Source {
+                book: "b1".into(),
+                chapter: Some("3 Model Architecture".into()),
+                page: Some(4),
+                quote: Some("An attention function can be described".into()),
+                ..Source::default()
+            }],
+        };
+        doc.set_fields(&concept);
+        doc.set_body("In my words: …\n");
+        let text = doc.to_text();
+        assert!(
+            text.contains("builds-on:\n  - \"[[Attention]]\"\n"),
+            "{text}"
+        );
+        let back = parse("concepts/Self-attention.md", &text);
+        assert_eq!(back.fields::<Concept>().unwrap(), concept);
+        assert_eq!(back.aliases(), ["Intra-attention"]);
+        assert_eq!(back.related(), ["[[Recurrence]]"]);
+        assert_eq!(back.body(), "In my words: …\n");
     }
 
     #[test]

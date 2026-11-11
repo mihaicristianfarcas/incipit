@@ -52,6 +52,53 @@ updated: 2026-11-10T09:12:00Z
   figure's fenced `figure` block, an annotation's passage as a
   `> [!quote]` callout above the answer.
 
+## A concept
+
+One idea is one file, `concepts/<Name>.md`, and its name is the file's
+name, as for a note.
+
+```markdown
+---
+id: …
+kind: concept
+aliases:
+  - Intra-attention
+summary: Each position of a sequence weighs every other one.
+builds-on:
+  - "[[Attention]]"
+  - "[[Softmax]]"
+related:
+  - "[[Recurrence]]"
+sources:
+  - book: …
+    chapter: 3 Model Architecture
+    page: 4
+    quote: An attention function can be described as mapping a query …
+created: …
+updated: …
+---
+Free Markdown about it.
+```
+
+- `summary`: a sentence or two.
+- `builds-on`: links to the concepts to understand first.
+- `related`: links to concepts close to it, or in contrast with it, that
+  it does not need first. A concept it builds on is not listed again here.
+- `aliases`: its other names. A link to an alias reaches the concept, as
+  in Obsidian.
+- `sources`: the passages it came from. Each names the book by its id,
+  the chapter, the page (a PDF's, from 1) or the block (an EPUB's, from
+  0), and the passage's words, which find the place again when the text
+  has moved.
+- The body is the learner's own, in any Markdown.
+
+Links are written as quoted lists, the form in which Obsidian's
+properties hold links. A card or a note is about a concept when its
+`concepts` property links to it (`concepts: ["[[Softmax]]"]`; a bare name
+or id counts too). How well a concept is known is worked out from the
+cards about it and their reviews, and from the `score` (0 to 100) of
+notes of type `explanation` about it; it is written in no file.
+
 ## Links
 
 Both of Obsidian's spellings are read: `[[Note]]`, `[[Note|shown]]`,

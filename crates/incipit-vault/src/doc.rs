@@ -365,7 +365,8 @@ impl Doc {
         self.set_property("related", Some(Value::from(related)));
     }
 
-    /// The ids of the concepts it is about or tests.
+    /// The concepts it is about or tests (a card's, an explanation's): links to them
+    /// (`"[[Derivative]]"`); a concept's bare name or id is read the same way.
     pub fn concepts(&self) -> Vec<String> {
         self.properties.texts("concepts")
     }

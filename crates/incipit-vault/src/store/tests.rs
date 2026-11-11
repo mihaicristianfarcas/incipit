@@ -312,6 +312,86 @@ fn undo_restores_files_and_the_index() {
 }
 
 #[test]
+fn work_done_by_another_program_is_taken_in_as_one_change() {
+    let (_dir, vault) = new_vault();
+    let kept = vault.add(note("Essay", "The learner's draft.\n")).unwrap();
+    // The learner's pending work is set apart before the other program starts.
+    vault.close_sitting(None).unwrap().unwrap();
+    let events = vault.subscribe();
+    write_outside(&vault, "notes/Summary.md", "Written by an agent.\n");
+    write_outside(
+        &vault,
+        kept.path().as_str(),
+        "---\ntitle: Essay\n---\nRewritten by an agent.\n",
+    );
+    let change = vault
+        .take_in("Summarise my essay")
+        .unwrap()
+        .expect("the files changed");
+    assert_eq!(change.description, "Summarise my essay");
+    let mut files: Vec<(&str, FileStatus)> = change
+        .files
+        .iter()
+        .map(|f| (f.path.as_str(), f.status))
+        .collect();
+    files.sort_by_key(|f| f.0);
+    assert_eq!(
+        files,
+        [
+            ("notes/Essay.md", FileStatus::Modified),
+            ("notes/Summary.md", FileStatus::Added)
+        ]
+    );
+    // The index holds the work when the call returns, and pages were told it came from outside.
+    let summary = vault.at(&path("notes/Summary.md")).expect("it is indexed");
+    assert_eq!(summary.body(), "Written by an agent.\n");
+    assert_eq!(
+        vault.at(kept.path()).unwrap().body(),
+        "Rewritten by an agent.\n"
+    );
+    let event = wait_for(&events, |e| e.path.as_str() == "notes/Summary.md");
+    assert_eq!(
+        (event.change, event.origin),
+        (Change::Created, Origin::Outside)
+    );
+    // Nothing more was done: there is nothing to take in.
+    assert!(vault.take_in("Nothing").unwrap().is_none());
+    assert_eq!(vault.history().log(10).unwrap()[0].commit, change.commit);
+}
+
+#[test]
+fn taking_out_the_change_that_was_taken_in_undoes_it_and_keeps_later_work() {
+    let (_dir, vault) = new_vault();
+    let kept = vault.add(note("Essay", "The learner's draft.\n")).unwrap();
+    vault.close_sitting(None).unwrap().unwrap();
+    write_outside(&vault, "notes/Summary.md", "Written by an agent.\n");
+    write_outside(
+        &vault,
+        kept.path().as_str(),
+        "---\ntitle: Essay\n---\nRewritten by an agent.\n",
+    );
+    let change = vault.take_in("Summarise my essay").unwrap().unwrap();
+    let later = vault
+        .add(note("Later", "Written after the agent.\n"))
+        .unwrap();
+
+    let events = vault.subscribe();
+    vault.take_out(&change.commit).unwrap();
+    assert!(vault.at(&path("notes/Summary.md")).is_none());
+    assert!(!vault.root().join("notes/Summary.md").exists());
+    assert_eq!(
+        vault.at(kept.path()).unwrap().body(),
+        "The learner's draft.\n"
+    );
+    assert_eq!(
+        vault.get(later.id()).unwrap().body(),
+        "Written after the agent.\n"
+    );
+    let event = events.recv_timeout(EVENT_DEADLINE).unwrap();
+    assert_eq!(event.origin, Origin::Here);
+}
+
+#[test]
 fn unknown_frontmatter_keys_survive_an_update_through_the_vault() {
     let (_dir, vault) = new_vault();
     write_outside(

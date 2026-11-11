@@ -21,8 +21,9 @@ native app could not do without:
 | Math | LaTeX typeset by Typst and drawn in the window, on its own line and inside a sentence |
 | Figure | A sequence figure made from a typed spec, checked, then played, stepped and scrubbed |
 
-The vault exists as a library (`incipit-vault`) that no page uses yet. There are no flashcards and no model sign-in yet. It has been
-built and run on macOS (Apple silicon) only.
+The vault and the models exist as libraries, `incipit-vault` and `incipit-llm`
+([docs/models.md](docs/models.md)), that no page uses yet. There are no
+flashcards yet. It has been built and run on macOS (Apple silicon) only.
 
 ## Running it
 

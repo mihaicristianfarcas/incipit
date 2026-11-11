@@ -6,11 +6,14 @@
 //! model does which job, and `SecretStore` keeps keys and tokens (`secret`).
 //!
 //! The command-line agents (Codex, Claude Code, OpenCode) are providers in `cli`, signed in by
-//! their own flows (`cli::login`); `sandbox` builds the OS sandbox their agents run in.
+//! their own flows (`cli::login`); `sandbox` builds the OS sandbox their agents run in. `http`
+//! holds the providers reached over HTTP with a key or none: any OpenAI-compatible server
+//! (OpenAI, OpenRouter, Ollama, LM Studio) and Anthropic's Messages API.
 
 pub mod call;
 pub mod cli;
 pub mod error;
+pub mod http;
 pub mod process;
 pub mod provider;
 pub mod request;
@@ -22,6 +25,7 @@ pub mod settings;
 pub use call::{spawn_with, Answer, Call, Cancel, Event, Hook, Structured, Update};
 pub use cli::{Claude, Codex, OpenCode};
 pub use error::Error;
+pub use http::{Anthropic, OpenAiCompatible};
 pub use provider::{structured, Abilities, Model, Provider, Registry, Sandbox, Status};
 pub use request::{Effort, Material, Request, Speaker, Turn, ENGINE};
 pub use secret::{FileSecrets, MemorySecrets, SecretStore};

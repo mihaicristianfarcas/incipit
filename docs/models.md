@@ -82,6 +82,23 @@ Status (installed, signed in, version) comes from `--version` and each
 program's login status (`codex login status`, `claude auth status`,
 `opencode auth list`), and shows how a program is signed in, never who.
 
+## HTTP providers
+
+The learner can add endpoints in Settings. Each names the protocol it speaks,
+its address, and the secret its key is kept under, if it needs one.
+
+| Protocol | Covers | Key | Structured output |
+|---|---|---|---|
+| OpenAI-compatible (Chat Completions) | OpenAI, OpenRouter, and servers on the learner's own computer such as Ollama and LM Studio | a bearer key, or none for a local server | a strict JSON Schema (`response_format: json_schema`), else JSON mode with the schema in the instructions, else the instructions alone |
+| Anthropic (Messages API, `anthropic-version: 2026-10-21`) | Anthropic's API | an API key from the Claude Console (`x-api-key`) | `output_config.format` with the JSON Schema, else the instructions |
+
+Both stream their text as server-sent events. A server that refuses a form
+of structured output with a 400 is asked in the next form, and later calls
+start there. The answer is checked against the schema in Incipit either way.
+An OpenAI-compatible endpoint needs a model chosen in Settings; Anthropic's
+falls back to `claude-opus-5-5`. Errors are the service's own words with the
+HTTP status, and any key in them is blotted out before they are shown.
+
 ## The sandbox
 
 Agents work on files with the shell they already have, inside the operating

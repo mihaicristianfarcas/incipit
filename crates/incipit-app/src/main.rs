@@ -3,6 +3,7 @@
 //! page, INCIPIT_SHOT=file.png saves the window there and quits.
 
 mod figure;
+mod library;
 mod math;
 mod notes;
 mod reader;
@@ -19,6 +20,7 @@ use incipit_ui::{Glide, IconName, Theme, Type};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Page {
+    Library,
     Reader,
     Notes,
     Review,
@@ -26,7 +28,8 @@ enum Page {
     Figure,
 }
 
-const PAGES: [(Page, &str, &str, IconName); 5] = [
+const PAGES: [(Page, &str, &str, IconName); 6] = [
+    (Page::Library, "nav-library", "Library", IconName::Display),
     (Page::Reader, "nav-reader", "Reader", IconName::List),
     (Page::Notes, "nav-notes", "Notes", IconName::Pencil),
     (Page::Review, "nav-review", "Review", IconName::Bolt),
@@ -41,6 +44,7 @@ struct Root {
     math: Entity<math::MathView>,
     notes: Entity<notes::NotesView>,
     review: Entity<review::ReviewView>,
+    library: Entity<library::LibraryView>,
     reader: Entity<reader::ReaderView>,
 }
 
@@ -51,6 +55,7 @@ impl Root {
             Ok("math") => Page::Math,
             Ok("notes") => Page::Notes,
             Ok("review") => Page::Review,
+            Ok("library") => Page::Library,
             Ok("figure") => Page::Figure,
             _ => Page::Notes,
         };
@@ -71,6 +76,19 @@ impl Root {
             .detach();
         }
         let workspace = cx.new(workspace::Workspace::new);
+        let reader = cx.new(|cx| reader::ReaderView::new(workspace.clone(), cx));
+        let library = cx.new(|cx| library::LibraryView::new(workspace.clone(), cx));
+        // A book chosen in the library opens in the reader.
+        cx.subscribe(
+            &library,
+            |this: &mut Self, _, chosen: &library::Chosen, cx| {
+                let book = chosen.0.clone();
+                this.reader.update(cx, |reader, cx| reader.open(book, cx));
+                this.page = Page::Reader;
+                cx.notify();
+            },
+        )
+        .detach();
         Root {
             page,
             glide: Glide::new(cx),
@@ -78,7 +96,8 @@ impl Root {
             math: cx.new(math::MathView::new),
             notes: cx.new(|cx| notes::NotesView::new(workspace.clone(), cx)),
             review: cx.new(|cx| review::ReviewView::new(workspace.clone(), cx)),
-            reader: cx.new(reader::ReaderView::new),
+            reader,
+            library,
         }
     }
 
@@ -110,6 +129,7 @@ impl Render for Root {
             Page::Figure => self.figure.clone().into_any_element(),
             Page::Math => self.math.clone().into_any_element(),
             Page::Notes => self.notes.clone().into_any_element(),
+            Page::Library => self.library.clone().into_any_element(),
             Page::Review => self.review.clone().into_any_element(),
             Page::Reader => self.reader.clone().into_any_element(),
         };

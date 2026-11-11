@@ -54,6 +54,8 @@ impl Selection {
 /// passage that runs over several parts has an anchor in each.
 pub struct Note {
     pub id: u64,
+    /// The vault's document of it, when it is kept.
+    pub doc: Option<incipit_vault::DocId>,
     pub anchors: Vec<Anchor>,
     pub words: String,
 }

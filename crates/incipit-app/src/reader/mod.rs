@@ -5,7 +5,7 @@
 //! Selecting text offers what can be done with it right where the mouse let go.
 //!
 //! A PDF's pages are drawn on a thread of their own (`incipit_book::PdfWorker`) and kept only
-//! around the screen. Notes live in the window for now: the vault will keep them.
+//! around the screen. Notes on a book of the vault are kept there, as documents beside the book.
 //!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block).
@@ -25,10 +25,13 @@ use gpui::{
 };
 use incipit_book::{Anchor, Block, Book, Entry, Page, PdfInfo, PdfWorker};
 use incipit_ui::{
-    button, drag_area, field, floating, icon_button, segmented, FieldEvent, IconName, Metrics,
-    TextField, Theme, Type,
+    button, drag_area, field, floating, icon_button, FieldEvent, IconName, Metrics, TextField,
+    Theme, Type,
 };
 
+use incipit_vault::{Annotation, DocId, Kind, Source};
+
+use crate::workspace::Workspace;
 use model::{byte_of, find, rich, Doc, EpubDoc, Held, Note, Opened, PdfDoc, Place, Selection};
 
 /// The margin's width, and the gap between it and the book.
@@ -46,7 +49,19 @@ fn root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
 }
 
+/// A book to read: a file, and the vault's record of it when it has one (the samples have none,
+/// and notes on them are not kept).
+#[derive(Clone)]
+pub struct Shelved {
+    pub id: Option<DocId>,
+    pub title: String,
+    pub file: PathBuf,
+    pub epub: bool,
+}
+
 enum State {
+    /// No book was chosen.
+    Closed,
     Opening,
     Open(Opened),
     Failed(String),
@@ -56,6 +71,8 @@ enum State {
 type Drawn = (usize, Result<(Page, Arc<RenderImage>), String>);
 
 pub struct ReaderView {
+    workspace: Entity<Workspace>,
+    book: Option<Shelved>,
     epub: bool,
     state: State,
     list: ListState,
@@ -82,7 +99,7 @@ pub struct ReaderView {
 }
 
 impl ReaderView {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
         let draft = cx.new(|cx| TextField::new(cx).multiline().placeholder("Write a note"));
         let draft_events =
             cx.subscribe(
@@ -100,8 +117,10 @@ impl ReaderView {
         cx.spawn(async move |this, cx| Self::take_pages(this, pages, cx).await)
             .detach();
         let mut view = ReaderView {
-            epub: std::env::var("INCIPIT_BOOK").as_deref() == Ok("epub"),
-            state: State::Opening,
+            workspace,
+            book: None,
+            epub: false,
+            state: State::Closed,
             list: ListState::new(0, ListAlignment::Top, px(1200.0)),
             scale: 0.0,
             selection: None,
@@ -119,8 +138,94 @@ impl ReaderView {
             demo: std::env::var_os("INCIPIT_NOTE").is_some(),
             _draft_events: draft_events,
         };
-        view.open_book(cx);
+        // The sample books, for looking at the reader without a vault.
+        let sample = match std::env::var("INCIPIT_BOOK").as_deref() {
+            Ok("pdf") => Some(("Attention Is All You Need", "samples/paper.pdf", false)),
+            Ok("epub") => Some(("Relativity", "samples/book.epub", true)),
+            _ => None,
+        };
+        if let Some((title, file, epub)) = sample {
+            view.open(
+                Shelved {
+                    id: None,
+                    title: title.into(),
+                    file: root().join(file),
+                    epub,
+                },
+                cx,
+            );
+        }
         view
+    }
+
+    /// Open a book in the reader.
+    pub fn open(&mut self, book: Shelved, cx: &mut Context<Self>) {
+        self.epub = book.epub;
+        self.book = Some(book);
+        self.open_book(cx);
+    }
+
+    /// The notes the vault keeps on the open book.
+    fn kept_notes(&mut self, cx: &mut Context<Self>) {
+        let (Some(vault), Some(id)) = (
+            self.workspace.read(cx).vault.clone(),
+            self.book.as_ref().and_then(|b| b.id.clone()),
+        ) else {
+            return;
+        };
+        for doc in vault.list(Some(Kind::Annotation)) {
+            let Some(source) = doc.source().filter(|s| s.book == id.as_str()) else {
+                continue;
+            };
+            let part = match (source.page, source.block) {
+                (Some(page), _) => page.saturating_sub(1) as usize,
+                (None, Some(block)) => block as usize,
+                (None, None) => continue,
+            };
+            let quote = source.quote.unwrap_or_default();
+            let words = doc
+                .fields::<Annotation>()
+                .map(|a| a.answer)
+                .unwrap_or_default();
+            let number = self.id();
+            self.notes.push(Note {
+                id: number,
+                doc: Some(doc.id().clone()),
+                anchors: vec![Anchor {
+                    part,
+                    start: 0,
+                    end: quote.chars().count(),
+                    quote,
+                }],
+                words,
+            });
+        }
+    }
+
+    /// Keep a note in the vault, beside its book: the passage as its source, the words as its
+    /// text. A passage that runs over several pages is kept by its first.
+    fn keep(&self, anchors: &[Anchor], words: &str, cx: &mut Context<Self>) -> Option<DocId> {
+        let vault = self.workspace.read(cx).vault.clone()?;
+        let book = self.book.as_ref()?.id.clone()?;
+        let first = anchors.first()?;
+        let mut doc = incipit_vault::Doc::new(Kind::Annotation);
+        doc.set_doc_type(if words.is_empty() {
+            "highlight"
+        } else {
+            "comment"
+        });
+        doc.set_source(Some(&Source {
+            book: book.as_str().to_owned(),
+            page: (!self.epub).then_some(first.part as u32 + 1),
+            block: self.epub.then_some(first.part as u32),
+            quote: Some(first.quote.clone()),
+            ..Source::default()
+        }));
+        doc.set_fields(&Annotation {
+            answer: words.to_owned(),
+            ..Annotation::default()
+        });
+        vault.add(doc).ok().map(|doc| doc.id().clone())
     }
 
     /// Pages arrive from the PDF's thread for as long as the view lives.
@@ -172,20 +277,25 @@ impl ReaderView {
         self.composing = None;
         self.scale = if self.epub { TEXT.2 } else { PAGE.2 };
         let epub = self.epub;
+        let Some(book) = self.book.clone() else {
+            self.state = State::Closed;
+            return;
+        };
+        let (file, title) = (book.file.clone(), book.title.clone());
         cx.spawn(async move |this, cx| {
             let opened = cx
                 .background_executor()
                 .spawn(async move {
                     if epub {
-                        open_epub().map(Raw::Epub)
+                        open_epub(&file).map(Raw::Epub)
                     } else {
-                        open_pdf().map(Raw::Pdf)
+                        open_pdf(file).map(Raw::Pdf)
                     }
                 })
                 .await
-                .map(Raw::opened);
+                .map(|raw| raw.opened(title));
             let _ = this.update(cx, |this, cx| {
-                if this.epub != epub {
+                if this.book.as_ref().map(|b| &b.file) != Some(&book.file) {
                     return;
                 }
                 match opened {
@@ -201,6 +311,7 @@ impl ReaderView {
                             });
                         }
                         this.state = State::Open(opened);
+                        this.kept_notes(cx);
                         if this.demo && epub {
                             this.demo = false;
                             this.show_demo();
@@ -265,6 +376,7 @@ impl ReaderView {
             let id = self.id();
             self.notes.push(Note {
                 id,
+                doc: None,
                 anchors: vec![anchor],
                 words: words.into(),
             });
@@ -318,8 +430,10 @@ impl ReaderView {
         let anchors = self.anchors();
         if !anchors.is_empty() {
             let id = self.id();
+            let doc = self.keep(&anchors, "", cx);
             self.notes.push(Note {
                 id,
+                doc,
                 anchors,
                 words: String::new(),
             });
@@ -348,7 +462,13 @@ impl ReaderView {
         if let Some(anchors) = self.composing.take() {
             if !words.is_empty() {
                 let id = self.id();
-                self.notes.push(Note { id, anchors, words });
+                let doc = self.keep(&anchors, &words, cx);
+                self.notes.push(Note {
+                    id,
+                    doc,
+                    anchors,
+                    words,
+                });
                 self.open = Some(id);
             }
         }
@@ -441,9 +561,9 @@ impl ReaderView {
         let (title, location) = match &self.state {
             State::Open(opened) => (opened.title.clone(), self.location(opened)),
             State::Opening => ("Opening".to_string(), String::new()),
+            State::Closed => ("Reader".to_string(), String::new()),
             State::Failed(_) => ("The book did not open".to_string(), String::new()),
         };
-        let view = cx.entity().downgrade();
         div()
             .flex_none()
             .h(px(Metrics::TITLE_BAR.max(44.0)))
@@ -473,19 +593,6 @@ impl ReaderView {
                     .child(location),
             )
             .child(drag_area().flex_1().h_full())
-            .child(
-                segmented("reader-book", ["PDF", "EPUB"], self.epub as usize, t).on_select(
-                    move |which, _, cx| {
-                        let _ = view.update(cx, |this, cx| {
-                            if this.epub != (which == 1) {
-                                this.epub = which == 1;
-                                this.open_book(cx);
-                            }
-                            cx.notify();
-                        });
-                    },
-                ),
-            )
             .child(
                 icon_button("reader-smaller", IconName::Minus, "Smaller", t)
                     .ghost()
@@ -639,7 +746,14 @@ impl ReaderView {
                 )
                 .ghost()
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.notes.retain(|n| n.id != id);
+                    if let Some(position) = this.notes.iter().position(|n| n.id == id) {
+                        let note = this.notes.remove(position);
+                        if let (Some(doc), Some(vault)) =
+                            (note.doc, this.workspace.read(cx).vault.clone())
+                        {
+                            let _ = vault.delete(&doc);
+                        }
+                    }
                     cx.notify();
                 })),
             ),
@@ -692,6 +806,14 @@ impl Render for ReaderView {
         }
         let body: AnyElement = match &self.state {
             State::Opening => div().into_any_element(),
+            State::Closed => div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(t.tertiary)
+                .child("Choose a book in the Library.")
+                .into_any_element(),
             State::Failed(e) => div()
                 .p(px(40.0))
                 .text_color(t.danger)
@@ -733,15 +855,15 @@ enum Raw {
 }
 
 impl Raw {
-    fn opened(self) -> Opened {
+    fn opened(self, title: String) -> Opened {
         match self {
-            Raw::Epub((title, contents, book)) => Opened {
+            Raw::Epub((_, contents, book)) => Opened {
                 title,
                 contents,
                 doc: Doc::Epub(book),
             },
             Raw::Pdf((worker, info)) => Opened {
-                title: "Attention Is All You Need".into(),
+                title,
                 contents: info.contents,
                 doc: Doc::Pdf(PdfDoc {
                     worker,
@@ -754,13 +876,12 @@ impl Raw {
     }
 }
 
-fn open_pdf() -> Result<(PdfWorker, PdfInfo), String> {
-    PdfWorker::open(root().join("lib/lib"), root().join("samples/paper.pdf"))
-        .map_err(|e| format!("{e:#}"))
+fn open_pdf(file: PathBuf) -> Result<(PdfWorker, PdfInfo), String> {
+    PdfWorker::open(root().join("lib/lib"), file).map_err(|e| format!("{e:#}"))
 }
 
-fn open_epub() -> Result<(String, Vec<Entry>, EpubDoc), String> {
-    let book = Book::open(&root().join("samples/book.epub")).map_err(|e| format!("{e:#}"))?;
+fn open_epub(file: &std::path::Path) -> Result<(String, Vec<Entry>, EpubDoc), String> {
+    let book = Book::open(file).map_err(|e| format!("{e:#}"))?;
     let mut contents = Vec::new();
     let mut pictures = HashMap::new();
     let blocks: Vec<_> = book

@@ -1,8 +1,11 @@
 //! Concepts apart from the window, with nothing drawn here. A concept is one file in `concepts/`
 //! (docs/vault.md); what ties cards, notes and concepts to concepts is read from the links in
 //! their properties (`ties`), and the review queue credits cards by those ties (`crate::study`).
+//! How well a concept is known is `known`; what its page and the list of concepts show is `view`.
 
+pub mod known;
 pub mod ties;
+pub mod view;
 
 /// What tests of concepts make in a throwaway vault.
 #[cfg(test)]

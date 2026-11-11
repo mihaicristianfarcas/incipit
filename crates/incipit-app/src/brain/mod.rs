@@ -7,13 +7,22 @@
 //! more frames. What a press becomes (a click, a drag, a pan) is `press`.
 //!
 //! Clicking a node selects it, and a card beside the picture (`panel`) says what it is, opens its
-//! document and lists what it links with. The field at the top left finds nodes by title as one
-//! types (`search`): they are ringed and named, and Enter selects the best one and brings it to
-//! the middle, then the next. The page asks the window to open a document with `Open`.
+//! document (a concept on its own page here) and lists what it links with. The field at the top
+//! left finds nodes by title as one types (`search`): they are ringed and named, and Enter
+//! selects the best one and brings it to the middle, then the next.
+//!
+//! A switch above that field turns the page into the list of every concept, best known first
+//! (`concepts`), and a concept opens on a page of its own (`concept`), with a way back to where
+//! it was opened from. The page asks the window to open a document with `Open`, a concept in
+//! Notes to edit it with `Edit`, and a passage in the reader with `Read`.
 //!
 //! Without clicking: INCIPIT_PAGE=brain opens the page, and INCIPIT_NODE=words types the words
-//! into the field and presses Enter once the picture is there.
+//! into the field and presses Enter once the picture is there. INCIPIT_PAGE=concepts opens the
+//! list of concepts, and INCIPIT_CONCEPT=words the page of the concept whose title has the
+//! words, once the vault is open.
 
+mod concept;
+mod concepts;
 mod draw;
 mod panel;
 mod picture;
@@ -30,11 +39,12 @@ use gpui::{
 };
 use incipit_graph::{bounds, Point as At, Size as Extent, View};
 use incipit_ui::{field, floating, FieldEvent, TextField, Theme, Type};
-use incipit_vault::{DocId, Kind};
+use incipit_vault::{DocId, Kind, Source};
 
 use picture::{gather, lay_out, Picture};
 use press::{Motion, Press, Release};
 
+use crate::concepts::view::{Concepts, Detail, Listed};
 use crate::workspace::{Happened, Workspace};
 
 /// The space between the picture's edge and the cards on it.
@@ -49,8 +59,22 @@ const FOCUS_SCALE: f32 = 1.0;
 /// there is room, as all nodes are.
 const NAMED: usize = 12;
 
-/// A document the learner asked to open from the picture.
+/// A document the learner asked to open from the picture or a concept's page.
 pub struct Open(pub Kind, pub DocId);
+
+/// A concept the learner asked to edit in Notes.
+pub struct Edit(pub DocId);
+
+/// A passage a concept came from, to open in the reader.
+pub struct Read(pub Source);
+
+/// What the page shows.
+#[derive(Clone, Debug, PartialEq)]
+enum Shown {
+    Graph,
+    List,
+    Concept(DocId),
+}
 
 pub struct BrainView {
     workspace: Entity<Workspace>,
@@ -74,10 +98,24 @@ pub struct BrainView {
     /// Enter is to be pressed in the find field once the picture is there (INCIPIT_NODE).
     seek: bool,
     links_scroll: ScrollHandle,
-    _subscriptions: [Subscription; 2],
+    shown: Shown,
+    /// Where a concept's page goes back to: the picture or the list.
+    back: Shown,
+    /// The list's find field.
+    concepts_find: Entity<TextField>,
+    /// The concepts, best known first, and the concept shown, as last read from the vault.
+    listed: Vec<Listed>,
+    detail: Option<Detail>,
+    list_scroll: ScrollHandle,
+    page_scroll: ScrollHandle,
+    /// Words of a concept's title, to open its page once the vault is open (INCIPIT_CONCEPT).
+    wanted: Option<String>,
+    _subscriptions: [Subscription; 3],
 }
 
 impl EventEmitter<Open> for BrainView {}
+impl EventEmitter<Edit> for BrainView {}
+impl EventEmitter<Read> for BrainView {}
 
 /// The colour of a kind of document in the picture.
 fn ink(kind: Kind, t: Theme) -> Rgba {
@@ -97,9 +135,17 @@ impl BrainView {
                 Happened::Opened => {
                     this.afresh = true;
                     this.build(cx);
+                    this.read_concepts(cx);
+                    if let Some(words) = this.wanted.take() {
+                        this.open_named(&words, cx);
+                    }
                 }
-                Happened::Changed(event) if event.path.is_markdown() => this.build(cx),
-                Happened::Changed(_) => {}
+                Happened::Changed(event) if event.path.is_markdown() => {
+                    this.build(cx);
+                    this.read_concepts(cx);
+                }
+                // A review changes how well its card's concepts are known.
+                Happened::Changed(_) => this.read_concepts(cx),
             }
         });
         let find = cx.new(|cx| TextField::new(cx).placeholder("Find in the graph"));
@@ -119,6 +165,34 @@ impl BrainView {
         if seek {
             find.update(cx, |field, cx| field.set_text(words.trim(), cx));
         }
+        let concepts_find = cx.new(|cx| TextField::new(cx).placeholder("Find a concept"));
+        let narrowed = cx.subscribe(
+            &concepts_find,
+            |this: &mut Self, _, event: &FieldEvent, cx| match event {
+                FieldEvent::Changed => {
+                    this.list_scroll.set_offset(Point::default());
+                    cx.notify();
+                }
+                FieldEvent::Submit => {
+                    if let Some(&first) = this.found_concepts(cx).first() {
+                        let id = this.listed[first].id.clone();
+                        this.show_concept(id, cx);
+                    }
+                }
+                FieldEvent::Cancel => {
+                    this.concepts_find
+                        .update(cx, |field, cx| field.set_text("", cx));
+                    cx.notify();
+                }
+            },
+        );
+        let wanted = std::env::var("INCIPIT_CONCEPT")
+            .ok()
+            .filter(|w| !w.trim().is_empty());
+        let shown = match std::env::var("INCIPIT_PAGE").as_deref() {
+            Ok("concepts") => Shown::List,
+            _ => Shown::Graph,
+        };
         let mut view = BrainView {
             workspace,
             picture: None,
@@ -134,10 +208,76 @@ impl BrainView {
             found: Vec::new(),
             seek,
             links_scroll: ScrollHandle::new(),
-            _subscriptions: [heard, typed],
+            back: shown.clone(),
+            shown,
+            concepts_find,
+            listed: Vec::new(),
+            detail: None,
+            list_scroll: ScrollHandle::new(),
+            page_scroll: ScrollHandle::new(),
+            wanted,
+            _subscriptions: [heard, typed, narrowed],
         };
         view.build(cx);
+        view.read_concepts(cx);
         view
+    }
+
+    /// Reads the concepts again, while the list or a concept is shown. A concept that is gone
+    /// leaves its page for where it was opened from.
+    fn read_concepts(&mut self, cx: &mut Context<Self>) {
+        if self.shown == Shown::Graph {
+            return;
+        }
+        let Some(vault) = self.workspace.read(cx).vault.clone() else {
+            return;
+        };
+        let concepts = Concepts::read(&vault, crate::study::now());
+        self.listed = concepts.list();
+        if let Shown::Concept(id) = &self.shown {
+            self.detail = concepts.detail(&vault, id);
+            if self.detail.is_none() {
+                self.shown = self.back.clone();
+            }
+        }
+        cx.notify();
+    }
+
+    /// Shows the picture or the list.
+    fn switch_to(&mut self, shown: Shown, cx: &mut Context<Self>) {
+        self.shown = shown;
+        self.read_concepts(cx);
+        cx.notify();
+    }
+
+    /// Opens a concept's page; its back button goes to what the page showed before.
+    pub fn show_concept(&mut self, id: DocId, cx: &mut Context<Self>) {
+        if !matches!(self.shown, Shown::Concept(_)) {
+            self.back = self.shown.clone();
+        }
+        self.shown = Shown::Concept(id);
+        self.page_scroll.set_offset(Point::default());
+        self.read_concepts(cx);
+        cx.notify();
+    }
+
+    fn leave_concept(&mut self, cx: &mut Context<Self>) {
+        let back = self.back.clone();
+        self.switch_to(back, cx);
+    }
+
+    /// Opens the page of the concept whose title best matches `words` (as find in the graph
+    /// ranks titles), if one does.
+    fn open_named(&mut self, words: &str, cx: &mut Context<Self>) {
+        let Some(vault) = self.workspace.read(cx).vault.clone() else {
+            return;
+        };
+        let concepts = vault.list(Some(Kind::Concept));
+        let titles: Vec<String> = concepts.iter().map(|c| c.title()).collect();
+        let links = vec![0; titles.len()];
+        if let Some(&best) = search::matches(&titles, &links, words).first() {
+            self.show_concept(concepts[best].id().clone(), cx);
+        }
     }
 
     fn build(&mut self, cx: &mut Context<Self>) {
@@ -369,7 +509,8 @@ impl BrainView {
                 floating(t)
                     .occlude()
                     .p(px(6.0))
-                    .gap(px(4.0))
+                    .gap(px(6.0))
+                    .child(div().flex().child(self.switch(0, t, cx)))
                     .child(field(&self.find, t))
                     .when(typed, |card| {
                         card.child(
@@ -393,6 +534,11 @@ impl Render for BrainView {
                 .size_full()
                 .child(crate::welcome::welcome(&self.workspace, t, cx))
                 .into_any_element();
+        }
+        match self.shown {
+            Shown::List => return self.concept_list(t, window, cx),
+            Shown::Concept(_) => return self.concept_page(t, window, cx),
+            Shown::Graph => {}
         }
         let Some(picture) = &mut self.picture else {
             return div().size_full().into_any_element();

@@ -1,6 +1,6 @@
 //! The card beside the Brain's picture for the selected node: its title and kind, a button that
-//! opens its document on the page that shows it (the page emits `Open`, and the window decides
-//! where), and the nodes it links with, in the order their titles read, each of which selects
+//! opens its document on the page that shows it (a concept on its own page here; for the rest the
+//! page emits `Open`, and the window decides where), and the nodes it links with, in the order their titles read, each of which selects
 //! that node and brings it to the middle. It is reached from the keyboard too: Enter in the find field selects a node,
 //! and Tab goes on to the button and the rows.
 
@@ -17,7 +17,8 @@ use crate::find::kind_word;
 /// What the Open button says: where the document will open.
 fn open_label(kind: Kind) -> &'static str {
     match kind {
-        Kind::Note | Kind::Concept => "Open in Notes",
+        Kind::Note => "Open in Notes",
+        Kind::Concept => "Open the concept",
         Kind::Book => "Open the book",
         _ => "Open",
     }
@@ -131,12 +132,14 @@ impl BrainView {
                             .child(format!("{}  ·  {count}", kind_word(kind))),
                     ),
             )
-            .child(
-                div().flex_none().flex().child(
-                    button("brain-open", open_label(kind), t)
-                        .on_click(cx.listener(move |_, _, _, cx| cx.emit(Open(kind, id.clone())))),
-                ),
-            )
+            .child(div().flex_none().flex().child(
+                button("brain-open", open_label(kind), t).on_click(cx.listener(
+                    move |this, _, _, cx| match kind {
+                        Kind::Concept => this.show_concept(id.clone(), cx),
+                        _ => cx.emit(Open(kind, id.clone())),
+                    },
+                )),
+            ))
             .when(!links.is_empty(), |card| {
                 card.child(
                     div()
@@ -192,7 +195,7 @@ mod tests {
     #[test]
     fn the_open_button_says_where_the_document_opens() {
         assert_eq!(open_label(Kind::Note), "Open in Notes");
-        assert_eq!(open_label(Kind::Concept), "Open in Notes");
+        assert_eq!(open_label(Kind::Concept), "Open the concept");
         assert_eq!(open_label(Kind::Book), "Open the book");
         assert_eq!(open_label(Kind::Card), "Open");
     }

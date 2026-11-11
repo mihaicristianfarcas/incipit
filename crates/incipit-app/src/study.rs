@@ -29,6 +29,14 @@ pub struct Entry {
     state: incipit_learn::Card,
 }
 
+impl Entry {
+    /// The card's memory and schedule now: what its reviews, and the credit from recalls of the
+    /// cards that build on it, made of it.
+    pub fn state(&self) -> &incipit_learn::Card {
+        &self.state
+    }
+}
+
 /// Every card of a vault with its schedule as of the last review.
 pub struct Deck {
     cards: HashMap<DocId, Entry>,

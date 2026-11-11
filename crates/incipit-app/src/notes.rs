@@ -2,13 +2,15 @@
 //! Markdown. What is written is saved to its file a moment after the typing stops, and at once
 //! when another note is opened; a new title renames the file, and the links to it follow (the
 //! vault does that). An edit made by another program shows here unless this window has changes
-//! of its own waiting. INCIPIT_PAGE=notes opens the page.
+//! of its own waiting. The concepts the open note links to, as its file has them, are buttons
+//! under its title that open each concept's page (the page emits `OpenConcept`).
+//! INCIPIT_PAGE=notes opens the page.
 
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::*, px, Context, Entity, IntoElement, Render, ScrollHandle, Subscription, Task,
-    Window,
+    div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, Render, ScrollHandle,
+    Subscription, Task, Window,
 };
 use incipit_ui::{button, field, icon_button, FieldEvent, IconName, TextField, Theme, Type};
 use incipit_vault::{Doc, DocId, Kind, Origin, Vault};
@@ -25,10 +27,15 @@ struct Listed {
     updated: String,
 }
 
+/// A concept the learner asked to open from a note.
+pub struct OpenConcept(pub DocId);
+
 pub struct NotesView {
     workspace: Entity<Workspace>,
     notes: Vec<Listed>,
     open: Option<DocId>,
+    /// The concepts the open note links to, with their titles, in the order of its links.
+    concepts: Vec<(DocId, String)>,
     title: Entity<TextField>,
     body: Entity<TextField>,
     find: Entity<TextField>,
@@ -68,6 +75,7 @@ impl NotesView {
             workspace,
             notes: Vec::new(),
             open: None,
+            concepts: Vec::new(),
             title,
             body,
             find,
@@ -86,6 +94,25 @@ impl NotesView {
 
     fn vault(&self, cx: &Context<Self>) -> Option<Vault> {
         self.workspace.read(cx).vault.clone()
+    }
+
+    /// Reads which concepts the open note links to, from its file.
+    fn linked_concepts(&mut self, cx: &mut Context<Self>) {
+        self.concepts.clear();
+        let (Some(vault), Some(open)) = (self.vault(cx), self.open.clone()) else {
+            return;
+        };
+        for link in vault.outlinks(&open) {
+            let Some(to) = link.to.filter(|to| *to != open) else {
+                continue;
+            };
+            let Some(doc) = vault.get(&to).filter(|d| d.kind() == Kind::Concept) else {
+                continue;
+            };
+            if !self.concepts.iter().any(|(id, _)| *id == to) {
+                self.concepts.push((to, doc.title()));
+            }
+        }
     }
 
     /// The notes to list: all of them, newest first, or the ones the words in Find match.
@@ -132,6 +159,8 @@ impl NotesView {
                     let open = self.open.clone();
                     self.show(open, cx);
                 }
+                // A link written, or a concept named, renamed or removed.
+                self.linked_concepts(cx);
                 if shown
                     && self
                         .vault(cx)
@@ -155,6 +184,7 @@ impl NotesView {
         self.title.update(cx, |field, cx| field.set_text(title, cx));
         self.body.update(cx, |field, cx| field.set_text(body, cx));
         self.dirty = false;
+        self.linked_concepts(cx);
         cx.notify();
     }
 
@@ -232,6 +262,33 @@ impl NotesView {
         self.show(first, cx);
     }
 
+    /// The concepts the note links to, each a button that opens its page.
+    fn concept_buttons(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let buttons = self
+            .concepts
+            .iter()
+            .enumerate()
+            .map(|(index, (id, title))| {
+                let id = id.clone();
+                button(("note-concept", index), title.clone(), t)
+                    .icon(IconName::Network)
+                    .tooltip("Open the concept")
+                    .on_click(cx.listener(move |_, _, _, cx| cx.emit(OpenConcept(id.clone()))))
+            });
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(6.0))
+            .child(
+                div()
+                    .text_size(px(Type::META))
+                    .text_color(t.tertiary)
+                    .child("Concepts"),
+            )
+            .children(buttons)
+    }
+
     fn rows(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = self.notes.iter().enumerate().map(|(index, note)| {
             let id = note.id.clone();
@@ -292,6 +349,8 @@ impl NotesView {
     }
 }
 
+impl EventEmitter<OpenConcept> for NotesView {}
+
 impl Render for NotesView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme(window);
@@ -346,6 +405,9 @@ impl Render for NotesView {
                                             ),
                                         ),
                                 )
+                                .when(!self.concepts.is_empty(), |note| {
+                                    note.child(self.concept_buttons(t, cx))
+                                })
                                 .children(self.problem.clone().map(|p| {
                                     div()
                                         .text_size(px(Type::META))

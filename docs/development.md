@@ -29,7 +29,7 @@ screenshots are taken:
 
 | Variable | Does |
 |---|---|
-| `INCIPIT_PAGE` | Opens on `library`, `reader`, `notes`, `review`, `brain`, `math` or `figure` |
+| `INCIPIT_PAGE` | Opens on `today` (the default), `library`, `reader`, `notes`, `review`, `brain`, `math` or `figure` |
 | `INCIPIT_VAULT` | A folder: the vault there is opened (made, if it is not one yet) without asking. Use a temporary folder for checks, never a vault of your own |
 | `INCIPIT_HOME` | A folder for the app's own files (the list of vaults), instead of the system's place for app data |
 | `INCIPIT_SHOT` | A file name: the window is saved there as a PNG after a moment, and the app quits (macOS) |

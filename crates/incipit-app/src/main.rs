@@ -11,6 +11,7 @@ mod reader;
 mod review;
 mod stage;
 mod study;
+mod today;
 mod welcome;
 mod workspace;
 
@@ -21,6 +22,7 @@ use incipit_ui::{Glide, IconName, Theme, Type};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Page {
+    Today,
     Library,
     Reader,
     Notes,
@@ -30,7 +32,8 @@ enum Page {
     Figure,
 }
 
-const PAGES: [(Page, &str, &str, IconName); 7] = [
+const PAGES: [(Page, &str, &str, IconName); 8] = [
+    (Page::Today, "nav-today", "Today", IconName::Clock),
     (Page::Library, "nav-library", "Library", IconName::Display),
     (Page::Reader, "nav-reader", "Reader", IconName::List),
     (Page::Notes, "nav-notes", "Notes", IconName::Pencil),
@@ -49,6 +52,7 @@ struct Root {
     review: Entity<review::ReviewView>,
     library: Entity<library::LibraryView>,
     brain: Entity<brain::BrainView>,
+    today: Entity<today::TodayView>,
     reader: Entity<reader::ReaderView>,
 }
 
@@ -62,7 +66,8 @@ impl Root {
             Ok("library") => Page::Library,
             Ok("brain") => Page::Brain,
             Ok("figure") => Page::Figure,
-            _ => Page::Notes,
+            Ok("notes") => Page::Notes,
+            _ => Page::Today,
         };
         if let Some(path) = std::env::var_os("INCIPIT_SHOT") {
             // Nothing says "the page has settled" (fonts shaped, the fade over), so the picture is
@@ -104,6 +109,20 @@ impl Root {
             cx.notify();
         })
         .detach();
+        let today = cx.new(|cx| today::TodayView::new(workspace.clone(), cx));
+        cx.subscribe(&today, |this: &mut Self, _, go: &today::Go, cx| {
+            match go {
+                today::Go::Review => this.page = Page::Review,
+                today::Go::Library => this.page = Page::Library,
+                today::Go::Note(id) => {
+                    let id = id.clone();
+                    this.notes.update(cx, |notes, cx| notes.select(id, cx));
+                    this.page = Page::Notes;
+                }
+            }
+            cx.notify();
+        })
+        .detach();
         Root {
             page,
             glide: Glide::new(cx),
@@ -114,6 +133,7 @@ impl Root {
             reader,
             library,
             brain,
+            today,
         }
     }
 
@@ -145,6 +165,7 @@ impl Render for Root {
             Page::Figure => self.figure.clone().into_any_element(),
             Page::Math => self.math.clone().into_any_element(),
             Page::Notes => self.notes.clone().into_any_element(),
+            Page::Today => self.today.clone().into_any_element(),
             Page::Brain => self.brain.clone().into_any_element(),
             Page::Library => self.library.clone().into_any_element(),
             Page::Review => self.review.clone().into_any_element(),

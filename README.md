@@ -17,7 +17,7 @@ Early. One window, with these pages, on a vault of plain files:
 |---|---|
 | Today | What is due for review, the books, and the notes touched last |
 | Library | The vault's books; a PDF or EPUB is added by copying it into the vault |
-| Reader | A whole PDF (drawn by pdfium) or EPUB (laid out as native text) with its contents, zoom and text selection across pages. A passage can be highlighted, noted, explained or asked about, and turned into flashcards or a figure; a page into a quiz. Notes and answers sit in the margin beside their passage and are kept in the vault |
+| Reader | A whole PDF (drawn by pdfium) or EPUB (laid out as native text) with its contents, zoom and text selection across pages. A passage can be highlighted, noted, explained or asked about, and turned into flashcards or a figure; a page into a quiz. An answer can be continued as a session with the tutor, a conversation over several turns that can be kept as a note or made into flashcards. Notes, answers and sessions sit in the margin beside their passage and are kept in the vault |
 | Notes | The vault's notes, written as Markdown in a native field: the marks are dimmed and show what they mean, lists carry on, every change can be undone |
 | Review | Flashcards due today, one at a time, scheduled by FSRS-6 |
 | Brain | The notes, concepts and books as a graph of their links |

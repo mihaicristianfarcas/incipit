@@ -1,6 +1,7 @@
 //! Putting a passage to the model, from the reader: explaining it, answering a question about
-//! it, making flashcards from it, and drawing a figure of it (`crate::figures`). The passage and the text around it are material for the
-//! model, apart from the instructions; what comes back is text for a card in the margin or
+//! it, making flashcards from it (or from a tutor session about it), and drawing a figure of it
+//! (`crate::figures`). The passage and the text around it are material for the model, apart
+//! from the instructions; what comes back is text for a card in the margin or
 //! fields for flashcards, never anything that runs.
 
 use futures::StreamExt;
@@ -23,9 +24,17 @@ const CARD_MAKER: &str = "You write flashcards for a learner who is reading a bo
     wording. Each front is one question; each back is a short answer. Use the text around the \
     passage only to understand it.";
 const MAKE_CARDS: &str = "Make flashcards from this passage.";
+/// The same, asked from a tutor session: the conversation is material beside the passage.
+pub(super) const CARDS_FROM_SESSION: &str =
+    "Make flashcards from this passage and from what the conversation about it made clear.";
 const MAKE_FIGURE: &str = "Draw a figure of this.";
 /// The most cards kept from one answer, whatever the model sends.
 const MOST_CARDS: usize = 4;
+
+/// Whether what was asked made something (cards, a figure) instead of an answer to talk over.
+pub(super) fn made_something(asked: &str) -> bool {
+    [MAKE_CARDS, CARDS_FROM_SESSION, MAKE_FIGURE].contains(&asked)
+}
 
 /// What a figure's card in the margin says: its title, then what to look for.
 pub(super) fn about_figure(figure: &incipit_scene::Figure) -> String {
@@ -191,7 +200,7 @@ impl ReaderView {
     }
 
     /// What a model is given about a passage, each piece with its label.
-    fn material(&self, anchors: &[Anchor]) -> Vec<(String, String)> {
+    pub(super) fn material(&self, anchors: &[Anchor]) -> Vec<(String, String)> {
         let passage: String = anchors
             .iter()
             .map(|a| a.quote.as_str())
@@ -323,13 +332,30 @@ impl ReaderView {
             return;
         }
         self.margin = true;
-        let request = self.about(CARD_MAKER, &anchors).ask(MAKE_CARDS);
+        self.cards_about(anchors, None, MAKE_CARDS, cx);
+    }
+
+    /// Have the model write flashcards about a passage, from it and from `also` (more material
+    /// with its label: a conversation about the passage). Returns the margin card that says how
+    /// it went.
+    pub(super) fn cards_about(
+        &mut self,
+        anchors: Vec<Anchor>,
+        also: Option<(String, String)>,
+        ask: &str,
+        cx: &mut Context<Self>,
+    ) -> u64 {
+        let mut request = self.about(CARD_MAKER, &anchors);
+        if let Some((label, text)) = also {
+            request = request.with_material(label, text);
+        }
+        let request = request.ask(ask);
         let asking = self.models.read(cx).fill(request, cards_form());
         let id = self.id();
         let mut note = Note {
             id,
             anchors,
-            asked: Some(MAKE_CARDS.to_owned()),
+            asked: Some(ask.to_owned()),
             ..Note::default()
         };
         self.open = Some(id);
@@ -339,7 +365,7 @@ impl ReaderView {
                 note.problem = Some(problem);
                 self.notes.push(note);
                 cx.notify();
-                return;
+                return id;
             }
         };
         note.waiting = true;
@@ -371,6 +397,7 @@ impl ReaderView {
             }
         })
         .detach();
+        id
     }
 
     /// Add the cards to the vault, and say in Markdown which were made.

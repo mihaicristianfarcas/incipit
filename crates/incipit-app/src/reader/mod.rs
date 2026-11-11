@@ -9,9 +9,11 @@
 //!
 //! A passage can also be put to the model the learner chose: the answer is written into a card in
 //! the margin as it arrives, and kept like a note once it is whole. The passage and the text
-//! around it go to the model as material, never as instructions.
+//! around it go to the model as material, never as instructions. An answer can be talked over
+//! with the tutor in a sheet (`session`), and a page turned into a quiz (`quiz`).
 //!
-//! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at; =answer for a model's answer),
+//! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
+//! =answer for a model's answer, =session for a tutor session with a made-up conversation),
 //! INCIPIT_ASK=explain|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block).
 
@@ -19,6 +21,7 @@ mod asking;
 mod model;
 mod quiz;
 mod rows;
+mod session;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -113,6 +116,9 @@ pub struct ReaderView {
     quiz: Option<quiz::Quiz>,
     quiz_on: usize,
     quiz_stop: Option<Cancel>,
+    /// The tutor session that is open, and the field its next turn is written in.
+    session: Option<session::Session>,
+    reply: Entity<TextField>,
     draft: Entity<TextField>,
     contents: bool,
     margin: bool,
@@ -121,6 +127,7 @@ pub struct ReaderView {
     drawn: UnboundedSender<Drawn>,
     demo: bool,
     _draft_events: Subscription,
+    _reply_events: Subscription,
 }
 
 impl ReaderView {
@@ -139,6 +146,20 @@ impl ReaderView {
                         this.composing = None;
                         cx.notify();
                     }
+                    FieldEvent::Changed => {}
+                },
+            );
+        let reply = cx.new(|cx| {
+            TextField::new(cx)
+                .multiline()
+                .placeholder("Ask more, or say what you think")
+        });
+        let reply_events =
+            cx.subscribe(
+                &reply,
+                |this: &mut Self, _, event: &FieldEvent, cx| match event {
+                    FieldEvent::Submit => this.send_turn(cx),
+                    FieldEvent::Cancel => this.close_session(cx),
                     FieldEvent::Changed => {}
                 },
             );
@@ -165,6 +186,8 @@ impl ReaderView {
             quiz: None,
             quiz_on: 0,
             quiz_stop: None,
+            session: None,
+            reply,
             draft,
             contents: std::env::var_os("INCIPIT_CONTENTS").is_some(),
             margin: true,
@@ -172,6 +195,7 @@ impl ReaderView {
             drawn,
             demo: std::env::var_os("INCIPIT_NOTE").is_some(),
             _draft_events: draft_events,
+            _reply_events: reply_events,
         };
         // The sample books, for looking at the reader without a vault.
         let sample = match std::env::var("INCIPIT_BOOK").as_deref() {
@@ -211,7 +235,8 @@ impl ReaderView {
         let docs = vault
             .list(Some(Kind::Annotation))
             .into_iter()
-            .chain(vault.list(Some(Kind::Figure)));
+            .chain(vault.list(Some(Kind::Figure)))
+            .chain(vault.list(Some(Kind::Session)));
         for doc in docs {
             let Some(source) = doc.source().filter(|s| s.book == id.as_str()) else {
                 continue;
@@ -236,8 +261,15 @@ impl ReaderView {
             } else {
                 None
             };
+            // A session comes back as the card that opens it; one without a turn has nothing to
+            // open.
+            let turns = session::turns_of(&doc);
+            if doc.kind() == Kind::Session && turns.is_empty() {
+                continue;
+            }
             let (words, asked) = match &figure {
                 Some(figure) => (asking::about_figure(figure), None),
+                None if !turns.is_empty() => session::card_of(&turns),
                 None => doc
                     .fields::<Annotation>()
                     .map(|a| (a.answer, a.request))
@@ -256,6 +288,7 @@ impl ReaderView {
                 words,
                 asked,
                 figure,
+                turns,
                 ..Note::default()
             });
         }
@@ -349,6 +382,7 @@ impl ReaderView {
         self.menu = None;
         self.notes.clear();
         self.composing = None;
+        self.close_session(cx);
         self.scale = if self.epub { TEXT.2 } else { PAGE.2 };
         let epub = self.epub;
         let Some(book) = self.book.clone() else {
@@ -400,9 +434,13 @@ impl ReaderView {
         .detach();
     }
 
-    /// INCIPIT_ASK=explain|cards|quiz|figure puts the demonstration's selection to the model, to see a real
-    /// answer arrive without a mouse.
+    /// INCIPIT_ASK=explain|cards|quiz|figure puts the demonstration's selection to the model, to
+    /// see a real answer arrive without a mouse. INCIPIT_NOTE=session opens the demonstration's
+    /// note as a tutor session, which asks no model.
     fn try_demo(&mut self, cx: &mut Context<Self>) {
+        if std::env::var("INCIPIT_NOTE").as_deref() == Ok("session") {
+            self.show_demo_session(cx);
+        }
         match std::env::var("INCIPIT_ASK").as_deref() {
             Ok("explain") => self.explain(cx),
             Ok("cards") => self.make_cards(cx),
@@ -465,8 +503,11 @@ impl ReaderView {
                 id,
                 anchors: vec![anchor],
                 words: words.into(),
-                asked: (std::env::var("INCIPIT_NOTE").as_deref() == Ok("answer"))
-                    .then(|| asking::EXPLAIN.to_owned()),
+                asked: matches!(
+                    std::env::var("INCIPIT_NOTE").as_deref(),
+                    Ok("answer" | "session")
+                )
+                .then(|| asking::EXPLAIN.to_owned()),
                 ..Note::default()
             });
             self.open = Some(id);
@@ -912,29 +953,34 @@ impl ReaderView {
             )
         }))
         .child(
-            div().flex().justify_end().child(
-                icon_button(
-                    ("note-delete", id as usize),
-                    IconName::Trash,
-                    "Delete the note",
-                    t,
-                )
-                .ghost()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(position) = this.notes.iter().position(|n| n.id == id) {
-                        let note = this.notes.remove(position);
-                        if let Some(cancel) = this.answers.remove(&id) {
-                            cancel.cancel();
+            div()
+                .flex()
+                .items_center()
+                .children(self.session_button(note, t, cx))
+                .child(div().flex_1())
+                .child(
+                    icon_button(
+                        ("note-delete", id as usize),
+                        IconName::Trash,
+                        "Delete the note",
+                        t,
+                    )
+                    .ghost()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(position) = this.notes.iter().position(|n| n.id == id) {
+                            let note = this.notes.remove(position);
+                            if let Some(cancel) = this.answers.remove(&id) {
+                                cancel.cancel();
+                            }
+                            if let (Some(doc), Some(vault)) =
+                                (note.doc, this.workspace.read(cx).vault.clone())
+                            {
+                                let _ = vault.delete(&doc);
+                            }
                         }
-                        if let (Some(doc), Some(vault)) =
-                            (note.doc, this.workspace.read(cx).vault.clone())
-                        {
-                            let _ = vault.delete(&doc);
-                        }
-                    }
-                    cx.notify();
-                })),
-            ),
+                        cx.notify();
+                    })),
+                ),
         )
     }
 
@@ -1023,6 +1069,7 @@ impl Render for ReaderView {
             .child(div().flex_1().min_h_0().child(body))
             .children(self.selection_menu(t, cx))
             .children(self.quiz_sheet(t, cx))
+            .children(self.session_sheet(t, cx))
     }
 }
 

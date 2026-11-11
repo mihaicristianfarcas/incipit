@@ -54,7 +54,7 @@ screenshots are taken:
 | `INCIPIT_FIND` | Opens the find sheet with these words typed |
 | `INCIPIT_ASK` | With `INCIPIT_NOTE` on the Reader page: `explain`, `cards` or `figure` puts the selection to the chosen model, `quiz` the page. This calls a model with your own login |
 | `INCIPIT_WAIT` | With `INCIPIT_SHOT`: seconds to wait before the picture, instead of 1.5 |
-| `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected; `answer` shows the note as a model's answer |
+| `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected; `answer` shows the note as a model's answer, `session` opens it as a tutor session with a made-up conversation (no model is called) |
 | `INCIPIT_CONTENTS` | On the Reader page: starts with the book's contents open |
 | `INCIPIT_PART` | On the Reader page: the page (PDF) or block (EPUB) to start at, counted from 0 |
 | `INCIPIT_FIGURE` | On the Figure page: a JSON file holding a figure's spec (or a model's reply with it under `structured_output`), instead of the built-in examples |

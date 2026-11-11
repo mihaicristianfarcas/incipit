@@ -22,7 +22,7 @@ Early. One window, with these pages, on a vault of plain files:
 | Review | Flashcards due today, one at a time, scheduled by FSRS-6 |
 | Brain | The notes, concepts and books as a graph of their links |
 | Math | LaTeX typeset by Typst and drawn in the window, on its own line and inside a sentence |
-| Figure | A figure made from a typed spec, checked, then played, stepped and scrubbed |
+| Figure | A figure made from a typed spec, checked, then played, stepped and scrubbed: a sequence, a flow diagram or a plot with parameters to drag ([docs/figures.md](docs/figures.md)). The figures made in the reader are listed under it |
 | Settings | The vault's folder, and which model answers ([docs/models.md](docs/models.md)) |
 
 It has been built and run on macOS (Apple silicon), Ubuntu (aarch64) and

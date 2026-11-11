@@ -115,7 +115,7 @@ impl Root {
         let reader = cx.new(|cx| reader::ReaderView::new(workspace.clone(), models.clone(), cx));
         let settings =
             cx.new(|cx| settings::SettingsView::new(workspace.clone(), models.clone(), cx));
-        let figure = cx.new(figure::FigureView::new);
+        let figure = cx.new(|cx| figure::FigureView::new(workspace.clone(), cx));
         // A figure made for a passage opens on the Figure page.
         cx.subscribe(
             &reader,

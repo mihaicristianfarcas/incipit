@@ -1,11 +1,16 @@
 //! The history as the vault uses it: naming the change in progress after what happened in it,
-//! closing a sitting, and bringing documents or the whole vault back to an earlier state.
+//! closing a sitting, taking in what another program (an agent) did as one change, and bringing
+//! documents or the whole vault back to an earlier state.
 //!
 //! When history rewrites files, the vault holds its lock for the whole call and reads the
 //! changed files again before letting go, so the index is right when the call returns, the
 //! changes are announced as made here, and the watcher, which hears of them afterwards, finds
 //! nothing new. When to close a sitting (after some idle minutes, before an agent's work comes
 //! in) is the app's to decide: it knows when the learner stops.
+//!
+//! An agent's work is one change of its own: `close_sitting` before it starts sets the
+//! learner's pending work apart, `take_in` after it ends closes what the agent did under the
+//! learner's request, and `take_out` with that change's commit is its undo.
 
 use std::collections::BTreeMap;
 
@@ -83,6 +88,23 @@ impl Vault {
             }
         };
         history.close_sitting(&description)
+    }
+
+    /// Takes in what another program did to the files since the last sitting was closed (an
+    /// agent's work): closes it as one change named `description`, and reads the files it
+    /// touched into the index before returning, announced as coming from outside, without
+    /// waiting for the watcher to report them. `None` when no file had changed.
+    pub fn take_in(&self, description: &str) -> Result<Option<Version>> {
+        let inner = &self.inner;
+        let mut state = inner.lock();
+        let closed = inner.history.close_sitting(description)?;
+        let mut events = Vec::new();
+        let touched = closed.iter().flat_map(|version| &version.files);
+        for path in touched.filter_map(|f| VaultPath::new(&f.path).ok()) {
+            reconcile::place(inner, &mut state, &path, Origin::Outside, &mut events);
+        }
+        inner.subscribers.send(events);
+        Ok(closed)
     }
 
     /// Runs a history call that changes files, and reads the files it changed again.

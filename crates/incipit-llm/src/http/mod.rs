@@ -49,6 +49,13 @@ impl From<Error> for Failed {
     }
 }
 
+fn owned(headers: &[(&str, String)]) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), value.clone()))
+        .collect()
+}
+
 /// An HTTP client for one call.
 pub(crate) struct Client {
     agent: ureq::Agent,
@@ -90,6 +97,31 @@ impl Client {
         })
     }
 
+    /// Runs a request on a thread of its own and waits for its answer or for the call to be
+    /// cancelled, whichever comes first. Shutting the agent down does not wake a read that is
+    /// already blocked on every system (it does not on Windows), so the wait is here and not in
+    /// the socket; a request left behind ends at its own deadline.
+    fn run<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(ureq::Agent) -> Result<T, ureq::Error> + Send + 'static,
+    ) -> Result<T, Failed> {
+        self.cancel.check()?;
+        let (answer, answered) = std::sync::mpsc::channel();
+        let stop = answer.clone();
+        let _hook = self.cancel.on_cancel(move || {
+            let _ = stop.send(None);
+        });
+        let agent = self.agent.clone();
+        std::thread::spawn(move || {
+            let _ = answer.send(Some(work(agent)));
+        });
+        match answered.recv() {
+            Ok(Some(result)) => result.map_err(|e| self.failed(e)),
+            // Cancelled, or the thread ended without an answer (it panicked).
+            Ok(None) | Err(_) => Err(Failed::Other(Error::Cancelled)),
+        }
+    }
+
     /// POSTs `body` as JSON and returns the response once its status is a success.
     pub fn post(
         &self,
@@ -98,32 +130,31 @@ impl Client {
         body: &Value,
         secret: Option<&str>,
     ) -> Result<ureq::Body, Failed> {
-        self.cancel.check()?;
-        let mut request = self
-            .agent
-            .post(url)
-            .header("content-type", "application/json");
-        for (name, value) in headers {
-            request = request.header(*name, value.as_str());
-        }
-        let response = request.send(body.to_string()).map_err(|e| self.failed(e))?;
+        let (url, headers, body) = (url.to_owned(), owned(headers), body.to_string());
+        let response = self.run(move |agent| {
+            let mut request = agent.post(&url).header("content-type", "application/json");
+            for (name, value) in &headers {
+                request = request.header(name.as_str(), value.as_str());
+            }
+            request.send(body)
+        })?;
         self.success(response, secret)
     }
 
     /// POSTs a form and returns the JSON it answers with.
     pub fn post_form(&self, url: &str, fields: &[(&str, &str)]) -> Result<Value, Failed> {
-        self.cancel.check()?;
         let form = fields
             .iter()
             .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
             .collect::<Vec<_>>()
             .join("&");
-        let response = self
-            .agent
-            .post(url)
-            .header("content-type", "application/x-www-form-urlencoded")
-            .send(form)
-            .map_err(|e| self.failed(e))?;
+        let url = url.to_owned();
+        let response = self.run(move |agent| {
+            agent
+                .post(&url)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .send(form)
+        })?;
         read_json(self.success(response, None)?)
     }
 
@@ -134,12 +165,14 @@ impl Client {
         headers: &[(&str, String)],
         secret: Option<&str>,
     ) -> Result<Value, Failed> {
-        self.cancel.check()?;
-        let mut request = self.agent.get(url);
-        for (name, value) in headers {
-            request = request.header(*name, value.as_str());
-        }
-        let response = request.call().map_err(|e| self.failed(e))?;
+        let (url, headers) = (url.to_owned(), owned(headers));
+        let response = self.run(move |agent| {
+            let mut request = agent.get(&url);
+            for (name, value) in &headers {
+                request = request.header(name.as_str(), value.as_str());
+            }
+            request.call()
+        })?;
         read_json(self.success(response, secret)?)
     }
 

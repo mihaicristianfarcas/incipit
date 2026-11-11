@@ -362,6 +362,8 @@ mod tests {
         }
     }
 
+    // The paths are spelled as on Unix, where these sandboxes run.
+    #[cfg(unix)]
     #[test]
     fn the_codex_profile_writes_the_workspace_but_not_its_version_control() {
         let entries = codex_profile(
@@ -389,6 +391,8 @@ mod tests {
         assert_eq!(claude["sandbox"]["filesystem"]["allowWrite"], json!([]));
     }
 
+    // The paths are spelled as on Unix, where these sandboxes run.
+    #[cfg(unix)]
     #[test]
     fn claude_code_gets_no_network_and_no_home_folder() {
         let settings = claude_settings(Path::new("/vault"), &writing());
@@ -407,6 +411,8 @@ mod tests {
         assert!(deny.contains(&json!("Write(//books/**)")));
     }
 
+    // The paths are spelled as on Unix, where these sandboxes run.
+    #[cfg(unix)]
     #[test]
     fn the_seatbelt_profile_denies_by_default_and_locks_version_control() {
         let profile = seatbelt_profile(

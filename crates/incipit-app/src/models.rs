@@ -17,7 +17,7 @@ use gpui::{Context, EventEmitter};
 use incipit_llm::cli::login;
 use incipit_llm::{
     spawn_with, Answer, Cancel, Choice, Claude, Codex, Error, Event, FileSecrets, Job,
-    MemorySecrets, Registry, Request, SecretStore, Settings, Status, Update,
+    MemorySecrets, Registry, Request, SecretStore, Settings, Status, Structured, Update,
 };
 
 /// A provider as the Settings page shows it.
@@ -30,8 +30,8 @@ pub struct Offered {
 }
 
 /// An answer on its way: its updates in order, the last being `Update::Done`, and what stops it.
-pub struct Asking {
-    pub updates: UnboundedReceiver<Update<Answer>>,
+pub struct Asking<T = Answer> {
+    pub updates: UnboundedReceiver<Update<T>>,
     pub cancel: Cancel,
 }
 
@@ -232,6 +232,28 @@ impl Models {
         let (send, updates) = unbounded();
         let cancel = spawn_with(
             move |cancel: &Cancel, on: &mut dyn FnMut(Event)| provider.text(&request, cancel, on),
+            move |update| {
+                let _ = send.unbounded_send(update);
+            },
+        );
+        Ok(Asking { updates, cancel })
+    }
+
+    /// Ask the chosen model to fill `schema`. What comes back matches it, or is an error.
+    pub fn fill(
+        &self,
+        request: Request,
+        schema: serde_json::Value,
+    ) -> Result<Asking<Structured>, String> {
+        let (provider, request) = self
+            .registry
+            .prepare(&self.settings, Job::Figure, request)
+            .map_err(|e| e.to_string())?;
+        let (send, updates) = unbounded();
+        let cancel = spawn_with(
+            move |cancel: &Cancel, on: &mut dyn FnMut(Event)| {
+                incipit_llm::structured(provider.as_ref(), &request, &schema, cancel, on)
+            },
             move |update| {
                 let _ = send.unbounded_send(update);
             },

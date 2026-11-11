@@ -6,7 +6,9 @@ mod figure;
 mod math;
 mod notes;
 mod reader;
+mod review;
 mod stage;
+mod study;
 mod welcome;
 mod workspace;
 
@@ -19,13 +21,15 @@ use incipit_ui::{Glide, IconName, Theme, Type};
 enum Page {
     Reader,
     Notes,
+    Review,
     Math,
     Figure,
 }
 
-const PAGES: [(Page, &str, &str, IconName); 4] = [
+const PAGES: [(Page, &str, &str, IconName); 5] = [
     (Page::Reader, "nav-reader", "Reader", IconName::List),
     (Page::Notes, "nav-notes", "Notes", IconName::Pencil),
+    (Page::Review, "nav-review", "Review", IconName::Bolt),
     (Page::Math, "nav-math", "Math", IconName::Type),
     (Page::Figure, "nav-figure", "Figure", IconName::Activity),
 ];
@@ -36,6 +40,7 @@ struct Root {
     figure: Entity<figure::FigureView>,
     math: Entity<math::MathView>,
     notes: Entity<notes::NotesView>,
+    review: Entity<review::ReviewView>,
     reader: Entity<reader::ReaderView>,
 }
 
@@ -45,6 +50,7 @@ impl Root {
             Ok("reader") => Page::Reader,
             Ok("math") => Page::Math,
             Ok("notes") => Page::Notes,
+            Ok("review") => Page::Review,
             Ok("figure") => Page::Figure,
             _ => Page::Notes,
         };
@@ -71,6 +77,7 @@ impl Root {
             figure: cx.new(figure::FigureView::new),
             math: cx.new(math::MathView::new),
             notes: cx.new(|cx| notes::NotesView::new(workspace.clone(), cx)),
+            review: cx.new(|cx| review::ReviewView::new(workspace.clone(), cx)),
             reader: cx.new(reader::ReaderView::new),
         }
     }
@@ -103,6 +110,7 @@ impl Render for Root {
             Page::Figure => self.figure.clone().into_any_element(),
             Page::Math => self.math.clone().into_any_element(),
             Page::Notes => self.notes.clone().into_any_element(),
+            Page::Review => self.review.clone().into_any_element(),
             Page::Reader => self.reader.clone().into_any_element(),
         };
         let shown = gpui::ElementId::Name(format!("page-{:?}", self.page).into());

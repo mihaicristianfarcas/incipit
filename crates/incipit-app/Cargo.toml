@@ -23,3 +23,8 @@ image = { version = "0.25", default-features = false }
 futures = "0.3"
 incipit-vault = { path = "../incipit-vault" }
 dirs = "6"
+incipit-learn = { path = "../incipit-learn" }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -4436,17 +4436,20 @@ name = "incipit-app"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "dirs",
  "futures",
  "gpui",
  "gpui_platform",
  "image",
  "incipit-book",
+ "incipit-learn",
  "incipit-math",
  "incipit-scene",
  "incipit-ui",
  "incipit-vault",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

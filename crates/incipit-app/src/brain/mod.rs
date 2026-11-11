@@ -4,8 +4,9 @@
 //! pointer, and a node under the pointer lights up with its neighbours. Clicking a node says
 //! what it is, and opens a note. INCIPIT_PAGE=brain opens the page.
 
+mod picture;
+
 use std::cell::Cell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
@@ -13,32 +14,15 @@ use gpui::{
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, PathBuilder, Pixels, Point, Render,
     Rgba, ScrollWheelEvent, Subscription, TextRun, Window,
 };
-use incipit_graph::{
-    bounds, choose_labels, Edge, Graph, LabelConfig, Layout, Node, NodeId, Point as At,
-    Size as Extent, SpatialIndex, View,
-};
+use incipit_graph::{bounds, choose_labels, LabelConfig, Point as At, Size as Extent, View};
 use incipit_ui::{button, floating, Theme, Type};
-use incipit_vault::{DocId, Kind, Vault};
+use incipit_vault::{DocId, Kind};
+
+use picture::{gather, lay_out, Picture};
 
 use crate::workspace::{Happened, Workspace};
 
-/// The most steps the layout runs before the picture is shown as it is.
-const STEPS: usize = 900;
 const LABEL: f32 = 11.0;
-
-/// The graph, laid out.
-struct Picture {
-    ids: Vec<DocId>,
-    titles: Vec<String>,
-    kinds: Vec<Kind>,
-    positions: Vec<At>,
-    radii: Vec<f32>,
-    edges: Vec<(usize, usize)>,
-    neighbours: Vec<Vec<usize>>,
-    index: SpatialIndex,
-    /// Each title's width on screen, measured the first time it is drawn.
-    widths: Vec<f32>,
-}
 
 /// A note the learner asked to open from the picture.
 pub struct OpenNote(pub DocId);
@@ -59,79 +43,6 @@ pub struct BrainView {
 }
 
 impl EventEmitter<OpenNote> for BrainView {}
-
-/// What is in the picture (each document's id, title and kind) and the links between them, by
-/// index.
-type Gathered = (Vec<DocId>, Vec<String>, Vec<Kind>, Vec<(usize, usize)>);
-
-/// The vault's documents and links as a graph.
-fn gather(vault: &Vault) -> Gathered {
-    let docs: Vec<_> = [Kind::Note, Kind::Concept, Kind::Book]
-        .into_iter()
-        .flat_map(|kind| vault.list(Some(kind)))
-        .collect();
-    let at: HashMap<&DocId, usize> = docs.iter().enumerate().map(|(i, d)| (d.id(), i)).collect();
-    let mut edges = Vec::new();
-    for (from, doc) in docs.iter().enumerate() {
-        for link in vault.outlinks(doc.id()) {
-            if let Some(to) = link.to.as_ref().and_then(|to| at.get(to)) {
-                edges.push((from, *to));
-            }
-        }
-        // What was written about a book hangs on the book.
-        let book = doc.source().map(|s| DocId::from(s.book.as_str()));
-        if let Some(to) = book.as_ref().and_then(|b| at.get(b)) {
-            edges.push((from, *to));
-        }
-    }
-    let ids = docs.iter().map(|d| d.id().clone()).collect();
-    let titles = docs.iter().map(|d| d.title()).collect();
-    let kinds = docs.iter().map(|d| d.kind()).collect();
-    (ids, titles, kinds, edges)
-}
-
-fn lay_out(
-    ids: Vec<DocId>,
-    titles: Vec<String>,
-    kinds: Vec<Kind>,
-    edges: Vec<(usize, usize)>,
-) -> Picture {
-    let name = |i: usize| NodeId::from_name(ids[i].as_str());
-    let mut degree = vec![0usize; ids.len()];
-    for (a, b) in &edges {
-        degree[*a] += 1;
-        degree[*b] += 1;
-    }
-    let nodes = (0..ids.len())
-        .map(|i| {
-            Node::new(name(i))
-                .weight(degree[i] as f32)
-                .group(kinds[i] as u32)
-        })
-        .collect();
-    let links = edges
-        .iter()
-        .map(|(a, b)| Edge::new(name(*a), name(*b), 1.0))
-        .collect();
-    let mut layout = Layout::new(Graph::new(nodes, links), 7);
-    layout.run_until_settled(STEPS);
-    let mut neighbours = vec![Vec::new(); ids.len()];
-    for (a, b) in &edges {
-        neighbours[*a].push(*b);
-        neighbours[*b].push(*a);
-    }
-    Picture {
-        widths: Vec::new(),
-        positions: layout.positions().to_vec(),
-        radii: layout.radii().to_vec(),
-        index: layout.spatial_index(),
-        ids,
-        titles,
-        kinds,
-        edges,
-        neighbours,
-    }
-}
 
 fn faded(colour: Rgba, alpha: f32) -> Hsla {
     Rgba { a: alpha, ..colour }.into()

@@ -1,9 +1,9 @@
 //! Concepts in the reader. A chapter of the open book can be mapped into concepts from the
 //! contents (`map_chapter`): its text is gathered (an EPUB's blocks as the reader has them, a
-//! PDF's pages from the PDF's thread, without drawing them) and handed to the chosen model on a
-//! thread of its own (`crate::concepts::mapping`). Each concept lands in the vault as soon as it
-//! is found, and the status at the top of the contents names it, one press from its page; the
-//! map can be stopped.
+//! PDF's pages from the PDF's thread, without drawing them, the first and the last cut where
+//! the chapter starts and ends on them) and handed to the chosen model on a thread of its own
+//! (`crate::concepts::mapping`). Each concept lands in the vault as soon as it is found, and the
+//! status at the top of the contents names it, one press from its page; the map can be stopped.
 //!
 //! The concepts that came from a passage of the open book have a card in the margin beside it
 //! (`concept_notes`), read again whenever a concept file changes, so the cards of a chapter being
@@ -13,7 +13,7 @@ use futures::channel::{mpsc::unbounded, oneshot};
 use futures::future::Either;
 use futures::{stream, StreamExt};
 use gpui::{div, prelude::*, px, AnyElement, Context, MouseButton, Window};
-use incipit_book::{Anchor, Cut};
+use incipit_book::Anchor;
 use incipit_llm::{Cancel, Event, Update};
 use incipit_ui::{
     button, focus_handle, focus_ring, keep_focus, menu_row, ringed, spinner, IconName, Radius,
@@ -73,13 +73,13 @@ impl ReaderView {
             return;
         };
         let pdf = matches!(opened.doc, Doc::Pdf(_));
-        let parts = span(&opened.contents, entry, opened.parts(), pdf);
+        let spanned = span(&opened.contents, entry, opened.parts(), pdf);
         let (send, text) = oneshot::channel::<Result<Vec<Part>, String>>();
         match &opened.doc {
             Doc::Epub(epub) => {
-                let gathered = epub.blocks[parts.clone()]
+                let gathered = epub.blocks[spanned.parts.clone()]
                     .iter()
-                    .zip(parts.clone())
+                    .zip(spanned.parts.clone())
                     .map(|((_, chars), index)| Part {
                         index,
                         text: chars.iter().collect(),
@@ -88,15 +88,10 @@ impl ReaderView {
                 let _ = send.send(Ok(gathered));
             }
             Doc::Pdf(document) => {
-                let indexes = parts.clone();
-                document.worker.text(parts, Cut::default(), move |texts| {
+                let (pages, cut) = (spanned.parts.clone(), spanned.cut);
+                document.worker.text(pages, cut, move |texts| {
                     let gathered = texts
-                        .map(|texts| {
-                            indexes
-                                .zip(texts)
-                                .map(|(index, text)| Part { index, text })
-                                .collect()
-                        })
+                        .map(|texts| spanned.of_pages(texts))
                         .map_err(|e| format!("The chapter's text was not read: {e:#}"));
                     let _ = send.send(gathered);
                 });

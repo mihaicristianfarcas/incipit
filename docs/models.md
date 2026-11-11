@@ -4,6 +4,15 @@ Every model call goes through one crate, `incipit-llm`. This page says what
 it offers, what each provider needs, how a learner signs in, and what is
 done to keep keys and book text in their place.
 
+| Provider | The learner needs | Agent |
+|---|---|---|
+| ChatGPT | a ChatGPT plan, signed in from the app | no |
+| Codex | the Codex CLI, signed in with ChatGPT | yes |
+| Claude Code | Claude Code, signed in with a Claude account | yes |
+| OpenCode | OpenCode 2, connected to an account, or its free models | yes (macOS, Linux) |
+| OpenAI-compatible | a key, or a model server on their own computer | no |
+| Anthropic | an API key from the Claude Console | no |
+
 ## The door
 
 A `Provider` answers a `Request` in three ways:
@@ -47,6 +56,89 @@ they never become instructions.
   single prompt.
 - No provider keeps a session between calls: the conversation is sent with
   each one.
+
+## Signing in
+
+A learner should be able to use the plan they already pay for without a
+terminal. What each company allows a third-party app to do differs.
+
+### ChatGPT
+
+OpenAI documents a way for open-source apps that run on the learner's own
+computer to use the learner's ChatGPT plan: "ChatGPT plan usage" in Sign in
+with ChatGPT. It is a preview. Incipit does this directly (`chatgpt`):
+
+- The first sign-in registers Incipit for this learner
+  (`client_id=dynamic_agent_client`); OpenAI hands back a client id of their
+  own (`oaiapp_…`), which later sign-ins reuse. Incipit borrows no other app's
+  client id.
+- The browser opens OpenAI's authorize page; the answer comes back to a
+  listener on `127.0.0.1` and a free port, with fresh `state`, `nonce` and a
+  PKCE (S256) challenge. Each computer gets an opaque host id
+  (`ext_agent_host_id`, a random UUID).
+- The ID token's signature is checked against OpenAI's published keys, then
+  its issuer, audience, expiry and nonce. Plan use needs the
+  `chatgpt.tokens.use.direct` scope; without it the learner stays signed in
+  and is asked to allow it.
+- Calls go to the Responses API with `store: false` and `stream: true`, as the
+  route requires; only `response.completed` counts as a whole answer. The
+  plan's own errors (its usage limit, an account the plan does not cover) are
+  said in plain words with OpenAI's code beside them.
+- Tokens are refreshed shortly before they expire, one refresh at a time, as
+  each refresh token works once. A refresh token that no longer works ends the
+  sign-in. Signing out revokes it and keeps the client id and host id.
+
+OpenAI's page for website sign-in says identity-only Sign in with ChatGPT is a
+limited trial for selected commercial partners, and the overview sends paid or
+remotely hosted apps to an interest form; neither is the route above.
+
+The other way is the Codex CLI's own sign-in. Incipit can start `codex login`
+(`cli::login::codex`), pass on the page it prints, and report when it ends,
+with no terminal for the learner. The Codex CLI must be installed first.
+
+### Claude
+
+Anthropic does not allow this. Its Claude Code legal page says: "Anthropic
+does not permit third-party developers to offer Claude.ai login into their own
+applications, or to route requests through Free, Pro, Max, or Ultra plan
+credentials on behalf of their users", and that sign-in "must complete
+through Anthropic's own flow". The Agent SDK overview says the same, unless
+Anthropic approved it beforehand. Incipit has no Claude sign-in of its own.
+What remains:
+
+- an API key from the Claude Console, kept in the secret store (the
+  Anthropic provider);
+- the learner's own Claude Code, installed and signed in by Claude Code's own
+  flow. The same page says this does not prevent "an end user from signing in
+  to the unmodified Claude Code binary with their own Claude subscription".
+  Incipit can start `claude auth login` (`cli::login::claude`) and never reads
+  Claude Code's credentials. The page also says the subscription's limits
+  assume ordinary, individual use of Claude Code.
+
+### Sources
+
+- OpenAI, ChatGPT plan usage overview:
+  <https://developers.openai.com/siwc/token-sharing-open-source>
+- Registration and sign-in:
+  <https://developers.openai.com/siwc/token-sharing-open-source/sign-in>
+- Accounts and sessions (refresh, sign-out):
+  <https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions>
+- Models and inference:
+  <https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference>
+- Preview limitations:
+  <https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations>
+- Errors and recovery:
+  <https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery>
+- Token reference:
+  <https://developers.openai.com/siwc/token-sharing-open-source/token-reference>
+- Quickstart: <https://developers.openai.com/siwc/quickstart>
+- Website sign-in: <https://developers.openai.com/siwc/website>
+- Codex CLI login (its own client id and port 1455):
+  <https://github.com/openai/codex/tree/main/codex-rs/login/src>
+- Anthropic, Claude Code legal and compliance:
+  <https://code.claude.com/docs/en/legal-and-compliance>
+- Anthropic, Agent SDK overview:
+  <https://code.claude.com/docs/en/agent-sdk/overview>
 
 ## Command-line agents
 
@@ -115,7 +207,10 @@ Linux.
 
 OpenCode's agents need the OS sandbox to run commands, so they run on macOS
 and Linux only (bubblewrap must be installed there); Codex and Claude Code
-bring their own. On Windows no agent has been run.
+bring their own. On Windows no agent has been run. A test runs real commands
+in OpenCode's sandboxed shell on macOS (reads outside the folder, writes to
+`.git` and outside are refused); the Codex and Claude Code settings are the
+ones the earlier app checked the same way.
 
 ## Settings
 

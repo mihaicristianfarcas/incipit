@@ -110,6 +110,23 @@ impl Client {
         self.success(response, secret)
     }
 
+    /// POSTs a form and returns the JSON it answers with.
+    pub fn post_form(&self, url: &str, fields: &[(&str, &str)]) -> Result<Value, Failed> {
+        self.cancel.check()?;
+        let form = fields
+            .iter()
+            .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        let response = self
+            .agent
+            .post(url)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .send(form)
+            .map_err(|e| self.failed(e))?;
+        read_json(self.success(response, None)?)
+    }
+
     /// GETs `url` and returns the JSON it answers with.
     pub fn get(
         &self,
@@ -148,8 +165,25 @@ fn read_json(mut body: ureq::Body) -> Result<Value, Failed> {
     let text = body
         .read_to_string()
         .map_err(|e| Failed::Other(Error::provider("the server", e.to_string())))?;
+    if text.trim().is_empty() {
+        return Ok(Value::Null);
+    }
     serde_json::from_str(&text)
         .map_err(|_| Failed::Other(Error::provider("the server", "its answer was not JSON")))
+}
+
+/// Percent-encoding for a form field or a query value.
+pub(crate) fn encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 /// What an error body says: `error.message`, a bare `error`, a `detail`, or the text itself.
@@ -355,14 +389,28 @@ pub(crate) mod fake {
     }
 
     pub fn serve(replies: Vec<Reply>) -> Server {
+        let (tx, rx) = std::sync::mpsc::channel();
+        for reply in replies {
+            tx.send(reply).unwrap();
+        }
+        serve_from(rx)
+    }
+
+    /// A server whose replies arrive while it runs: for answers that depend on the request
+    /// before them.
+    pub fn serve_from(replies: std::sync::mpsc::Receiver<Reply>) -> Server {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let seen = requests.clone();
         thread::spawn(move || {
+            // Silent connections stay open while the server waits for the next one.
             let mut held: Vec<TcpStream> = Vec::new();
-            for reply in replies {
+            loop {
                 let Ok((stream, _)) = listener.accept() else {
+                    return;
+                };
+                let Ok(reply) = replies.recv() else {
                     return;
                 };
                 let recorded = read_request(&stream);
@@ -380,11 +428,6 @@ pub(crate) mod fake {
                 );
                 let _ = stream.write_all(head.as_bytes());
                 let _ = stream.write_all(reply.body.as_bytes());
-            }
-            // Keeps the silent connections open until the test process ends.
-            for stream in held {
-                let mut buf = [0u8; 1];
-                let _ = (&stream).read(&mut buf);
             }
         });
         Server { url, requests }
@@ -462,6 +505,11 @@ mod tests {
             "model 'x' not found"
         );
         assert_eq!(error_message("Bad gateway"), "Bad gateway");
+    }
+
+    #[test]
+    fn form_values_are_percent_encoded() {
+        assert_eq!(encode("a b&c=d/é"), "a%20b%26c%3Dd%2F%C3%A9");
     }
 
     #[test]

@@ -8,9 +8,11 @@
 //! The command-line agents (Codex, Claude Code, OpenCode) are providers in `cli`, signed in by
 //! their own flows (`cli::login`); `sandbox` builds the OS sandbox their agents run in. `http`
 //! holds the providers reached over HTTP with a key or none: any OpenAI-compatible server
-//! (OpenAI, OpenRouter, Ollama, LM Studio) and Anthropic's Messages API.
+//! (OpenAI, OpenRouter, Ollama, LM Studio) and Anthropic's Messages API. `chatgpt` signs the
+//! learner in with their ChatGPT account and uses their plan, with nothing to install.
 
 pub mod call;
+pub mod chatgpt;
 pub mod cli;
 pub mod error;
 pub mod http;
@@ -23,6 +25,7 @@ pub mod secret;
 pub mod settings;
 
 pub use call::{spawn_with, Answer, Call, Cancel, Event, Hook, Structured, Update};
+pub use chatgpt::ChatGpt;
 pub use cli::{Claude, Codex, OpenCode};
 pub use error::Error;
 pub use http::{Anthropic, OpenAiCompatible};

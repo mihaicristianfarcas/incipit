@@ -11,19 +11,21 @@ which runs on Node.js in a browser.
 
 ## State
 
-Early. What exists is one window with a few pages that prove the parts a
-native app could not do without:
+Early. One window, with these pages, on a vault of plain files:
 
 | Page | What it shows |
 |---|---|
-| Reader | A whole PDF (drawn by pdfium) or EPUB (laid out as native text) with its contents, zoom, text selection across pages, highlights, and notes in the margin beside their passage |
-| Notes | A note written as Markdown in a native field: the marks are dimmed and show what they mean, lists carry on, every change can be undone |
+| Today | What is due for review, the books, and the notes touched last |
+| Library | The vault's books; a PDF or EPUB is added by copying it into the vault |
+| Reader | A whole PDF (drawn by pdfium) or EPUB (laid out as native text) with its contents, zoom and text selection across pages. A passage can be highlighted, noted, explained or asked about; notes and answers sit in the margin beside their passage and are kept in the vault |
+| Notes | The vault's notes, written as Markdown in a native field: the marks are dimmed and show what they mean, lists carry on, every change can be undone |
+| Review | Flashcards due today, one at a time, scheduled by FSRS-6 |
+| Brain | The notes, concepts and books as a graph of their links |
 | Math | LaTeX typeset by Typst and drawn in the window, on its own line and inside a sentence |
 | Figure | A figure made from a typed spec, checked, then played, stepped and scrubbed |
+| Settings | The vault's folder, and which model answers ([docs/models.md](docs/models.md)) |
 
-The vault and the models exist as libraries, `incipit-vault` and `incipit-llm`
-([docs/models.md](docs/models.md)), that no page uses yet. There are no
-flashcards yet. It has been built and run on macOS (Apple silicon) only.
+It has been built and run on macOS (Apple silicon) only.
 
 ## Running it
 

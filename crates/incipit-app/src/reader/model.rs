@@ -71,12 +71,21 @@ pub struct Note {
     pub figure: Option<incipit_scene::Figure>,
     /// The tutor session the card stands for, if it is one; `doc` is then the session's.
     pub turns: Vec<incipit_vault::fields::Turn>,
+    /// The concept introduced at the passage, if the card is one's; `words` is then its summary.
+    pub concept: Option<ConceptNote>,
+}
+
+/// A concept a passage introduces, as its card in the margin names it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConceptNote {
+    pub id: incipit_vault::DocId,
+    pub title: String,
 }
 
 impl Note {
     /// Whether it has a card in the margin: a highlight alone has none.
     pub fn in_margin(&self) -> bool {
-        !self.words.is_empty() || self.asked.is_some()
+        !self.words.is_empty() || self.asked.is_some() || self.concept.is_some()
     }
 }
 

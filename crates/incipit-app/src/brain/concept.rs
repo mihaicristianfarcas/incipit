@@ -85,6 +85,16 @@ fn due_words(due: Due, suspended: bool) -> String {
     }
 }
 
+/// A passage's words as they read: a book's own text keeps its line ends and the marks a PDF
+/// puts where a word was hyphenated, which are left out here.
+fn plain(words: &str) -> String {
+    let shown: String = words
+        .chars()
+        .filter(|c| !c.is_control() || c.is_whitespace())
+        .collect();
+    shown.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Where a passage is, in words: its book and its place.
 fn passage_place(passage: &Passage) -> String {
     let book = passage.book.clone().unwrap_or_else(|| "A book".to_owned());
@@ -295,7 +305,7 @@ impl BrainView {
             .enumerate()
             .map(|(index, passage)| {
                 let source = passage.source.clone();
-                let quote = passage.source.quote.clone().unwrap_or_default();
+                let quote = plain(passage.source.quote.as_deref().unwrap_or_default());
                 focus_row(format!("concept-passage-{index}"), t, window, cx)
                     .child(
                         div()
@@ -382,6 +392,10 @@ mod tests {
             },
             book: Some("Attention Is All You Need".into()),
         };
+        assert_eq!(
+            plain("the self-attention\r\nsub-layer of a position\u{2}wise net"),
+            "the self-attention sub-layer of a positionwise net"
+        );
         assert_eq!(
             passage_place(&passage),
             "Attention Is All You Need  ·  3 Model Architecture  ·  p. 4"

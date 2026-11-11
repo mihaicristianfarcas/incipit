@@ -41,6 +41,16 @@ fn tint(colour: Rgba, alpha: f32) -> Hsla {
     Rgba { a: alpha, ..colour }.into()
 }
 
+/// The colour a note's passage is marked in, at `alpha`: a concept's passage in the accent, more
+/// lightly.
+fn note_ink(note: &Note, t: Theme, alpha: f32) -> Hsla {
+    if note.concept.is_some() {
+        tint(t.accent, alpha * 0.7)
+    } else {
+        tint(t.attention, alpha)
+    }
+}
+
 impl ReaderView {
     pub(super) fn row(
         &mut self,
@@ -156,7 +166,8 @@ impl ReaderView {
                     };
                     let boxes = held.page.boxes(start, end);
                     top = top.or(boxes.first().map(|b| b.1 * scale));
-                    marks.extend(boxes.into_iter().map(|b| (b, tint(t.attention, 0.32))));
+                    let ink = note_ink(note, t, 0.32);
+                    marks.extend(boxes.into_iter().map(|b| (b, ink)));
                 }
                 let first = note.anchors.first().is_some_and(|a| a.part == index);
                 if let (Some(top), true, true) = (top, first, note.in_margin()) {
@@ -351,19 +362,20 @@ impl ReaderView {
         cx: &mut Context<Self>,
     ) -> gpui::Div {
         // Each stretch to mark, in bytes, with its colour: notes first, the selection over them.
-        let noted = self.notes.iter().flat_map(|n| n.anchors.iter());
-        let composing = self.composing.iter().flatten();
+        let noted = self
+            .notes
+            .iter()
+            .flat_map(|n| n.anchors.iter().map(move |a| (a, note_ink(n, t, 0.3))));
+        let composing = self
+            .composing
+            .iter()
+            .flatten()
+            .map(|a| (a, tint(t.attention, 0.3)));
         let mut marks: Vec<(usize, usize, Hsla)> = noted
             .chain(composing)
-            .filter(|a| a.part == index)
-            .filter_map(|a| a.locate(chars))
-            .map(|(s, e)| {
-                (
-                    byte_of(&text.text, s),
-                    byte_of(&text.text, e),
-                    tint(t.attention, 0.3),
-                )
-            })
+            .filter(|(a, _)| a.part == index)
+            .filter_map(|(a, ink)| a.locate(chars).map(|found| (found, ink)))
+            .map(|((s, e), ink)| (byte_of(&text.text, s), byte_of(&text.text, e), ink))
             .collect();
         if let Some((from, to)) = self
             .selection

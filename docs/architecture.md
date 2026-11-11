@@ -64,6 +64,15 @@ are about a concept, and what a concept builds on, are links in their
 properties ([vault.md](vault.md)), and a recall of a card also gives part
 of a review to the cards on what its ideas build on.
 
+**A chapter is mapped into concepts a piece at a time.** From the reader's
+contents, the model fills a form of a chapter's key concepts (`mapping` in
+the app's `concepts`), with the chapter's text and the vault's concept
+names as material. A chapter is sent in pieces of whole pages or blocks
+of at most 45,000 characters, the earlier app's size for one request, so
+a long chapter is read whole rather than cut short; each concept is
+written to the vault, or added to the one there is, as soon as its piece
+comes back, and the margin and the Brain show it then.
+
 **Math is typeset by Typst.** Books and models write LaTeX; mitex
 translates it. The mitex files Typst loads are vendored in
 `third_party/mitex` with two patches for the Typst version in use

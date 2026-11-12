@@ -76,6 +76,10 @@ pub struct Sandbox {
     pub write: bool,
     /// More folders it may read.
     pub read_also: Vec<PathBuf>,
+    /// Paths in its folder, relative to it, that it may read but never write, as `.git` and
+    /// `.jj`: files and folders that belong to the app. Where a sandbox cannot keep a path
+    /// that is not there yet, the caller's checks after the run still catch a write to it.
+    pub read_only: Vec<PathBuf>,
 }
 
 pub trait Provider: Send + Sync {

@@ -202,8 +202,22 @@ Linux.
 | read its folder, and the folders it is given to read | yes |
 | write its folder, when it may write | yes |
 | write `.git` or `.jj` in its folder, or anywhere else | no |
+| write the paths in its folder it is given as read-only | no |
 | read the home folder | no |
 | reach the network | no |
+
+The vault's agent is given as read-only what the app keeps in its working
+copy (`incipit_vault::checks::forbidden_in`: the logs, `.obsidian/`,
+`AGENTS.md`, `CLAUDE.md`, `.gitignore`, each book's `book.md` and its own
+PDF or EPUB file), so it is refused at once rather than after the run.
+Codex gets them as read-only entries in its permission profile; Claude Code
+as denied writes in its sandbox settings and denied `Edit` and `Write` rules
+for its file tools; OpenCode's shell as paths taken out of the writable
+folder in its Seatbelt profile on macOS, and bound read-only by bubblewrap
+on Linux, which can only do so for a path that is there when the agent
+starts (a log not made yet can still be made). Whatever the sandbox
+refused, the files a run changed are checked before it lands
+([vault.md](vault.md)).
 
 OpenCode's agents need the OS sandbox to run commands, so they run on macOS
 and Linux only (bubblewrap must be installed there); Codex and Claude Code

@@ -4,6 +4,10 @@
 //! file's properties): one that is not waits for the learner's OK. Everything else lands at
 //! once, since every run can be undone.
 //!
+//! What may never change can also be listed in a working copy before the agent starts
+//! (`forbidden_in`), so a sandbox that can keep paths read-only refuses those writes at once;
+//! the check after the run stays the guarantee, whichever sandbox the agent had.
+//!
 //! The files are read in the agent's working copy, after its change is named and before the
 //! copy is deleted. A link there (a book's file linked in to read) is passed by: it is not the
 //! agent's. Quiz blocks in Markdown are not checked yet: there is no parser for them here.
@@ -57,6 +61,48 @@ pub fn forbidden(path: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// The app's folders and files at the top of a vault, which `forbidden` names. The history's
+/// own (`.jj`, `.git`) are left to the sandbox, which never lets an agent write them.
+const KEPT_AT_TOP: [&str; 6] = [
+    "log",
+    ".incipit",
+    ".obsidian",
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".gitignore",
+];
+
+/// The paths in a working copy `dir`, relative to it, that `forbidden` names, as far as they
+/// can be listed before the agent starts: the app's folders and files at the top, whether they
+/// are there yet or not, and in each book's folder its record and its own PDF or EPUB file.
+pub fn forbidden_in(dir: &Path) -> Vec<String> {
+    let mut paths: Vec<String> = KEPT_AT_TOP.map(String::from).to_vec();
+    let Ok(books) = std::fs::read_dir(dir.join("library")) else {
+        return paths;
+    };
+    let mut books: Vec<_> = books
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect();
+    books.sort();
+    for book in books {
+        paths.push(format!("library/{book}/book.md"));
+        let Ok(files) = std::fs::read_dir(dir.join("library").join(&book)) else {
+            continue;
+        };
+        let mut own: Vec<String> = files
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .map(|file| format!("library/{book}/{file}"))
+            .filter(|path| forbidden(path) && !path.ends_with("/book.md"))
+            .collect();
+        own.sort();
+        paths.extend(own);
+    }
+    paths
 }
 
 /// What can no longer be read in a file's text, by the file's kind; `None` when it reads.
@@ -187,6 +233,38 @@ mod tests {
         ] {
             assert!(!forbidden(path), "{path}");
         }
+    }
+
+    #[test]
+    fn what_is_forbidden_is_listed_in_a_working_copy_before_the_agent_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "library/sicp/book.md", "---\nkind: book\n---\n");
+        write(dir.path(), "library/sicp/SICP.PDF", "%PDF");
+        write(dir.path(), "library/sicp/annotations/a1.md", "x");
+        write(dir.path(), "library/calculus/calculus.epub", "PK");
+        write(dir.path(), "notes/Mine.md", "x");
+        let listed = forbidden_in(dir.path());
+        assert_eq!(
+            listed,
+            [
+                "log",
+                ".incipit",
+                ".obsidian",
+                "AGENTS.md",
+                "CLAUDE.md",
+                ".gitignore",
+                "library/calculus/book.md",
+                "library/calculus/calculus.epub",
+                "library/sicp/book.md",
+                "library/sicp/SICP.PDF",
+            ]
+        );
+        for path in &listed {
+            let inside = format!("{path}/x");
+            assert!(forbidden(path) || forbidden(&inside), "{path}");
+        }
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(forbidden_in(empty.path()).len(), KEPT_AT_TOP.len());
     }
 
     #[test]

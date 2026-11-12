@@ -5,8 +5,10 @@
 //! is closed, and the copy starts from that latest closed change, so the agent never edits a
 //! file the learner has open and nothing the learner writes meanwhile is part of its change. The
 //! agent's OS sandbox lets it write in the copy only, and read the vault. When the agent ends,
-//! its change is named after the request and its files are checked (`incipit_vault::checks`): a
-//! change that touches nothing is left out; one that touches the app's own files (the logs, a
+//! its closing words are read as its reply (`prompt::read_reply`: what it did or the answer, and
+//! the file to open), its change is named after the request and its files are checked
+//! (`incipit_vault::checks`): a change that touches nothing is left out, and the file to open
+//! for its answer is one already in the vault; one that touches the app's own files (the logs, a
 //! book's record) fails and is left out; one with a file that can no longer be read waits for
 //! the learner's OK (`approve`, `discard`); the rest lands after whatever the learner wrote
 //! meanwhile, unless it clashes with that. Undo (`Vault::drop_change`) takes out that change
@@ -21,7 +23,9 @@ use std::path::{Path, PathBuf};
 
 use incipit_llm::{Cancel, Event, Provider, Request, Sandbox};
 use incipit_vault::checks::{needs_review, problems_in, Problem};
-use incipit_vault::{DocId, FileChange, Vault};
+use incipit_vault::{DocId, FileChange, Vault, VaultPath};
+
+use super::prompt::{open_path, read_reply};
 
 /// The folder in the app's own folder that holds the vaults' runs.
 const RUNS: &str = "agent-runs";
@@ -66,8 +70,10 @@ pub enum Status {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Outcome {
     pub status: Status,
-    /// The agent's closing words.
+    /// The agent's reply: what it did, or the answer.
     pub answer: String,
+    /// The vault path of the main file it made or changed, to open from the reply.
+    pub open: Option<String>,
     /// What its change did to which files.
     pub files: Vec<FileChange>,
     /// Its change in the vault's history, by change id: what Undo takes out.
@@ -84,6 +90,7 @@ impl Outcome {
         Outcome {
             status: Status::Stopped,
             answer: String::new(),
+            open: None,
             files: Vec::new(),
             change: None,
             error: None,
@@ -95,6 +102,7 @@ impl Outcome {
         Outcome {
             status: Status::Failed,
             answer,
+            open: None,
             files,
             change: None,
             error: Some(error),
@@ -160,8 +168,8 @@ pub fn execute(
         write: true,
         read_also: vec![vault.root().to_path_buf()],
     };
-    let answer = match provider.agent(request, copy.dir(), &sandbox, cancel, on) {
-        Ok(answer) => answer.text.trim().to_owned(),
+    let reply = match provider.agent(request, copy.dir(), &sandbox, cancel, on) {
+        Ok(answer) => read_reply(&answer.text),
         Err(_) if cancel.is_cancelled() => return Outcome::stopped(),
         Err(e) => {
             return Outcome::failed(
@@ -171,6 +179,12 @@ pub fn execute(
             )
         }
     };
+    let answer = reply.reply;
+    let open = open_path(&reply.open);
+    // The file to open for an answer that changed nothing: one already in the vault.
+    let existing = open.clone().filter(|path| {
+        VaultPath::new(path).is_ok_and(|path| vault.root().join(path.as_str()).exists())
+    });
     let change = copy.describe(&change_name(&job.task));
     // The files are checked in the copy, before it goes.
     let problems = match &change {
@@ -181,11 +195,14 @@ pub fn execute(
     let change = match change {
         Ok(change) => change,
         Err(e) => {
-            return Outcome::failed(
-                format!("What it changed could not be put in the vault's history: {e}."),
-                answer,
-                Vec::new(),
-            )
+            return Outcome {
+                open,
+                ..Outcome::failed(
+                    format!("What it changed could not be put in the vault's history: {e}."),
+                    answer,
+                    Vec::new(),
+                )
+            }
         }
     };
     if change.files.is_empty() {
@@ -193,6 +210,7 @@ pub fn execute(
         return Outcome {
             status: Status::Done,
             answer,
+            open: existing,
             files: Vec::new(),
             change: None,
             error: None,
@@ -202,30 +220,43 @@ pub fn execute(
     if problems.iter().any(Problem::is_forbidden) {
         let _ = vault.abandon(&change.change);
         let error = problems.iter().map(Problem::to_string).collect::<Vec<_>>();
-        return Outcome::failed(error.join("; "), answer, change.files);
+        return Outcome {
+            open,
+            ..Outcome::failed(error.join("; "), answer, change.files)
+        };
     }
     if !problems.is_empty() {
         return Outcome {
             status: Status::Review,
             answer,
+            open,
             files: change.files,
             change: Some(change.change),
             error: None,
             review: needs_review(&problems),
         };
     }
-    bring_in(vault, &job.task, answer, &change.change, change.files)
+    let waiting = Outcome {
+        status: Status::Review,
+        answer,
+        open,
+        files: change.files,
+        change: Some(change.change),
+        error: None,
+        review: Vec::new(),
+    };
+    approve(vault, &job.task, waiting)
 }
 
 /// Lands a run's change in the vault, after everything the learner did meanwhile. A change that
 /// cannot land is left out.
-pub fn bring_in(
-    vault: &Vault,
-    task: &str,
-    answer: String,
-    change: &str,
-    files: Vec<FileChange>,
-) -> Outcome {
+fn bring_in(vault: &Vault, task: &str, waiting: Outcome, change: &str) -> Outcome {
+    let Outcome {
+        answer,
+        open,
+        files,
+        ..
+    } = waiting;
     match vault.land(change) {
         Ok(landed) => {
             crate::activity::log(
@@ -235,6 +266,7 @@ pub fn bring_in(
             Outcome {
                 status: Status::Merged,
                 answer,
+                open,
                 files: landed.files,
                 change: Some(landed.change),
                 error: None,
@@ -259,18 +291,18 @@ pub fn bring_in(
                 }
                 other => format!("It could not be brought into your vault: {other}."),
             };
-            Outcome::failed(error, answer, files)
+            Outcome {
+                open,
+                ..Outcome::failed(error, answer, files)
+            }
         }
     }
 }
 
 /// The learner's OK for a change that waited for it: it lands as any other.
 pub fn approve(vault: &Vault, task: &str, waiting: Outcome) -> Outcome {
-    match (&waiting.status, &waiting.change) {
-        (Status::Review, Some(change)) => {
-            let change = change.clone();
-            bring_in(vault, task, waiting.answer, &change, waiting.files)
-        }
+    match (&waiting.status, waiting.change.clone()) {
+        (Status::Review, Some(change)) => bring_in(vault, task, waiting, &change),
         _ => waiting,
     }
 }
@@ -463,6 +495,42 @@ mod tests {
             vault.read_log::<Review>(REVIEWS).unwrap().entries,
             [review()]
         );
+    }
+
+    #[test]
+    fn the_reply_is_read_from_the_agents_json_with_the_file_to_open() {
+        let (_dir, job) = job("Summarise chapter 3");
+        let agent = Standin::new(|folder| {
+            write(folder, "notes/Chapter 3.md", "A summary.\n");
+            Ok(
+                "Done.\n{\"reply\": \"I wrote [[Chapter 3]].\", \"open\": \"/notes/Chapter 3.md\"}"
+                    .into(),
+            )
+        });
+        let outcome = run(&agent, &job);
+        assert_eq!(outcome.status, Status::Merged);
+        assert_eq!(outcome.answer, "I wrote [[Chapter 3]].");
+        assert_eq!(outcome.open.as_deref(), Some("notes/Chapter 3.md"));
+    }
+
+    #[test]
+    fn an_answer_opens_only_a_file_already_in_the_vault() {
+        let (_dir, job) = job("Where did I write about waves?");
+        write(job.vault.root(), "notes/Waves.md", "Waves.\n");
+        let answer = |open: &'static str| {
+            Standin::new(move |_| {
+                Ok(format!(
+                    "{{\"reply\": \"In your note.\", \"open\": \"{open}\"}}"
+                ))
+            })
+        };
+        let outcome = run(&answer("notes/Waves.md"), &job);
+        assert_eq!(outcome.status, Status::Done);
+        assert_eq!(outcome.answer, "In your note.");
+        assert_eq!(outcome.open.as_deref(), Some("notes/Waves.md"));
+        for open in ["notes/Tides.md", "../outside.md", ""] {
+            assert_eq!(run(&answer(open), &job).open, None, "{open}");
+        }
     }
 
     #[test]

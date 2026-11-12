@@ -6,6 +6,9 @@
 //! or the chapter's text: `learning::context`), an EPUB's from the blocks it holds and a PDF's
 //! from the PDF's thread, without drawing the pages, and hands it to the tool's sheet.
 //!
+//! The vault's agent is told where the learner is in the book: the page or block at the reading
+//! line, the chapter its top falls in, and the selected text (`here`).
+//!
 //! The chapter on screen is the line of the contents the top of the screen falls under, and runs
 //! as when it is mapped into concepts (`concepts::chapter::span`). A book that lists no contents
 //! is quizzed on the text around the place on screen, as the earlier app's quiz was when it had
@@ -17,8 +20,11 @@ use futures::channel::oneshot;
 use gpui::Context;
 use incipit_book::{Anchor, Cut};
 
+use super::asking::passage_of;
 use super::model::Doc;
+use super::place::{chapter_from, item_of};
 use super::{ReaderView, State};
+use crate::agent::here::{selected, BookAt};
 use crate::concepts::chapter::span;
 use crate::drafter::From;
 use crate::explain::About;
@@ -32,6 +38,31 @@ const FROM_SESSION: &str =
     "cards on the ideas this conversation with the tutor explained (not on the conversation itself)";
 
 impl ReaderView {
+    /// Where the learner is, for the vault's agent: the book of the vault that is open, with the
+    /// page (a PDF's, from 1) or block at the reading line and the chapter that part starts in,
+    /// and the text selected.
+    pub fn here(&self) -> (Option<BookAt>, Option<String>) {
+        let State::Open(opened) = &self.state else {
+            return (None, None);
+        };
+        let pdf = matches!(opened.doc, Doc::Pdf(_));
+        let at = self.place().map(|place| place.max(0.0).floor() as usize);
+        let book = self
+            .book
+            .as_ref()
+            .and_then(|b| b.id.clone())
+            .map(|id| BookAt {
+                id,
+                pdf,
+                at,
+                chapter: at
+                    .map(|at| item_of(pdf, at as f64).0)
+                    .and_then(|item| chapter_from(&opened.contents, item))
+                    .map(|index| (index, opened.contents[index].title.clone())),
+            });
+        (book, selected(&passage_of(&self.anchors())))
+    }
+
     /// The title of the line of the contents part `part` falls under.
     pub(super) fn chapter_at(&self, part: usize) -> Option<String> {
         let State::Open(opened) = &self.state else {

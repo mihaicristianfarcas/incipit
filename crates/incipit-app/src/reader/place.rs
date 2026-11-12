@@ -48,6 +48,16 @@ pub fn chapter_at(contents: &[Entry], at: f64) -> Option<usize> {
         .or((!contents.is_empty()).then_some(0))
 }
 
+/// The chapter the top of list item `item` falls in, as the earlier app's `chapterAt` found it
+/// for the agent: the last entry of the contents that starts at or before it, and none before
+/// the first. Returns the entry's index in the contents.
+pub fn chapter_from(contents: &[Entry], item: usize) -> Option<usize> {
+    let start = |e: &Entry| e.page as f64 + f64::from(e.y.unwrap_or(0.0));
+    contents
+        .iter()
+        .rposition(|e| start(e) <= item as f64 + 1e-6)
+}
+
 /// The places of the books, each as the earlier app kept it: three decimals.
 pub struct Places {
     file: PathBuf,
@@ -100,6 +110,25 @@ mod tests {
             page,
             y,
         }
+    }
+
+    #[test]
+    fn the_agent_is_told_the_chapter_the_page_starts_in_and_none_before_the_first() {
+        let contents = [
+            entry("Preface", 2, None),
+            entry("One", 4, Some(0.5)),
+            entry("Two", 9, None),
+        ];
+        assert_eq!(chapter_from(&contents, 0), None);
+        assert_eq!(chapter_from(&contents, 2), Some(0));
+        assert_eq!(
+            chapter_from(&contents, 4),
+            Some(0),
+            "One starts halfway down"
+        );
+        assert_eq!(chapter_from(&contents, 5), Some(1));
+        assert_eq!(chapter_from(&contents, 30), Some(2));
+        assert_eq!(chapter_from(&[], 3), None);
     }
 
     #[test]

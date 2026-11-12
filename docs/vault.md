@@ -197,6 +197,13 @@ whoever subscribed. Edits made by other programs are heard through the
 system's file events and announced the same way, marked as coming from
 outside.
 
+A Markdown file whose properties cannot be read (YAML that does not parse, text
+that is not UTF-8) stays out of the index, so nothing is ever written above the
+broken lines, and `Vault::problems` lists it with the reason. The Notes page
+shows it, marked as one that cannot be read, with its text as it is in the file
+(`unreadable_text`); `mend` writes a new text over it and reads it again, and
+once it parses it is a document like any other.
+
 ## History
 
 History is kept by Jujutsu through its library; nothing is installed. The

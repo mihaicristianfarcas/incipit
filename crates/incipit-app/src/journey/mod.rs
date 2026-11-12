@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missed_day_breaks_the_streak_and_a_pause_is_not_study() {
+    fn days_missed_in_a_row_break_the_streak_and_a_pause_is_not_study() {
         let (_folder, vault) = vault();
         for back in [6, 5, 4, 0] {
             studied(&vault, back);

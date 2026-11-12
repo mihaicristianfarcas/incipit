@@ -23,8 +23,8 @@ use incipit_vault::{Card, Doc, DocId, Kind, Review, Vault, REVIEWS};
 
 use crate::concepts::ties::{foundations, Ties};
 
-/// New cards shown in a day, and the most cards in one sitting.
-const NEW_PER_DAY: usize = 20;
+/// The most cards in one sitting. How many new cards a day, and the recall a card is scheduled
+/// to fall to, are the learner's (their profile).
 const SITTING: usize = 200;
 
 pub struct Entry {
@@ -49,6 +49,8 @@ pub struct Deck {
     order: Vec<DocId>,
     log: Vec<incipit_learn::Review>,
     params: Params,
+    /// New cards allowed in a day: the profile's.
+    new_per_day: usize,
     /// For each card, the cards a recall of it credits.
     foundations: HashMap<DocId, Vec<DocId>>,
     /// When each card was last credited.
@@ -98,7 +100,11 @@ impl Deck {
 
     /// The same, with the vault's ties to concepts already read.
     pub fn load_with(vault: &Vault, ties: &Ties) -> Deck {
-        let params = Params::default();
+        let profile = vault.profile();
+        let params = Params {
+            desired_retention: profile.retention,
+            ..Params::default()
+        };
         let mut cards: HashMap<DocId, Entry> = HashMap::new();
         let mut order = Vec::new();
         for doc in vault.list(Some(Kind::Card)) {
@@ -133,6 +139,7 @@ impl Deck {
             order,
             log: Vec::new(),
             params,
+            new_per_day: profile.daily_new as usize,
             foundations: foundations(ties),
             credited: HashMap::new(),
             new_way_last: HashSet::new(),
@@ -236,7 +243,7 @@ impl Deck {
             .collect();
         let options = QueueOptions {
             now,
-            new_per_day: NEW_PER_DAY,
+            new_per_day: self.new_per_day,
             new_today: new_today(&self.log, now, zone),
             limit: SITTING,
         };
@@ -565,5 +572,50 @@ mod tests {
         let deck = Deck::load(&vault);
         assert!(deck.is_empty());
         assert_eq!(deck.counts(now(), &UTC).done_today, 0);
+    }
+
+    #[test]
+    fn the_days_new_cards_are_the_profiles_allowance() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        for n in 0..5 {
+            add_card(&vault, &format!("front {n}"), "back").unwrap();
+        }
+        let start = now();
+        let zone = noon_at(start);
+        // Until the learner says, twenty a day: all five.
+        assert_eq!(Deck::load(&vault).queue(start, &zone).cards.len(), 5);
+        let mut profile = vault.profile();
+        profile.daily_new = 2;
+        vault.save_profile(&profile).unwrap();
+        assert_eq!(Deck::load(&vault).queue(start, &zone).cards.len(), 2);
+        profile.daily_new = 0;
+        vault.save_profile(&profile).unwrap();
+        assert!(Deck::load(&vault).queue(start, &zone).cards.is_empty());
+    }
+
+    #[test]
+    fn the_target_recall_is_the_profiles_and_sets_how_long_a_card_waits() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let card = add_card(&vault, "front", "back").unwrap();
+        let start = now();
+        let mut deck = Deck::load(&vault);
+        deck.rate(&vault, card.id(), Rating::Good, start, None)
+            .unwrap();
+        deck.rate(&vault, card.id(), Rating::Good, start + 11 * 60_000, None)
+            .unwrap();
+        let at = start + 12 * 60_000;
+        let wait = |retention: f64| {
+            let mut profile = vault.profile();
+            profile.retention = retention;
+            vault.save_profile(&profile).unwrap();
+            Deck::load(&vault).preview(card.id(), at).unwrap().good
+        };
+        let (strict, default, easy) = (wait(0.97), wait(0.9), wait(0.7));
+        assert!(
+            strict < default && default < easy,
+            "{strict} {default} {easy}"
+        );
     }
 }

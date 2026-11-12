@@ -19,7 +19,7 @@
 
 use futures::StreamExt;
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, ScrollHandle, Window};
-use incipit_llm::{Cancel, Event, Update};
+use incipit_llm::{Cancel, Event, Job, Update};
 use incipit_ui::{button, field, segmented, sheet, IconName, TextField, Theme, Type};
 use incipit_vault::fields::{Mode, Session as Kept, Speaker, Turn};
 use incipit_vault::{Doc, Kind, Source};
@@ -297,10 +297,9 @@ impl ReaderView {
             let started = this.update(cx, |this, cx| {
                 // Stopped, or closed, while the text was being gathered.
                 this.session.as_ref().filter(|s| s.run == run)?;
-                let asking = this
-                    .models
-                    .read(cx)
-                    .ask(tutor::request(mode, &context, &passage, &turns));
+                let models = this.models.read(cx);
+                let effort = models.effort(Job::Quick);
+                let asking = models.ask(tutor::request(mode, &context, &passage, &turns, effort));
                 match asking {
                     Ok(asking) => {
                         if let Some(session) = &mut this.session {
@@ -487,8 +486,10 @@ impl ReaderView {
             .as_ref()
             .map(|b| b.title.clone())
             .unwrap_or_default();
-        let asking = self.models.read(cx).fill(
-            tutor::note_request(&context, &passage, &turns),
+        let models = self.models.read(cx);
+        let effort = models.effort(Job::Figure);
+        let asking = models.fill(
+            tutor::note_request(&context, &passage, &turns, effort),
             tutor::note_form(),
         );
         let mut asking = match asking {

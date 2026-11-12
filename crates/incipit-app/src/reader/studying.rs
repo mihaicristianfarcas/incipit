@@ -47,7 +47,7 @@ impl ReaderView {
 
     /// Where a passage of a book of the vault is, with its chapter, as the earlier app's study
     /// tools kept it; none for a book outside the vault.
-    fn passage_source(&self, first: &Anchor) -> Option<incipit_vault::Source> {
+    pub(super) fn passage_source(&self, first: &Anchor) -> Option<incipit_vault::Source> {
         let book = self.book.as_ref()?.id.clone()?;
         Some(incipit_vault::Source {
             chapter: self.chapter_at(first.part),

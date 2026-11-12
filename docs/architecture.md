@@ -46,6 +46,20 @@ a figure for a passage is made in two steps (`figures.rs` in the app): the
 model picks a kind, then fills that kind's spec, and is told what the
 engine refused up to three times before the app gives up.
 
+**An answer in the margin is kept before it is asked for.** Explain, Define
+and Ask on a passage (`reader/asking.rs`, with the earlier app's three
+instructions in `learning/answers.rs`) save an annotation of that type as
+pending, send the model the book's title, author and chapter, where the
+passage is, the passage, the text around it (the pages either side of a
+PDF's, or twelve blocks before and twenty-four after in an EPUB, at most
+7,000 characters) and the notes and concepts that share words with it, which
+the answer may link to as `[[…]]`, and then mark the annotation ready, or
+failed with the reason. A failed answer has a Try again button, and one still
+pending when its book is opened is written again then (the text around a
+passage is read from the open book, so this waits for the book, not for the
+app). Incipit keeps no profile of the learner, so the earlier app's
+paragraph about them is left out of every request.
+
 **A tutor session sends the whole conversation each turn.** The reader's
 session sheet (`reader/session.rs` in the app) keeps the turns itself and
 no provider keeps any: each turn is one request with the same fixed

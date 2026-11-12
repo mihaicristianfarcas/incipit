@@ -62,6 +62,8 @@ pub enum Passage {
     Commented,
     /// The model was asked to explain it.
     Explained,
+    /// The model was asked to define it.
+    Defined,
     /// The learner's own question about it was put to the model.
     Asked,
 }
@@ -73,6 +75,7 @@ pub fn passage(at: i64, book: &str, what: Passage, quote: &str) -> Activity {
         Passage::Highlighted => (ActivityType::Highlight, "Highlighted"),
         Passage::Commented => (ActivityType::Note, "Commented"),
         Passage::Explained => (ActivityType::Note, "Explained"),
+        Passage::Defined => (ActivityType::Note, "Defined"),
         Passage::Asked => (ActivityType::Note, "Asked"),
     };
     Activity::new(kind, at, format!("{label}: “{}”", start(quote, 60))).book(book)

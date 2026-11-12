@@ -63,6 +63,9 @@ pub struct Note {
     pub anchors: Vec<Anchor>,
     pub words: String,
     pub asked: Option<String>,
+    /// What was asked of the model, when the card is an answer to be written, kept, or tried
+    /// again.
+    pub way: Option<crate::learning::answers::Way>,
     /// The answer is still being written.
     pub waiting: bool,
     /// Why there is no answer, in words for the learner.

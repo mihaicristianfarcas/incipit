@@ -17,7 +17,7 @@ use futures::StreamExt;
 use gpui::{Context, EventEmitter};
 use incipit_llm::cli::login;
 use incipit_llm::{
-    spawn_with, Answer, Cancel, Choice, Claude, Codex, Error, Event, FileSecrets, Job,
+    spawn_with, Answer, Cancel, Choice, Claude, Codex, Effort, Error, Event, FileSecrets, Job,
     MemorySecrets, Provider, Registry, Request, Sandbox, SecretStore, Settings, Status, Structured,
     Update,
 };
@@ -112,6 +112,12 @@ impl Models {
         self.settings
             .choice(Job::Quick)
             .map(|c| c.provider.as_str())
+    }
+
+    /// The effort the learner chose for `job`, if they chose one: it comes before the earlier
+    /// app's effort for a request, which a request naming its own effort would override.
+    pub fn effort(&self, job: Job) -> Option<Effort> {
+        self.settings.choice(job).and_then(|c| c.effort)
     }
 
     /// Ask each provider whether it can be used now, off the window's thread.

@@ -196,8 +196,10 @@ only, never in `.jj`, and reads the vault; the app adds no other way in or
 out. Its instructions are a constant; the learner's words are the request;
 what it reads in the files is material. One request is one entry in the
 history, holding the agent's work alone: when the agent ends, its change
-lands after whatever the learner wrote meanwhile (`Vault::land`), or not at
-all if it clashes with that or the agent failed or was stopped, and Undo
+is checked (`incipit_vault::checks`) and lands after whatever the learner
+wrote meanwhile (`Vault::land`), or not at all if it changes the app's own
+files, clashes with the learner's, or the agent failed or was stopped; one
+with a file that can no longer be read waits for the learner's OK. Undo
 takes that entry out of the history (`Vault::drop_change`), keeping what
 was written before and after it ([vault.md](vault.md)).
 

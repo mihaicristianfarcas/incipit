@@ -6,13 +6,16 @@
 //! `Vault::open` and `Vault::create` give a handle that holds the index of every document, the
 //! links between them and a search index, writes changes to disk whole, announces them to
 //! subscribers, picks up edits other programs make, and keeps history with Jujutsu through
-//! jj-lib (`history`). The list of vaults the app knows is `known`, apart from any vault.
+//! jj-lib (`history`). An agent works in a working copy of its own (`Vault::agent_copy`), and
+//! what it changed passes `checks` before it lands. The list of vaults the app knows is `known`,
+//! apart from any vault.
 //!
 //! No UI and no async runtime: calls block the calling thread until done, and changes arrive on
 //! plain channels, so a window, a phone app or a command line can drive it the same way. The
 //! layout on disk and the decisions behind it are in `docs/vault.md`.
 
 pub mod activity;
+pub mod checks;
 pub mod doc;
 pub mod error;
 pub mod events;

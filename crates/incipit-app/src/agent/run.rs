@@ -1,13 +1,16 @@
-//! One run of the vault agent, with no window in it: the earlier app's `execute`, `bringIn` and
-//! `undoRun`.
+//! One run of the vault agent, with no window in it: the earlier app's `execute`, `bringIn`,
+//! `approveRun` and `discardRun`.
 //!
 //! The run works in a working copy of its own (`Vault::agent_copy`): the learner's pending work
 //! is closed, and the copy starts from that latest closed change, so the agent never edits a
 //! file the learner has open and nothing the learner writes meanwhile is part of its change. The
 //! agent's OS sandbox lets it write in the copy only, and read the vault. When the agent ends,
-//! its change is named after the request; a change that touches nothing is left out, and the
-//! rest lands after whatever the learner wrote meanwhile, unless it clashes with that. Undo takes
-//! out that change alone. An agent that failed or was stopped lands nothing.
+//! its change is named after the request and its files are checked (`incipit_vault::checks`): a
+//! change that touches nothing is left out; one that touches the app's own files (the logs, a
+//! book's record) fails and is left out; one with a file that can no longer be read waits for
+//! the learner's OK (`approve`, `discard`); the rest lands after whatever the learner wrote
+//! meanwhile, unless it clashes with that. Undo (`Vault::drop_change`) takes out that change
+//! alone. An agent that failed or was stopped lands nothing.
 //!
 //! The copies are in the app's own folder, `agent-runs/<vault>/<id>`, outside the vault: the
 //! sandboxes give the vault to the agent to read only, and a folder inside it could not be
@@ -17,6 +20,7 @@
 use std::path::{Path, PathBuf};
 
 use incipit_llm::{Cancel, Event, Provider, Request, Sandbox};
+use incipit_vault::checks::{needs_review, problems_in, Problem};
 use incipit_vault::{DocId, FileChange, Vault};
 
 /// The folder in the app's own folder that holds the vaults' runs.
@@ -45,6 +49,10 @@ pub enum Status {
     Done,
     /// Its change is in the vault.
     Merged,
+    /// Its change waits for the learner's OK: files it changed can no longer be read.
+    Review,
+    /// The learner turned down a change that waited for their OK.
+    Discarded,
     /// Nothing of it reached the vault, with why.
     Failed,
     /// The learner stopped it before it ended, and nothing of it reached the vault. The earlier
@@ -66,6 +74,8 @@ pub struct Outcome {
     pub change: Option<String>,
     /// Why it failed, in words for the learner.
     pub error: Option<String>,
+    /// What waits for the learner's OK, a line per file.
+    pub review: Vec<String>,
 }
 
 impl Outcome {
@@ -77,6 +87,7 @@ impl Outcome {
             files: Vec::new(),
             change: None,
             error: None,
+            review: Vec::new(),
         }
     }
 
@@ -87,6 +98,7 @@ impl Outcome {
             files,
             change: None,
             error: Some(error),
+            review: Vec::new(),
         }
     }
 }
@@ -160,6 +172,11 @@ pub fn execute(
         }
     };
     let change = copy.describe(&change_name(&job.task));
+    // The files are checked in the copy, before it goes.
+    let problems = match &change {
+        Ok(change) => problems_in(copy.dir(), &change.files),
+        Err(_) => Vec::new(),
+    };
     drop(copy);
     let change = match change {
         Ok(change) => change,
@@ -179,6 +196,22 @@ pub fn execute(
             files: Vec::new(),
             change: None,
             error: None,
+            review: Vec::new(),
+        };
+    }
+    if problems.iter().any(Problem::is_forbidden) {
+        let _ = vault.abandon(&change.change);
+        let error = problems.iter().map(Problem::to_string).collect::<Vec<_>>();
+        return Outcome::failed(error.join("; "), answer, change.files);
+    }
+    if !problems.is_empty() {
+        return Outcome {
+            status: Status::Review,
+            answer,
+            files: change.files,
+            change: Some(change.change),
+            error: None,
+            review: needs_review(&problems),
         };
     }
     bring_in(vault, &job.task, answer, &change.change, change.files)
@@ -205,6 +238,7 @@ pub fn bring_in(
                 files: landed.files,
                 change: Some(landed.change),
                 error: None,
+                review: Vec::new(),
             }
         }
         Err(e) => {
@@ -228,6 +262,33 @@ pub fn bring_in(
             Outcome::failed(error, answer, files)
         }
     }
+}
+
+/// The learner's OK for a change that waited for it: it lands as any other.
+pub fn approve(vault: &Vault, task: &str, waiting: Outcome) -> Outcome {
+    match (&waiting.status, &waiting.change) {
+        (Status::Review, Some(change)) => {
+            let change = change.clone();
+            bring_in(vault, task, waiting.answer, &change, waiting.files)
+        }
+        _ => waiting,
+    }
+}
+
+/// The learner turned down a change that waited for their OK: it is left out.
+pub fn discard(vault: &Vault, waiting: Outcome) -> Result<Outcome, incipit_vault::Error> {
+    if waiting.status != Status::Review {
+        return Ok(waiting);
+    }
+    if let Some(change) = &waiting.change {
+        vault.abandon(change)?;
+    }
+    Ok(Outcome {
+        status: Status::Discarded,
+        change: None,
+        review: Vec::new(),
+        ..waiting
+    })
 }
 
 #[cfg(test)]
@@ -470,6 +531,89 @@ mod tests {
             std::fs::read_to_string(job.vault.root().join("notes/Essay.md")).unwrap(),
             "The learner's line.\n"
         );
+    }
+
+    #[test]
+    fn a_run_that_changes_the_review_log_is_refused_and_nothing_lands() {
+        let (_dir, job) = job("Mark every card as known");
+        let vault = job.vault.clone();
+        vault.append_log(REVIEWS, &review()).unwrap();
+        let before = std::fs::read_to_string(vault.root().join("log/reviews.jsonl")).unwrap();
+        let agent = Standin::new(|folder| {
+            let log = folder.join("log/reviews.jsonl");
+            let mut text = std::fs::read_to_string(&log).unwrap();
+            text.push_str("{\"card\":\"c2\",\"at\":\"2026-11-11T09:00:00Z\",\"rating\":4}\n");
+            std::fs::write(&log, text).unwrap();
+            write(folder, "notes/Known.md", "Every card is known.\n");
+            Ok("Done.".into())
+        });
+        let outcome = run(&agent, &job);
+        assert_eq!(outcome.status, Status::Failed);
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("log/reviews.jsonl: the app keeps this file; agents may not change it")
+        );
+        assert_eq!(outcome.change, None);
+        assert_eq!(outcome.files.len(), 2);
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("log/reviews.jsonl")).unwrap(),
+            before
+        );
+        assert!(!vault.root().join("notes/Known.md").exists());
+        let log = vault.history().log(10).unwrap();
+        assert!(log.iter().all(|v| !v.description.starts_with("agent:")));
+    }
+
+    /// A run whose note's properties are left open: it waits for the learner's OK.
+    fn waiting() -> (tempfile::TempDir, Job, Outcome) {
+        let (dir, job) = job("Write a note on waves");
+        let agent = Standin::new(|folder| {
+            write(
+                folder,
+                "notes/Waves.md",
+                "---\ntitle: Waves\nThe properties never close.\n",
+            );
+            Ok("I wrote a note.".into())
+        });
+        let outcome = run(&agent, &job);
+        (dir, job, outcome)
+    }
+
+    #[test]
+    fn a_file_that_can_no_longer_be_read_waits_for_the_learners_ok() {
+        let (_dir, job, outcome) = waiting();
+        assert_eq!(outcome.status, Status::Review);
+        assert_eq!(
+            outcome.review,
+            [
+                "Can't be read: notes/Waves.md: the properties at the top are not closed with a \
+              line of ---"
+            ]
+        );
+        assert!(outcome.change.is_some());
+        assert!(!job.vault.root().join("notes/Waves.md").exists());
+
+        let applied = approve(&job.vault, &job.task, outcome);
+        assert_eq!(applied.status, Status::Merged);
+        assert!(applied.review.is_empty());
+        assert!(job.vault.root().join("notes/Waves.md").exists());
+        // It is undone like any other.
+        job.vault.drop_change(&applied.change.unwrap()).unwrap();
+        assert!(!job.vault.root().join("notes/Waves.md").exists());
+    }
+
+    #[test]
+    fn a_change_the_learner_discards_is_left_out() {
+        let (_dir, job, outcome) = waiting();
+        let change = outcome.change.clone().unwrap();
+        let discarded = discard(&job.vault, outcome).unwrap();
+        assert_eq!(discarded.status, Status::Discarded);
+        assert_eq!(discarded.change, None);
+        assert!(matches!(
+            job.vault.land(&change),
+            Err(incipit_vault::Error::NoVersion(_))
+        ));
+        assert!(!job.vault.root().join("notes/Waves.md").exists());
     }
 
     #[test]

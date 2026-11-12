@@ -20,7 +20,9 @@
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =session for a tutor session with a made-up conversation),
 //! INCIPIT_ASK=explain|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
-//! INCIPIT_DRAFTS=demo (the drafter's sheet on made-up flashcards), INCIPIT_QUIZ=choose|check|pretest
+//! INCIPIT_DRAFTS=demo (the drafter's sheet on made-up flashcards), INCIPIT_EXPLAIN=demo (the
+//! explaining sheet on a made-up explanation, graded), INCIPIT_EXPLAIN=write (with INCIPIT_NOTE:
+//! the sheet open to explain the selection back), INCIPIT_QUIZ=choose|check|pretest
 //! (the quiz sheet on the chapter on screen once the book is open: the choice, or a quiz or a
 //! pretest written by the model) or demo|done (a made-up quiz, at its start or finished),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block),
@@ -156,6 +158,8 @@ pub struct ReaderView {
     reading: reading::Reading,
     /// The sheet where drafted flashcards are looked over.
     drafter: Entity<crate::drafter::DrafterView>,
+    /// The sheet where a passage or a concept is explained back.
+    explain: Entity<crate::explain::ExplainView>,
     _draft_events: Subscription,
     _reply_events: Subscription,
     _vault_events: Subscription,
@@ -218,6 +222,11 @@ impl ReaderView {
         if std::env::var("INCIPIT_DRAFTS").as_deref() == Ok("demo") {
             drafter.update(cx, |drafter, cx| drafter.show_demo(cx));
         }
+        let explain =
+            cx.new(|cx| crate::explain::ExplainView::new(workspace.clone(), models.clone(), cx));
+        if std::env::var("INCIPIT_EXPLAIN").as_deref() == Ok("demo") {
+            explain.update(cx, |explain, cx| explain.show_demo(cx));
+        }
         let quiz = cx.new(|cx| crate::quiz::QuizView::new(workspace.clone(), models.clone(), cx));
         match std::env::var("INCIPIT_QUIZ").as_deref() {
             Ok("demo") => quiz.update(cx, |quiz, cx| quiz.show_demo(false, cx)),
@@ -261,6 +270,7 @@ impl ReaderView {
             demo: std::env::var_os("INCIPIT_NOTE").is_some(),
             reading: reading::Reading::new(),
             drafter,
+            explain,
             _draft_events: draft_events,
             _reply_events: reply_events,
             _vault_events: vault_events,
@@ -562,11 +572,15 @@ impl ReaderView {
     }
 
     /// INCIPIT_ASK=explain|cards|quiz|figure puts the demonstration's selection to the model, to
-    /// see a real answer arrive without a mouse. INCIPIT_NOTE=session opens the demonstration's
+    /// see a real answer arrive without a mouse; INCIPIT_EXPLAIN=write opens the selection to
+    /// explain back. INCIPIT_NOTE=session opens the demonstration's
     /// note as a tutor session, which asks no model.
     fn try_demo(&mut self, cx: &mut Context<Self>) {
         if std::env::var("INCIPIT_NOTE").as_deref() == Ok("session") {
             self.show_demo_session(cx);
+        }
+        if std::env::var("INCIPIT_EXPLAIN").as_deref() == Ok("write") {
+            self.teach_back(cx);
         }
         match std::env::var("INCIPIT_ASK").as_deref() {
             Ok("explain") => self.explain(cx),
@@ -1034,6 +1048,13 @@ impl ReaderView {
                     .ghost()
                     .icon(IconName::Bolt)
                     .on_click(cx.listener(|this, _, _, cx| this.make_cards(cx))),
+            )
+            .child(
+                button("reader-teach", "Teach it back", t)
+                    .ghost()
+                    .icon(IconName::Pencil)
+                    .tooltip("Explain it in your own words, and see what you missed")
+                    .on_click(cx.listener(|this, _, _, cx| this.teach_back(cx))),
             );
         Some(deferred(anchored().position(at).snap_to_window().child(menu)).into_any_element())
     }
@@ -1247,6 +1268,7 @@ impl Render for ReaderView {
             .child(self.quiz.clone())
             .children(self.session_sheet(t, cx))
             .child(self.drafter.clone())
+            .child(self.explain.clone())
     }
 }
 

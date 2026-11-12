@@ -136,6 +136,21 @@ pub fn quiz_finished(
     }
 }
 
+/// A concept was explained back and the explanation kept: `name` as the learner wrote it,
+/// `concept` its id, `score` the tutor's grade out of 100.
+pub fn explained(at: i64, book: Option<&str>, concept: &str, name: &str, score: u32) -> Activity {
+    let entry = Activity::new(
+        ActivityType::Explain,
+        at,
+        format!("Explained {name} · {score}/100"),
+    )
+    .concepts([concept]);
+    match book {
+        Some(book) => entry.book(book),
+        None => entry,
+    }
+}
+
 /// The tutor was asked something about a passage; `said` is the learner's turn.
 pub fn tutor_asked(at: i64, book: Option<&str>, said: &str) -> Activity {
     let entry = Activity::new(ActivityType::Ask, at, format!("Asked: {}", cut(said, 80)));
@@ -214,6 +229,10 @@ mod tests {
         );
         assert_eq!(note_written(0, None, "Lenses").text, "Wrote: Lenses");
         assert_eq!(
+            explained(0, None, "c1", "Refraction", 80).text,
+            "Explained Refraction · 80/100"
+        );
+        assert_eq!(
             figure_made(0, "b", "f", "A ray", "flow").text,
             "Figure: A ray"
         );
@@ -246,6 +265,7 @@ mod tests {
             ActivityType::Concept
         );
         assert_eq!(kind(note_written(0, None, "t")), ActivityType::Note);
+        assert_eq!(kind(explained(0, None, "c", "t", 1)), ActivityType::Explain);
         assert_eq!(kind(agent_asked(0, "tidy")), ActivityType::Ask);
     }
 

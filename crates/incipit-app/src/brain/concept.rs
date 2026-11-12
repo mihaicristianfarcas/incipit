@@ -1,6 +1,6 @@
 //! One concept's page on the Brain: what it is and how well it is known, what it builds on and
 //! what leads from it, related concepts, its cards, the notes about it and the passages it came
-//! from (`concepts::view`). A concept named on the page opens its own page; a card opens Review,
+//! from (`concepts::view`), and a way to explain it back (`crate::explain`). A concept named on the page opens its own page; a card opens Review,
 //! a note opens in Notes, and a passage opens the reader at that place, through the page's
 //! events, which the window turns into the page to show. Everything on it is reached with Tab,
 //! with a ring on what has the keyboard, and pressed with Return or Space.
@@ -197,6 +197,15 @@ impl BrainView {
                             .font_weight(Type::SEMIBOLD)
                             .child(detail.title.clone()),
                     )
+                    .child({
+                        let id = id.clone();
+                        button("concept-explain", "Explain it back", t)
+                            .accent()
+                            .tooltip("Explain it in your own words, and see what you missed")
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.explain_concept(&id, cx)),
+                            )
+                    })
                     .child(
                         button("concept-edit", "Edit in Notes", t)
                             .icon(incipit_ui::IconName::Pencil)

@@ -13,6 +13,7 @@ mod brain;
 mod concepts;
 mod demo;
 mod drafter;
+mod explain;
 mod figure;
 mod figures;
 mod find;
@@ -179,7 +180,7 @@ impl Root {
             },
         )
         .detach();
-        let brain = cx.new(|cx| brain::BrainView::new(workspace.clone(), cx));
+        let brain = cx.new(|cx| brain::BrainView::new(workspace.clone(), models.clone(), cx));
         // A document opened from the picture opens where find would open it.
         cx.subscribe(&brain, |this: &mut Self, _, open: &brain::Open, cx| {
             this.open(open.0, &open.1, cx);

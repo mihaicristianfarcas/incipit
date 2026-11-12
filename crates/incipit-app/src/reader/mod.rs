@@ -24,7 +24,9 @@
 mod asking;
 mod concepts;
 mod model;
+mod place;
 mod quiz;
+mod reading;
 mod rows;
 mod session;
 
@@ -144,6 +146,8 @@ pub struct ReaderView {
     /// The line of the contents to map once the book is open (INCIPIT_MAP).
     map_on_open: Option<usize>,
     demo: bool,
+    /// The reading in progress: sittings, and where the book is kept.
+    reading: reading::Reading,
     _draft_events: Subscription,
     _reply_events: Subscription,
     _vault_events: Subscription,
@@ -185,10 +189,14 @@ impl ReaderView {
         // A concept written, changed or removed changes the cards in the margin.
         let vault_events =
             cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
-                if let Happened::Changed(event) = happened {
-                    if event.path.parts().next() == Some("concepts") {
-                        this.concept_notes(cx);
+                match happened {
+                    Happened::Changed(event) => {
+                        if event.path.parts().next() == Some("concepts") {
+                            this.concept_notes(cx);
+                        }
                     }
+                    // Another vault is open: the sittings were in the one that was.
+                    Happened::Opened => this.end_sittings(cx),
                 }
             });
         let (drawn, pages) = unbounded();
@@ -228,10 +236,16 @@ impl ReaderView {
                 .ok()
                 .and_then(|n| n.trim().parse().ok()),
             demo: std::env::var_os("INCIPIT_NOTE").is_some(),
+            reading: reading::Reading::new(),
             _draft_events: draft_events,
             _reply_events: reply_events,
             _vault_events: vault_events,
         };
+        // A book scrolled by hand is reading, and a place to keep.
+        let weak = cx.entity().downgrade();
+        view.list.set_scroll_handler(move |_, _, cx| {
+            let _ = weak.update(cx, |this, cx| this.moved(cx));
+        });
         // The sample books, for looking at the reader without a vault.
         let sample = match std::env::var("INCIPIT_BOOK").as_deref() {
             Ok("pdf") => Some(("Attention Is All You Need", "samples/paper.pdf", false)),
@@ -272,6 +286,7 @@ impl ReaderView {
             item_ix: part,
             offset_in_item: px(0.0),
         });
+        self.moved(cx);
         cx.notify();
         true
     }
@@ -474,18 +489,28 @@ impl ReaderView {
                 match opened {
                     Ok(opened) => {
                         this.list.reset(opened.parts());
+                        // A passage asked for comes first, then INCIPIT_PART, and else the
+                        // book opens where it was left.
                         let part = this.go_to.take().or_else(|| {
                             std::env::var("INCIPIT_PART")
                                 .ok()
                                 .and_then(|p| p.parse().ok())
                         });
-                        if let Some(item_ix) = part {
+                        let left = match part {
+                            Some(item_ix) => Some((item_ix, 0.0)),
+                            None => this.left_at(!epub),
+                        };
+                        if let Some((item_ix, fraction)) = left {
                             this.list.scroll_to(ListOffset {
                                 item_ix,
                                 offset_in_item: px(0.0),
                             });
+                            this.reading.fraction = (!epub && fraction > 0.0).then_some(fraction);
                         }
+                        let parts = opened.parts();
                         this.state = State::Open(opened);
+                        this.note_length(parts, cx);
+                        this.report(cx);
                         this.kept_notes(cx);
                         this.concept_notes(cx);
                         if let Some(entry) = this.map_on_open.take() {
@@ -745,7 +770,8 @@ impl ReaderView {
         self.dragging = false;
         match self.selection {
             Some(selection) if !selection.is_empty() => {
-                self.menu = Some(at + Point::new(px(0.0), px(14.0)))
+                self.menu = Some(at + Point::new(px(0.0), px(14.0)));
+                self.report(cx);
             }
             _ => self.selection = None,
         }
@@ -908,6 +934,7 @@ impl ReaderView {
                         item_ix: page,
                         offset_in_item: px(0.0),
                     });
+                    this.moved(cx);
                     cx.notify();
                 }))
         });
@@ -1146,6 +1173,7 @@ impl Render for ReaderView {
             self.room = room;
             self.list.remeasure();
         }
+        self.restore_fraction();
         let body: AnyElement = match &self.state {
             State::Opening => div().into_any_element(),
             State::Closed => div()

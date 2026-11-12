@@ -99,7 +99,7 @@ impl Kind {
             Kind::Annotation => &["color", "request", "status", "error", "model"],
             Kind::Session => &["mode"],
             Kind::Figure => &["request"],
-            Kind::Book => &["author", "file", "format", "edition"],
+            Kind::Book => &["author", "file", "format", "edition", "parts"],
         }
     }
 

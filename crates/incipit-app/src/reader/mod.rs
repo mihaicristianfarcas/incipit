@@ -160,6 +160,8 @@ pub struct ReaderView {
     drawn: UnboundedSender<Drawn>,
     /// The page or block to show once the book being opened is open.
     pub go_to: Option<usize>,
+    /// The line of the contents to quiz on once the book being opened is open (from Today).
+    pub quiz_chapter: Option<usize>,
     /// The chapter being mapped into concepts, or mapped last.
     mapping: Option<concepts::Mapping>,
     /// The line of the contents under the pointer.
@@ -280,6 +282,7 @@ impl ReaderView {
             room: f32::MAX,
             drawn,
             go_to: None,
+            quiz_chapter: None,
             mapping: None,
             hovered_entry: None,
             map_on_open: std::env::var("INCIPIT_MAP")
@@ -341,6 +344,36 @@ impl ReaderView {
         self.moved(cx);
         cx.notify();
         true
+    }
+
+    /// Starts a quiz on a chapter of the book `id`, a line of its contents: at once when the book
+    /// is open (true), else once the book opened next is open.
+    pub fn quiz_chapter(&mut self, id: &DocId, chapter: usize, cx: &mut Context<Self>) -> bool {
+        let open = self.book.as_ref().and_then(|b| b.id.as_ref()) == Some(id)
+            && matches!(self.state, State::Open(_));
+        if !open {
+            self.quiz_chapter = Some(chapter);
+            return false;
+        }
+        self.quiz_on(chapter, cx);
+        true
+    }
+
+    /// Takes the reader to the start of a line of the contents and offers a quiz on it. A line
+    /// the book's contents no longer has leaves the reader where it is.
+    fn quiz_on(&mut self, chapter: usize, cx: &mut Context<Self>) {
+        let State::Open(opened) = &self.state else {
+            return;
+        };
+        if let Some(entry) = opened.contents.get(chapter) {
+            self.list.scroll_to(ListOffset {
+                item_ix: entry.page,
+                offset_in_item: px(0.0),
+            });
+            self.moved(cx);
+        }
+        self.offer_quiz(Some(Mode::Check), cx);
+        cx.notify();
     }
 
     /// The notes the vault keeps on the open book.
@@ -604,6 +637,9 @@ impl ReaderView {
                         if let Some(entry) = this.map_on_open.take() {
                             this.contents = true;
                             this.map_chapter(entry, cx);
+                        }
+                        if let Some(chapter) = this.quiz_chapter.take() {
+                            this.quiz_on(chapter, cx);
                         }
                         match this.quiz_on_open.take().as_deref() {
                             Some("check") => this.offer_quiz(Some(Mode::Check), cx),

@@ -1,31 +1,44 @@
-//! Today: where the app starts. What is due for review, the book read last to carry on with (its
-//! chapter, how far through it and when it would be finished at the recent pace, as the earlier
-//! app's Today says it) beside the other books by how lately they were touched, and the notes
-//! touched last, each one click from its page. Nothing here is a score: the numbers are what is
-//! left to recall today and how many days in a row recall was practised. With nothing left to
-//! review and cards in the vault, a mixed review quiz is offered, as the earlier app's Today
-//! offered it.
+//! Today: where the app starts, as the earlier app's Today is. What waits in Review and the way
+//! in; the book read last to carry on with (its chapter, how far through it and when it would be
+//! finished at the recent pace) beside the other books by how lately they were touched; the few
+//! other things worth doing next, each one press from doing it (`incipit_learn::plan`: explain a
+//! concept that is slipping, quiz on a chapter read a few days ago, a mixed review); and the
+//! week's seven days with the streak and its pause (`crate::journey`). With nothing left to
+//! review and cards in the vault, a mixed review quiz is offered. Nothing here is a score.
+//! INCIPIT_HISTORY=demo gives the books a made-up reading history; the Journey page is shown in
+//! its states by INCIPIT_JOURNEY.
 
 use gpui::{
     div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, Render, ScrollHandle,
     Subscription, Window,
 };
-use incipit_ui::{button, card, meter, page, Theme, Type};
+use incipit_learn::journey::{long_date, week};
+use incipit_learn::plan::{suggestions, Facts, Suggestion};
+use incipit_ui::IconName;
+use incipit_ui::{button, card, focus_ring, icon, meter, page, Radius, Theme, Type};
 use incipit_vault::{DocId, Kind};
 
+use crate::concepts::view::Concepts;
+use crate::journey::view::link_row;
+use crate::journey::{read_with, sittings, Journey};
 use crate::progress::{states, words, BookState};
-use crate::study::{now, Deck, Local};
+use crate::study::{now, Local};
 use crate::workspace::{Happened, Workspace};
 
 /// Where the learner asked to go from Today.
+#[derive(Clone)]
 pub enum Go {
     Review,
     /// A mixed review quiz, on the Review page.
     MixedQuiz,
     Library,
-    Note(DocId),
+    Journey,
     /// Read this book, from where it was left.
     Book(DocId),
+    /// Explain this concept back, on its page.
+    Explain(DocId),
+    /// Quiz on a chapter of a book (a line of its contents), in the reader.
+    Quiz(DocId, usize),
 }
 
 /// How many of the other books are listed under the one to continue.
@@ -40,15 +53,15 @@ struct Reading {
 
 pub struct TodayView {
     workspace: Entity<Workspace>,
+    /// Cards due now (learning ones too) and new cards allowed today.
     due: usize,
     fresh: usize,
-    done: usize,
-    streak: u32,
     /// The cards that are not suspended.
     cards: usize,
     /// The books, the one touched last first.
     books: Vec<Reading>,
-    notes: Vec<(DocId, String)>,
+    suggestions: Vec<Suggestion<DocId>>,
+    journey: Option<Journey>,
     scroll: ScrollHandle,
     _subscription: Subscription,
 }
@@ -65,11 +78,10 @@ impl TodayView {
             workspace,
             due: 0,
             fresh: 0,
-            done: 0,
-            streak: 0,
             cards: 0,
             books: Vec::new(),
-            notes: Vec::new(),
+            suggestions: Vec::new(),
+            journey: None,
             scroll: ScrollHandle::new(),
             _subscription: subscription,
         };
@@ -81,11 +93,10 @@ impl TodayView {
         let Some(vault) = self.workspace.read(cx).vault.clone() else {
             return;
         };
-        let deck = Deck::load(&vault);
-        let counts = deck.counts(now(), &Local);
-        (self.due, self.fresh, self.done) =
-            (counts.due_now, counts.new_available, counts.done_today);
-        self.streak = deck.streaks(now(), &Local).current;
+        let at = now();
+        let concepts = Concepts::read(&vault, at);
+        let counts = concepts.deck().counts(at, &Local);
+        (self.due, self.fresh) = (counts.due_now, counts.new_available);
         self.cards = vault
             .list(Some(Kind::Card))
             .iter()
@@ -95,7 +106,7 @@ impl TodayView {
                     .is_some_and(|c| c.suspended)
             })
             .count();
-        let mut states = states(&vault, now());
+        let mut states = states(&vault, at);
         self.books = vault
             .list(Some(Kind::Book))
             .iter()
@@ -110,13 +121,18 @@ impl TodayView {
             .collect();
         self.books
             .sort_by_key(|b| (std::cmp::Reverse(b.state.touched), b.title.to_lowercase()));
-        let mut notes = vault.list(Some(Kind::Note));
-        notes.sort_by_key(|n| std::cmp::Reverse(n.updated().unwrap_or_default()));
-        self.notes = notes
+        let listed: Vec<(DocId, String, Option<f64>)> = vault
+            .list(Some(Kind::Concept))
             .iter()
-            .take(5)
-            .map(|n| (n.id().clone(), n.title()))
+            .map(|doc| (doc.id().clone(), doc.title(), concepts.mastery(doc.id())))
             .collect();
+        let log = vault.activity().unwrap_or_default();
+        self.suggestions = suggestions(&Facts {
+            concepts: &listed,
+            sittings: &sittings(&log),
+            now: at,
+        });
+        self.journey = Some(read_with(&vault, at, &Local, &concepts));
     }
 
     /// The book to carry on with, and the next few beside it.
@@ -228,6 +244,187 @@ impl TodayView {
             .text_color(t.tertiary)
             .child(title.to_string())
     }
+
+    /// What Review holds: how many cards wait, and the way in.
+    fn review(&self, t: Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let waiting = self.due + self.fresh;
+        let detail = if waiting > 0 {
+            let parts: Vec<String> = [
+                (self.due > 0).then(|| format!("{} due", self.due)),
+                (self.fresh > 0).then(|| format!("{} new", self.fresh)),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            format!("{}. A few minutes keeps them.", parts.join(", "))
+        } else if self.cards > 0 {
+            "Each card comes back just before you'd forget it.".to_owned()
+        } else {
+            "Make cards while you read: select a passage and choose Cards.".to_owned()
+        };
+        let headline = if waiting > 0 {
+            format!(
+                "{waiting} card{} waiting",
+                if waiting == 1 { "" } else { "s" }
+            )
+        } else {
+            "All done for now".to_owned()
+        };
+        let action = if waiting > 0 {
+            Some(
+                button("today-review", "Start reviewing", t)
+                    .accent()
+                    .large()
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(Go::Review))),
+            )
+        } else if self.cards > 0 {
+            Some(
+                button("today-mixed", "Mixed quiz", t)
+                    .large()
+                    .tooltip("A quiz across the concepts you know least")
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(Go::MixedQuiz))),
+            )
+        } else {
+            None
+        };
+        card(t)
+            .p(px(18.0))
+            .flex()
+            .items_center()
+            .gap(px(12.0))
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(div().text_size(px(17.0)).child(headline))
+                    .child(
+                        div()
+                            .text_size(px(Type::META))
+                            .text_color(t.tertiary)
+                            .child(detail),
+                    ),
+            )
+            .children(action)
+    }
+
+    /// The few other things worth doing next, each one press from doing it.
+    fn next(&self, t: Theme, window: &mut Window, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        if self.suggestions.is_empty() {
+            return None;
+        }
+        let rows = self.suggestions.iter().enumerate().map(|(index, item)| {
+            let (row, ring) = link_row(format!("today-next-{index}"), t, window, cx);
+            let go = match item {
+                Suggestion::Explain { concept, .. } => Go::Explain(concept.clone()),
+                Suggestion::Quiz {
+                    book, chapter_id, ..
+                } => match chapter_id.parse() {
+                    Ok(chapter) => Go::Quiz(DocId::from(book.as_str()), chapter),
+                    Err(_) => Go::Book(DocId::from(book.as_str())),
+                },
+                Suggestion::Mixed => Go::MixedQuiz,
+            };
+            row.child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.0))
+                    .child(item.title())
+                    .child(
+                        div()
+                            .text_size(px(Type::META))
+                            .text_color(t.tertiary)
+                            .child(item.detail()),
+                    ),
+            )
+            .child(icon(IconName::ArrowRight, 14.0, t.tertiary))
+            .on_click(cx.listener(move |_, _, _, cx| cx.emit(go.clone())))
+            .when(ring, |row| row.child(focus_ring(t, Radius::ROW, -2.0)))
+        });
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.0))
+                .child(Self::section("Up next", t))
+                .child(div().flex().flex_col().children(rows)),
+        )
+    }
+
+    /// The last seven days, each marked if something was done, today last; the streak under them.
+    fn this_week(&self, t: Theme, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        let journey = self.journey.as_ref()?;
+        let days = week(&journey.days, journey.today);
+        let studied = days.iter().filter(|d| d.1).count();
+        let cells = days.iter().enumerate().map(|(index, &(day, did))| {
+            let name = &incipit_learn::journey::weekday_name(day)[..1];
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(4.0))
+                .child(
+                    div()
+                        .w(px(14.0))
+                        .h(px(14.0))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(if index == 6 { t.accent } else { t.hairline })
+                        .when(did, |dot| dot.bg(t.accent)),
+                )
+                .child(
+                    div()
+                        .text_size(px(Type::META))
+                        .text_color(t.tertiary)
+                        .child(name.to_owned()),
+                )
+        });
+        let streak = if journey.streak > 0 {
+            format!(
+                "{}-day streak{}.",
+                journey.streak,
+                if journey.paused_until.is_some() {
+                    ", paused for a break"
+                } else {
+                    ""
+                }
+            )
+        } else {
+            "Study today to start a streak.".to_owned()
+        };
+        let words = format!(
+            "Studied {studied} of the last 7 days, from {} to today. {streak}",
+            long_date(days[0].0)
+        );
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .child(Self::section("This week", t))
+                .child(div().flex().gap(px(14.0)).children(cells))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.0))
+                        .child(
+                            div()
+                                .text_size(px(Type::META))
+                                .text_color(t.secondary)
+                                .child(words),
+                        )
+                        .child(
+                            button("today-journey", "Your journey", t)
+                                .on_click(cx.listener(|_, _, _, cx| cx.emit(Go::Journey))),
+                        ),
+                ),
+        )
+    }
 }
 
 impl Render for TodayView {
@@ -239,63 +436,27 @@ impl Render for TodayView {
                 .child(crate::welcome::welcome(&self.workspace, t, cx))
                 .into_any_element();
         }
-        let to_review = self.due + self.fresh;
-        let review_words = match (to_review, self.done) {
-            (0, 0) => "Nothing to review today.".to_string(),
-            (0, done) => format!("All reviewed for today ({done})."),
-            (1, _) => "1 card to review.".to_string(),
-            (n, _) => format!("{n} cards to review."),
-        };
-        let streak = match self.streak {
-            0 | 1 => None,
-            n => Some(format!("{n} days in a row")),
-        };
-        let review = card(t)
-            .p(px(18.0))
-            .flex()
-            .items_center()
-            .gap(px(12.0))
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .child(div().text_size(px(17.0)).child(review_words))
-                    .children(streak.map(|s| {
-                        div()
-                            .text_size(px(Type::META))
-                            .text_color(t.tertiary)
-                            .child(s)
-                    })),
-            )
-            .when(to_review > 0, |card| {
-                card.child(
-                    button("today-review", "Review", t)
+        let reading = self.reading(t, cx);
+        let first_book = self.books.is_empty().then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .items_start()
+                .gap(px(8.0))
+                .child(div().text_size(px(17.0)).child("Bring in a hard book"))
+                .child(div().text_color(t.secondary).child(
+                    "Read it beside a margin that explains, draws and quizzes. \
+                         Add one or several in the Library.",
+                ))
+                .child(
+                    button("today-add", "Open the Library", t)
                         .accent()
                         .large()
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(Go::Review))),
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(Go::Library))),
                 )
-            })
-            .when(to_review == 0 && self.cards > 0, |card| {
-                card.child(
-                    button("today-mixed", "Mixed quiz", t)
-                        .large()
-                        .tooltip("A quiz across the concepts you know least")
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(Go::MixedQuiz))),
-                )
-            });
-        let reading = self.reading(t, cx);
-        let notes = self.notes.iter().enumerate().map(|(index, (id, title))| {
-            let id = id.clone();
-            div()
-                .id(("today-note", index))
-                .py(px(6.0))
-                .cursor_pointer()
-                .hover(|row| row.text_color(t.accent))
-                .child(title.clone())
-                .on_click(cx.listener(move |_, _, _, cx| cx.emit(Go::Note(id.clone()))))
         });
+        let next = self.next(t, window, cx);
+        let week = self.this_week(t, cx);
         let body = div()
             .flex()
             .flex_col()
@@ -306,24 +467,11 @@ impl Render for TodayView {
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .child("Today"),
             )
-            .child(review)
+            .child(self.review(t, cx))
             .children(reading)
-            .when(!self.notes.is_empty(), |body| {
-                body.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .child(Self::section("Notes touched last", t))
-                        .children(notes),
-                )
-            })
-            .when(self.books.is_empty() && self.notes.is_empty(), |body| {
-                body.child(
-                    div()
-                        .text_color(t.secondary)
-                        .child("Add a book in the Library, or write a note, to begin."),
-                )
-            });
+            .children(first_book)
+            .children(next)
+            .children(week);
         page("today", &self.scroll, 600.0, t, body).into_any_element()
     }
 }

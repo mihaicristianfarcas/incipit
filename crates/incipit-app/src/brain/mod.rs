@@ -265,7 +265,7 @@ impl BrainView {
 
     /// Opens the sheet to explain concept `id` back, with its summary, and the book, author and
     /// chapter its first passage is in. The book is not open here, so no text of it goes.
-    pub(super) fn explain_concept(&mut self, id: &DocId, cx: &mut Context<Self>) {
+    pub(crate) fn explain_concept(&mut self, id: &DocId, cx: &mut Context<Self>) {
         let Some(vault) = self.workspace.read(cx).vault.clone() else {
             return;
         };

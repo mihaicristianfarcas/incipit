@@ -15,9 +15,8 @@ use std::collections::{HashMap, HashSet};
 
 use incipit_learn::schedule::CREDIT_SHARE;
 use incipit_learn::{
-    asks_new_way, build_queue, credit, new_today, preview, schedule, streaks, today_counts,
-    Candidate, Params, Preview, Queue, QueueOptions, Rating, State, Streaks, TodayCounts, Zone,
-    DAY_MS,
+    asks_new_way, build_queue, credit, new_today, preview, schedule, today_counts, Candidate,
+    Params, Preview, Queue, QueueOptions, Rating, State, TodayCounts, Zone, DAY_MS,
 };
 use incipit_vault::{Card, Doc, DocId, Kind, Review, Vault, REVIEWS};
 
@@ -254,9 +253,13 @@ impl Deck {
         today_counts(&self.queue(now, zone), &self.log, now, zone)
     }
 
-    pub fn streaks(&self, now: i64, zone: &impl Zone) -> Streaks {
-        let times: Vec<i64> = self.log.iter().map(|r| r.time).collect();
-        streaks(&times, now, zone)
+    /// Every card's memory, the vault's order, or none for a card never reviewed.
+    pub fn memories(&self) -> Vec<Option<&incipit_learn::Card>> {
+        self.order
+            .iter()
+            .filter_map(|id| self.cards.get(id))
+            .map(|entry| Some(&entry.state).filter(|s| s.last_review.is_some()))
+            .collect()
     }
 
     /// How long each rating would wait before the card comes back.

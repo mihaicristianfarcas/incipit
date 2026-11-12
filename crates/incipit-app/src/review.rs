@@ -1,6 +1,6 @@
 //! The review page: the cards that are due, one at a time. The front, then (Space or the button)
 //! the back and four ways to say how well it was recalled, each showing when the card would come
-//! back; 1 to 4 on the keyboard rate it. Above, what is left today and the streak. Cards are made
+//! back; 1 to 4 on the keyboard rate it. Above, what is left today. Cards are made
 //! here too, from a front and a back. INCIPIT_PAGE=review opens the page; INCIPIT_BACK=1 shows the
 //! first card's back.
 //!
@@ -372,10 +372,9 @@ impl ReviewView {
         }
     }
 
-    /// What is left today and the streak, in one quiet line.
+    /// What is left today, in one quiet line.
     fn summary(&self, deck: &Deck) -> String {
         let counts = deck.counts(now(), &Local);
-        let streak = deck.streaks(now(), &Local).current;
         let mut parts = vec![match counts.due_now {
             0 => "Nothing due".to_string(),
             1 => "1 card due".to_string(),
@@ -386,9 +385,6 @@ impl ReviewView {
         }
         if counts.done_today > 0 {
             parts.push(format!("{} done today", counts.done_today));
-        }
-        if streak > 1 {
-            parts.push(format!("{streak} days in a row"));
         }
         parts.join("  ·  ")
     }

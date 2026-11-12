@@ -133,6 +133,11 @@ impl Concepts {
         }
     }
 
+    /// The cards, replayed.
+    pub fn deck(&self) -> &Deck {
+        &self.deck
+    }
+
     /// How well a concept is known now (`known::mastery`).
     pub fn mastery(&self, id: &DocId) -> Option<f64> {
         let cards: Vec<Option<&incipit_learn::Card>> = self

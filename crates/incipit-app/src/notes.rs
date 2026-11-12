@@ -70,7 +70,12 @@ impl NotesView {
         let title = cx.new(|cx| TextField::new(cx).placeholder("Title"));
         let body = cx.new(|cx| TextField::new(cx).markdown().placeholder("Write"));
         let find = cx.new(|cx| TextField::new(cx).placeholder("Find a note"));
-        let raw = cx.new(|cx| TextField::new(cx).placeholder("The file's text"));
+        // The file as it is, its lines kept: the properties between the dashes are lines.
+        let raw = cx.new(|cx| {
+            TextField::new(cx)
+                .multiline()
+                .placeholder("The file's text")
+        });
         let typed =
             |this: &mut Self, _: Entity<TextField>, event: &FieldEvent, cx: &mut Context<Self>| {
                 if *event == FieldEvent::Changed {

@@ -40,6 +40,9 @@ impl Entry {
 /// Every card of a vault with its schedule as of the last review.
 pub struct Deck {
     cards: HashMap<DocId, Entry>,
+    /// The cards in the vault's order (by path), so cards that tie in the queue come in the same
+    /// order every time.
+    order: Vec<DocId>,
     log: Vec<incipit_learn::Review>,
     params: Params,
     /// For each card, the cards a recall of it credits.
@@ -91,11 +94,13 @@ impl Deck {
     pub fn load_with(vault: &Vault, ties: &Ties) -> Deck {
         let params = Params::default();
         let mut cards: HashMap<DocId, Entry> = HashMap::new();
+        let mut order = Vec::new();
         for doc in vault.list(Some(Kind::Card)) {
             let Some(card) = doc.fields::<Card>() else {
                 continue;
             };
             let created = doc.created().as_deref().and_then(millis).unwrap_or(0);
+            order.push(doc.id().clone());
             cards.insert(
                 doc.id().clone(),
                 Entry {
@@ -119,6 +124,7 @@ impl Deck {
             .collect();
         let mut deck = Deck {
             cards,
+            order,
             log: Vec::new(),
             params,
             foundations: foundations(ties),
@@ -188,8 +194,9 @@ impl Deck {
     /// of new cards.
     pub fn queue(&self, now: i64, zone: &impl Zone) -> Queue<DocId> {
         let candidates: Vec<Candidate<DocId>> = self
-            .cards
+            .order
             .iter()
+            .filter_map(|id| Some((id, self.cards.get(id)?)))
             .map(|(id, entry)| Candidate {
                 key: id.clone(),
                 card: entry.state.clone(),
@@ -320,6 +327,22 @@ mod tests {
             .queue(later + 30 * DAY, &zone)
             .cards
             .contains(first.id()));
+    }
+
+    #[test]
+    fn cards_made_in_the_same_second_are_queued_in_the_vaults_order_every_time() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        for n in 0..8 {
+            add_card(&vault, &format!("card {n}"), "back").unwrap();
+        }
+        // Oldest first; those made in the same second, by path.
+        let mut listed = vault.list(Some(Kind::Card));
+        listed.sort_by_key(|doc| doc.created().as_deref().and_then(millis));
+        let expected: Vec<DocId> = listed.iter().map(|doc| doc.id().clone()).collect();
+        let at = now();
+        assert_eq!(Deck::load(&vault).queue(at, &UTC).cards, expected);
+        assert_eq!(Deck::load(&vault).queue(at, &UTC).cards, expected);
     }
 
     /// A vault where a derivative builds on a limit, with a card on each (two on the derivative).

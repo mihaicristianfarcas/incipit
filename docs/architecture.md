@@ -106,7 +106,8 @@ reported on a timer from the browser; here the only timer is the one set
 for the moment the next sitting goes quiet. Progress and the finish
 estimate are worked out from those lines against the book's length, which
 the reader writes into the book's record (`parts`) when it first opens it;
-the Library lists books by when they were last touched and Today offers the
+the Library lists books by when they were last touched (or by title or
+author, as the learner picks) and Today offers the
 one read last. The place a book reopens at is kept on this computer, in
 the app's own folder (`places.json`), not in the vault.
 

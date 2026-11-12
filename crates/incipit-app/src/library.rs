@@ -1,7 +1,8 @@
 //! The library: the vault's books, and adding one. A book added is copied into the vault, in a
 //! folder of its own under `library/` with a record beside it, so the vault holds everything it
 //! needs; choosing a book opens it in the reader. The books are listed by when the learner last
-//! touched them, each with how far through it they are. INCIPIT_PAGE=library opens the page;
+//! touched them, by title or by author, as the learner picks (the choice is kept in the app's own
+//! folder), each with how far through it they are. INCIPIT_PAGE=library opens the page;
 //! INCIPIT_OPEN=words opens the first book whose title has those words, without clicking.
 
 use std::path::{Path, PathBuf};
@@ -10,7 +11,7 @@ use gpui::{
     div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, PathPromptOptions, Render,
     ScrollHandle, Subscription, Window,
 };
-use incipit_ui::{button, card, meter, page, page_header, Type};
+use incipit_ui::{button, card, meter, page, page_header, segmented, Type};
 use incipit_vault::{Book, Doc, DocId, Kind, Vault, VaultPath};
 
 use crate::progress::{states, words, BookState};
@@ -28,9 +29,72 @@ struct Listed {
     state: BookState,
 }
 
+/// How the books are listed, as the earlier app's Library offered.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Order {
+    /// The book touched last first.
+    #[default]
+    Recent,
+    Title,
+    /// By author, books without one last, then by title.
+    Author,
+}
+
+impl Order {
+    const ALL: [Order; 3] = [Order::Recent, Order::Title, Order::Author];
+
+    fn label(self) -> &'static str {
+        match self {
+            Order::Recent => "Recent",
+            Order::Title => "Title",
+            Order::Author => "Author",
+        }
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            Order::Recent => "recent",
+            Order::Title => "title",
+            Order::Author => "author",
+        }
+    }
+
+    /// The order kept in the app's folder; Recent when none is, or it can't be read.
+    fn load(home: &Path) -> Order {
+        let kept = std::fs::read_to_string(home.join(ORDER_FILE)).unwrap_or_default();
+        Order::ALL
+            .into_iter()
+            .find(|o| o.word() == kept.trim())
+            .unwrap_or_default()
+    }
+
+    /// Keeps the order for the next time; a failure only means it is not remembered.
+    fn keep(self, home: &Path) {
+        let _ = std::fs::create_dir_all(home);
+        let _ = std::fs::write(home.join(ORDER_FILE), self.word());
+    }
+}
+
+/// The file in the app's folder the Library's order is kept in.
+const ORDER_FILE: &str = "library-order";
+
+/// Sorts the books in `order`. Ties are broken by title, so the list never shuffles.
+fn sort(books: &mut [Listed], order: Order) {
+    let title = |b: &Listed| b.title.to_lowercase();
+    match order {
+        Order::Recent => books.sort_by_key(|b| (std::cmp::Reverse(b.state.touched), title(b))),
+        Order::Title => books.sort_by_key(title),
+        Order::Author => books.sort_by_key(|b| {
+            let author = b.author.as_deref().map(str::trim).unwrap_or_default();
+            (author.is_empty(), author.to_lowercase(), title(b))
+        }),
+    }
+}
+
 pub struct LibraryView {
     workspace: Entity<Workspace>,
     books: Vec<Listed>,
+    order: Order,
     problem: Option<String>,
     /// A title to open as soon as it is listed (INCIPIT_OPEN).
     wanted: Option<String>,
@@ -119,6 +183,7 @@ impl LibraryView {
         let mut view = LibraryView {
             workspace,
             books: Vec::new(),
+            order: Order::load(&crate::workspace::home()),
             problem: None,
             wanted: std::env::var("INCIPIT_OPEN").ok(),
             scroll: ScrollHandle::new(),
@@ -166,9 +231,7 @@ impl LibraryView {
                 }
             })
             .collect();
-        // The book touched last comes first; books touched at the same moment by title.
-        self.books
-            .sort_by_key(|b| (std::cmp::Reverse(b.state.touched), b.title.to_lowercase()));
+        sort(&mut self.books, self.order);
         let wanted = self
             .wanted
             .as_ref()
@@ -331,6 +394,41 @@ impl Render for LibraryView {
                         .clone()
                         .map(|p| div().text_color(t.danger).child(p)),
                 )
+                .when(!self.books.is_empty(), |body| {
+                    let at = Order::ALL
+                        .iter()
+                        .position(|o| *o == self.order)
+                        .unwrap_or(0);
+                    let count = match self.books.len() {
+                        1 => "1 book".to_string(),
+                        n => format!("{n} books"),
+                    };
+                    body.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.0))
+                            .text_size(px(Type::META))
+                            .text_color(t.secondary)
+                            .child("Order")
+                            .child(
+                                segmented("library-order", Order::ALL.map(Order::label), at, t)
+                                    .on_select({
+                                        let view = cx.entity().downgrade();
+                                        move |i, _, cx| {
+                                            let _ = view.update(cx, |this, cx| {
+                                                this.order = Order::ALL[i];
+                                                this.order.keep(&crate::workspace::home());
+                                                sort(&mut this.books, this.order);
+                                                cx.notify();
+                                            });
+                                        }
+                                    }),
+                            )
+                            .child(div().flex_1())
+                            .child(count),
+                    )
+                })
                 .when(self.books.is_empty(), |body| {
                     body.child(div().py(px(30.0)).text_color(t.secondary).child(
                         "No books yet. Add a PDF or an EPUB and it is copied into your vault.",
@@ -344,6 +442,62 @@ impl Render for LibraryView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn listed(title: &str, author: Option<&str>, touched: i64) -> Listed {
+        Listed {
+            id: DocId::from(title),
+            title: title.into(),
+            author: author.map(Into::into),
+            format: "pdf".into(),
+            notes: 0,
+            file: None,
+            state: BookState {
+                progress: None,
+                touched,
+                chapter: None,
+            },
+        }
+    }
+
+    fn titles(books: &[Listed]) -> Vec<&str> {
+        books.iter().map(|b| b.title.as_str()).collect()
+    }
+
+    #[test]
+    fn books_are_listed_by_last_touched_title_or_author() {
+        let mut books = vec![
+            listed("optics", Some("Feynman"), 5),
+            listed("Calculus", None, 9),
+            listed("Analysis", Some("abbott"), 5),
+            listed("Biology", Some("Feynman"), 1),
+        ];
+        sort(&mut books, Order::Recent);
+        assert_eq!(
+            titles(&books),
+            ["Calculus", "Analysis", "optics", "Biology"]
+        );
+        sort(&mut books, Order::Title);
+        assert_eq!(
+            titles(&books),
+            ["Analysis", "Biology", "Calculus", "optics"]
+        );
+        // Authors without regard to case, books without one last, each author's by title.
+        sort(&mut books, Order::Author);
+        assert_eq!(
+            titles(&books),
+            ["Analysis", "Biology", "optics", "Calculus"]
+        );
+    }
+
+    #[test]
+    fn the_order_is_kept_and_an_unknown_one_is_recent() {
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(Order::load(home.path()), Order::Recent);
+        Order::Author.keep(home.path());
+        assert_eq!(Order::load(home.path()), Order::Author);
+        std::fs::write(home.path().join(ORDER_FILE), "shelf").unwrap();
+        assert_eq!(Order::load(home.path()), Order::Recent);
+    }
 
     #[test]
     fn a_book_added_is_copied_into_the_vault_with_its_record() {

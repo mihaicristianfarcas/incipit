@@ -180,6 +180,19 @@ optimizer (`fsrs`) or schedule learning steps and same-day reviews
 differently (`rs-fsrs`). `tests/against_typescript.rs` checks the port against
 numbers printed by the original.
 
+**The profile is a file of the vault, and the first run asks for it.**
+`profile.md` (`incipit_vault::profile`, described in `vault.md`) holds who the
+learner is and how they learn. Two of its settings change review: the day's
+new cards and the recall a card is scheduled to fall to (`study.rs`). Every
+request that adapts to the learner carries the earlier app's paragraph about
+them as material (`learning/learner.rs`). Before the app opens, the first run
+(`first_run.rs`) asks where the vault is kept, how to reach a model (the rows
+of Settings, `providers.rs`) and about the learner (`profile_form.rs`, also in
+Settings); the earlier app needed only the last, since it was started from a
+terminal in its folder. The first run shows while no vault is open and while
+the open vault's profile is not marked done; the model step is left out when
+a model already works, and it and the last step can be skipped.
+
 **One door to models.** Every call goes through `incipit-llm`, whichever
 provider is behind it, so the separation of instructions from material, the
 schema check and the secret store are in one place. Calls block on a thread

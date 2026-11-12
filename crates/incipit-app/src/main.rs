@@ -17,13 +17,16 @@ mod explain;
 mod figure;
 mod figures;
 mod find;
+mod first_run;
 mod learning;
 mod library;
 mod math;
 mod models;
 mod new_way;
 mod notes;
+mod profile_form;
 mod progress;
+mod providers;
 mod quiz;
 mod reader;
 mod review;
@@ -101,6 +104,8 @@ struct Root {
     today: Entity<today::TodayView>,
     reader: Entity<reader::ReaderView>,
     settings: Entity<settings::SettingsView>,
+    /// Shown in place of the app until it is done (`first_run`).
+    first_run: Entity<first_run::FirstRun>,
     find: Entity<find::FindView>,
     /// The find sheet is open.
     finding: bool,
@@ -154,6 +159,10 @@ impl Root {
         reader.update(cx, |reader, cx| reader.watch_window(window, cx));
         let settings =
             cx.new(|cx| settings::SettingsView::new(workspace.clone(), models.clone(), cx));
+        let first_run =
+            cx.new(|cx| first_run::FirstRun::new(workspace.clone(), models.clone(), cx));
+        // The app opens, or the first run comes back, as what it waits on changes.
+        cx.observe(&first_run, |_, _, cx| cx.notify()).detach();
         let figure = cx.new(|cx| figure::FigureView::new(workspace.clone(), cx));
         // A figure made for a passage opens on the Figure page.
         cx.subscribe(
@@ -331,6 +340,7 @@ impl Root {
             review: cx.new(|cx| review::ReviewView::new(workspace.clone(), models.clone(), cx)),
             reader,
             settings,
+            first_run,
             library,
             brain,
             today,
@@ -470,6 +480,18 @@ impl Root {
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(window);
+        if self.first_run.read(cx).step(cx).is_some() {
+            return div()
+                .size_full()
+                .flex()
+                .font_family(incipit_ui::ui_font())
+                .text_color(t.primary)
+                .text_size(px(Type::BODY))
+                .bg(t.background)
+                .child(self.first_run.clone())
+                .children(incipit_ui::caption_buttons(window, t))
+                .into_any_element();
+        }
         let page: AnyElement = match self.page {
             Page::Figure => self.figure.clone().into_any_element(),
             Page::Math => self.math.clone().into_any_element(),
@@ -510,6 +532,7 @@ impl Render for Root {
             .children(incipit_ui::caption_buttons(window, t))
             .when(self.finding, |root| root.child(self.find.clone()))
             .when(self.acting, |root| root.child(self.agent.clone()))
+            .into_any_element()
     }
 }
 

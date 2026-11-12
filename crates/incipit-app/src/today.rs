@@ -1,4 +1,5 @@
-//! Today: where the app starts, as the earlier app's Today is. What waits in Review and the way
+//! Today: where the app starts, as the earlier app's Today is. A greeting with the date, a field
+//! for the agent (ask the library anything, or tell it what to do), what waits in Review and the way
 //! in; the book read last to carry on with (its chapter, how far through it and when it would be
 //! finished at the recent pace) beside the other books by how lately they were touched; the few
 //! other things worth doing next, each one press from doing it (`incipit_learn::plan`: explain a
@@ -15,7 +16,10 @@ use gpui::{
 use incipit_learn::journey::{long_date, week};
 use incipit_learn::plan::{suggestions, Facts, Suggestion};
 use incipit_ui::IconName;
-use incipit_ui::{button, card, focus_ring, icon, meter, page, Radius, Theme, Type};
+use incipit_ui::{
+    button, card, field, focus_ring, icon, icon_button, meter, page, FieldEvent, Radius, TextField,
+    Theme, Type,
+};
 use incipit_vault::{DocId, Kind};
 
 use crate::concepts::view::Concepts;
@@ -33,6 +37,8 @@ pub enum Go {
     MixedQuiz,
     Library,
     Journey,
+    /// Put these words to the agent, and start its run.
+    Ask(String),
     /// Read this book, from where it was left.
     Book(DocId),
     /// Explain this concept back, on its page.
@@ -62,8 +68,10 @@ pub struct TodayView {
     books: Vec<Reading>,
     suggestions: Vec<Suggestion<DocId>>,
     journey: Option<Journey>,
+    /// The field for the agent.
+    ask: Entity<TextField>,
     scroll: ScrollHandle,
-    _subscription: Subscription,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<Go> for TodayView {}
@@ -74,6 +82,18 @@ impl TodayView {
             this.read(cx);
             cx.notify();
         });
+        let ask = cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("Ask your library anything, or tell the agent what to do…")
+        });
+        let sent = cx.subscribe(
+            &ask,
+            |this: &mut Self, _, event: &FieldEvent, cx| match event {
+                FieldEvent::Submit => this.send(cx),
+                FieldEvent::Changed => cx.notify(),
+                _ => {}
+            },
+        );
         let mut view = TodayView {
             workspace,
             due: 0,
@@ -82,11 +102,67 @@ impl TodayView {
             books: Vec::new(),
             suggestions: Vec::new(),
             journey: None,
+            ask,
             scroll: ScrollHandle::new(),
-            _subscription: subscription,
+            _subscriptions: vec![subscription, sent],
         };
         view.read(cx);
         view
+    }
+
+    /// Sends what is typed in the field to the agent.
+    fn send(&mut self, cx: &mut Context<Self>) {
+        let words = self.ask.read(cx).text().trim().to_owned();
+        if words.is_empty() {
+            return;
+        }
+        self.ask.update(cx, |field, cx| field.set_text("", cx));
+        cx.emit(Go::Ask(words));
+    }
+
+    /// The greeting, with the learner's name when the profile has one, and the date.
+    fn greeting(&self, t: Theme, cx: &mut Context<Self>) -> gpui::Div {
+        use chrono::Timelike;
+        let name = self
+            .workspace
+            .read(cx)
+            .vault
+            .as_ref()
+            .map(|v| v.profile().name)
+            .unwrap_or_default();
+        let local = chrono::Local::now();
+        let hello = incipit_learn::journey::greeting(local.hour());
+        let hello = match name.trim() {
+            "" => format!("{hello}."),
+            name => format!("{hello}, {name}."),
+        };
+        let day = incipit_learn::day_number(now(), &Local);
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(
+                div()
+                    .text_size(px(Type::DISPLAY))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(hello),
+            )
+            .child(div().text_color(t.tertiary).child(long_date(day)))
+    }
+
+    /// The field for the agent: ask the library anything, or tell the agent what to do.
+    fn ask_bar(&self, t: Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let empty = self.ask.read(cx).text().trim().is_empty();
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .child(div().flex_1().child(field(&self.ask, t)))
+            .child(
+                icon_button("today-send", IconName::ArrowUp, "Send", t)
+                    .disabled(empty)
+                    .on_click(cx.listener(|this, _, _, cx| this.send(cx))),
+            )
     }
 
     fn read(&mut self, cx: &mut Context<Self>) {
@@ -461,12 +537,8 @@ impl Render for TodayView {
             .flex()
             .flex_col()
             .gap(px(22.0))
-            .child(
-                div()
-                    .text_size(px(Type::DISPLAY))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child("Today"),
-            )
+            .child(self.greeting(t, cx))
+            .child(self.ask_bar(t, cx))
             .child(self.review(t, cx))
             .children(reading)
             .children(first_book)

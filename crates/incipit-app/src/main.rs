@@ -234,46 +234,62 @@ impl Root {
         })
         .detach();
         let today = cx.new(|cx| today::TodayView::new(workspace.clone(), cx));
-        cx.subscribe(&today, |this: &mut Self, _, go: &today::Go, cx| {
-            match go {
-                today::Go::Review => this.go(Page::Review, cx),
-                today::Go::MixedQuiz => {
-                    this.go(Page::Review, cx);
-                    this.review.update(cx, |review, cx| review.mixed_quiz(cx));
-                }
-                today::Go::Library => this.page = Page::Library,
-                today::Go::Journey => this.page = Page::Journey,
-                today::Go::Explain(id) => {
-                    let id = id.clone();
-                    this.brain.update(cx, |brain, cx| {
-                        brain.show_concept(id.clone(), cx);
-                        brain.explain_concept(&id, cx);
-                    });
-                    this.page = Page::Brain;
-                }
-                today::Go::Quiz(book, chapter) => {
-                    let (book, chapter) = (book.clone(), *chapter);
-                    let there = this
-                        .reader
-                        .update(cx, |reader, cx| reader.quiz_chapter(&book, chapter, cx));
-                    if there {
-                        this.page = Page::Reader;
-                    } else if !this
-                        .library
-                        .update(cx, |library, cx| library.open(&book, cx))
-                    {
-                        this.reader
-                            .update(cx, |reader, _| reader.quiz_chapter = None);
-                        this.page = Page::Library;
+        cx.subscribe_in(
+            &today,
+            window,
+            |this: &mut Self, _, go: &today::Go, window, cx| {
+                match go {
+                    today::Go::Review => this.go(Page::Review, cx),
+                    today::Go::MixedQuiz => {
+                        this.go(Page::Review, cx);
+                        this.review.update(cx, |review, cx| review.mixed_quiz(cx));
+                    }
+                    today::Go::Library => this.page = Page::Library,
+                    today::Go::Journey => this.page = Page::Journey,
+                    today::Go::Ask(words) => {
+                        this.finding = false;
+                        this.acting = true;
+                        let here = agent::here::Here {
+                            page: this.page.agent_name(),
+                            ..Default::default()
+                        };
+                        this.agent.update(cx, |agent, cx| {
+                            agent.run_words(words, cx);
+                            agent.start(here, window, cx);
+                        });
+                    }
+                    today::Go::Explain(id) => {
+                        let id = id.clone();
+                        this.brain.update(cx, |brain, cx| {
+                            brain.show_concept(id.clone(), cx);
+                            brain.explain_concept(&id, cx);
+                        });
+                        this.page = Page::Brain;
+                    }
+                    today::Go::Quiz(book, chapter) => {
+                        let (book, chapter) = (book.clone(), *chapter);
+                        let there = this
+                            .reader
+                            .update(cx, |reader, cx| reader.quiz_chapter(&book, chapter, cx));
+                        if there {
+                            this.page = Page::Reader;
+                        } else if !this
+                            .library
+                            .update(cx, |library, cx| library.open(&book, cx))
+                        {
+                            this.reader
+                                .update(cx, |reader, _| reader.quiz_chapter = None);
+                            this.page = Page::Library;
+                        }
+                    }
+                    today::Go::Book(id) => {
+                        let id = id.clone();
+                        this.open(Kind::Book, &id, cx);
                     }
                 }
-                today::Go::Book(id) => {
-                    let id = id.clone();
-                    this.open(Kind::Book, &id, cx);
-                }
-            }
-            cx.notify();
-        })
+                cx.notify();
+            },
+        )
         .detach();
         let journey = cx.new(|cx| journey::view::JourneyView::new(workspace.clone(), cx));
         // A concept or a book named on the journey opens where it is shown.

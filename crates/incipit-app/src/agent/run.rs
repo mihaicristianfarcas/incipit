@@ -4,7 +4,9 @@
 //! The run works in a working copy of its own (`Vault::agent_copy`): the learner's pending work
 //! is closed, and the copy starts from that latest closed change, so the agent never edits a
 //! file the learner has open and nothing the learner writes meanwhile is part of its change. The
-//! agent's OS sandbox lets it write in the copy only, and read the vault. When the agent ends,
+//! agent's OS sandbox lets it write in the copy only, and read the vault; in the copy, what the
+//! app keeps (`checks::forbidden_in`: the logs, the books' records and files, …) is read-only for
+//! it from the start, so a sandbox that can refuse those writes does at once. When the agent ends,
 //! its closing words are read as its reply (`prompt::read_reply`: what it did or the answer, and
 //! the file to open), its change is named after the request and its files are checked
 //! (`incipit_vault::checks`): a change that touches nothing is left out, and the file to open
@@ -22,7 +24,7 @@
 use std::path::{Path, PathBuf};
 
 use incipit_llm::{Cancel, Event, Provider, Request, Sandbox};
-use incipit_vault::checks::{needs_review, problems_in, Problem};
+use incipit_vault::checks::{forbidden_in, needs_review, problems_in, Problem};
 use incipit_vault::{DocId, FileChange, Vault, VaultPath};
 
 use super::prompt::{open_path, read_reply};
@@ -154,6 +156,10 @@ pub fn execute(
     let sandbox = Sandbox {
         write: true,
         read_also: vec![vault.root().to_path_buf()],
+        read_only: forbidden_in(copy.dir())
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
     };
     let reply = match provider.agent(request, copy.dir(), &sandbox, cancel, on) {
         Ok(answer) => read_reply(&answer.text),
@@ -593,6 +599,32 @@ mod tests {
             std::fs::read_to_string(job.vault.root().join("notes/Essay.md")).unwrap(),
             "The learner's line.\n"
         );
+    }
+
+    #[test]
+    fn what_the_app_keeps_is_read_only_for_the_agent_from_the_start() {
+        let (_dir, job) = job("Tidy my books");
+        let mut book = Doc::new(Kind::Book);
+        book.set_title("Structure and Interpretation");
+        let book = job.vault.add(book).unwrap();
+        let folder = book.path().as_str().rsplit_once('/').unwrap().0.to_owned();
+        let agent = Standin::new(|_| Ok("Nothing to tidy.".into()));
+        run(&agent, &job);
+        let (_, sandbox) = agent.seen.lock().unwrap().clone().unwrap();
+        let read_only: Vec<String> = sandbox
+            .read_only
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        for kept in [
+            "log",
+            ".obsidian",
+            "AGENTS.md",
+            &format!("{folder}/book.md"),
+        ] {
+            assert!(read_only.iter().any(|p| p == kept), "{kept}: {read_only:?}");
+        }
+        assert!(read_only.iter().all(|p| !p.starts_with("notes")));
     }
 
     #[test]

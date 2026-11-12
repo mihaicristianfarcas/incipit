@@ -218,7 +218,9 @@ changed meanwhile does not land. Before it lands, the files it changed are
 checked (`checks`): a change to what the app keeps (`log/`, `.jj/`,
 `.git/`, `.incipit/`, `.obsidian/`, `AGENTS.md`, `CLAUDE.md`,
 `.gitignore`, a book's `book.md` and its PDF or EPUB file) fails the run,
-and nothing of it lands; a JSON or JSON Lines file, or a Markdown file's
+and nothing of it lands (the agent's sandbox is also given these as
+read-only from the start, where it can keep them: [models.md](models.md));
+a JSON or JSON Lines file, or a Markdown file's
 properties, that can no longer be read waits for the learner's OK. Undo takes that one entry out of the
 history and keeps what was written before and after it
 (`Vault::drop_change`); it is refused when later edits touched the same

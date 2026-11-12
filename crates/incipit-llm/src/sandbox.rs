@@ -3,7 +3,9 @@
 //! settings they take; OpenCode has no sandbox of its own, so its agents get a shell that runs each
 //! command under Seatbelt or bubblewrap with a profile built here. Either way an agent reads only
 //! its folder (and the folders it is given, plus system files and tools), writes there only when
-//! allowed, never writes the version control inside it (`.jj`, `.git`), and reaches no network.
+//! allowed, never writes the version control inside it (`.jj`, `.git`) or the paths it is given as
+//! read-only (`Sandbox::read_only`), and reaches no network. Bubblewrap can only keep read-only a
+//! path that is there when the agent starts; the others refuse writes to one not made yet too.
 
 use std::path::{Path, PathBuf};
 
@@ -48,6 +50,23 @@ pub fn locked_in(workspace: &Path) -> Vec<PathBuf> {
     both(&LOCKED.map(|dir| workspace.join(dir)))
 }
 
+/// What an agent that writes in `workspace` may still not write there: the version control, then
+/// the sandbox's read-only paths, each as given and as it really is.
+fn kept_in(workspace: &Path, sandbox: &Sandbox) -> Vec<PathBuf> {
+    let mut kept = locked_in(workspace);
+    let given: Vec<PathBuf> = sandbox
+        .read_only
+        .iter()
+        .map(|path| workspace.join(path))
+        .collect();
+    for path in both(&given) {
+        if !kept.contains(&path) {
+            kept.push(path);
+        }
+    }
+    kept
+}
+
 fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
@@ -58,7 +77,8 @@ fn toml(s: &str) -> String {
 
 /// A Codex permission profile, as `-c` settings: system files and tools readable (`tool_roots`:
 /// where Codex itself lives, which its sandbox helper runs again), the workspace readable or
-/// writable (but not its `.jj` and `.git`), the temp folder writable, nothing else.
+/// writable (but not its `.jj`, `.git` and read-only paths), the temp folder writable, nothing
+/// else.
 pub fn codex_profile(workspace: &Path, sandbox: &Sandbox, tool_roots: &[PathBuf]) -> Vec<String> {
     let mut fs: Vec<(String, &str)> = vec![(":minimal".into(), "read")];
     for root in tool_roots.iter().chain(&sandbox.read_also) {
@@ -69,7 +89,7 @@ pub fn codex_profile(workspace: &Path, sandbox: &Sandbox, tool_roots: &[PathBuf]
         if sandbox.write { "write" } else { "read" },
     ));
     if sandbox.write {
-        for path in locked_in(workspace) {
+        for path in kept_in(workspace, sandbox) {
             fs.push((text(&path), "read"));
         }
     }
@@ -87,8 +107,8 @@ pub fn codex_profile(workspace: &Path, sandbox: &Sandbox, tool_roots: &[PathBuf]
 }
 
 /// Claude Code's sandbox settings (`--settings`): reads confined to the workspace and
-/// `read_also`, writes to the workspace only if allowed, `.jj` and `.git` locked, no network; the
-/// file tools follow the same rule as the shell.
+/// `read_also`, writes to the workspace only if allowed, `.jj`, `.git` and the read-only paths
+/// locked, no network; the file tools follow the same rule as the shell.
 pub fn claude_settings(workspace: &Path, sandbox: &Sandbox) -> Value {
     let mut read = vec![text(workspace)];
     read.extend(sandbox.read_also.iter().map(|p| text(p)));
@@ -99,6 +119,19 @@ pub fn claude_settings(workspace: &Path, sandbox: &Sandbox) -> Value {
     for root in sandbox.read_also.iter().map(|p| text(p)).chain(locked) {
         deny_tools.push(format!("Edit(/{root}/**)"));
         deny_tools.push(format!("Write(/{root}/**)"));
+    }
+    // A read-only path may be a file or a folder: both it and what is in it are denied.
+    let kept = kept_in(workspace, sandbox);
+    for path in kept
+        .iter()
+        .skip(locked_in(workspace).len())
+        .map(|p| text(p))
+    {
+        deny_write.push(path.clone());
+        for tool in ["Edit", "Write"] {
+            deny_tools.push(format!("{tool}(/{path})"));
+            deny_tools.push(format!("{tool}(/{path}/**)"));
+        }
     }
     json!({
         "sandbox": {
@@ -163,8 +196,8 @@ fn sbpl(path: &Path) -> String {
 }
 
 /// A Seatbelt profile (macOS) for an OpenCode agent's commands: system files and tools, the
-/// workspace and `read_also` readable, the workspace writable only with `write` (never its `.jj`
-/// and `.git`), `tmp` writable, the folders above them looked up but not listed, and no network.
+/// workspace and `read_also` readable, the workspace writable only with `write` (never its `.jj`,
+/// `.git` and read-only paths), `tmp` writable, the folders above them looked up but not listed, and no network.
 /// `developer` is the app the developer tools are in (Xcode), which macOS's git and python3 start
 /// from.
 pub fn seatbelt_profile(
@@ -213,7 +246,7 @@ pub fn seatbelt_profile(
         format!("(allow file-write* {})", each("subpath", &both(&[tmp.to_path_buf()]))),
     ];
     if sandbox.write {
-        let keep_out = locked_in(workspace)
+        let keep_out = kept_in(workspace, sandbox)
             .iter()
             .map(|p| format!("(require-not (subpath {}))", sbpl(p)))
             .collect::<Vec<_>>()
@@ -227,8 +260,9 @@ pub fn seatbelt_profile(
 }
 
 /// bubblewrap's arguments (Linux) for the same: an empty root with the system folders,
-/// `read_also` and the workspace bound read-only, the workspace (but its `.jj` and `.git`)
-/// writable only with `write`, `tmp` writable, a fresh /tmp, /dev and /proc, and no network.
+/// `read_also` and the workspace bound read-only, the workspace (but its `.jj`, `.git` and
+/// read-only paths that are there) writable only with `write`, `tmp` writable, a fresh /tmp, /dev
+/// and /proc, and no network.
 pub fn bwrap_args(workspace: &Path, sandbox: &Sandbox, tmp: &Path) -> Vec<String> {
     let mut args: Vec<String> = ["--die-with-parent", "--new-session", "--unshare-all"]
         .map(String::from)
@@ -247,7 +281,7 @@ pub fn bwrap_args(workspace: &Path, sandbox: &Sandbox, tmp: &Path) -> Vec<String
         args.extend([bind.into(), text(workspace), text(&path)]);
     }
     if sandbox.write {
-        for path in locked_in(workspace) {
+        for path in kept_in(workspace, sandbox) {
             args.extend(["--ro-bind-try".into(), text(&path), text(&path)]);
         }
     }
@@ -359,6 +393,15 @@ mod tests {
         Sandbox {
             write: true,
             read_also: vec![PathBuf::from("/books")],
+            read_only: Vec::new(),
+        }
+    }
+
+    /// An agent that writes, with the app's log and a book's record read-only.
+    fn keeping() -> Sandbox {
+        Sandbox {
+            read_only: vec![PathBuf::from("log"), PathBuf::from("library/sicp/book.md")],
+            ..writing()
         }
     }
 
@@ -443,6 +486,54 @@ mod tests {
         assert_eq!(writing[at - 1], "--bind");
     }
 
+    // The paths are spelled as on Unix, where these sandboxes run.
+    #[cfg(unix)]
+    #[test]
+    fn every_sandbox_keeps_the_read_only_paths_of_a_writing_agent() {
+        let codex = codex_profile(Path::new("/vault"), &keeping(), &[]);
+        assert!(codex[1].contains("\":project_roots\"=\"write\""));
+        assert!(codex[1].contains("\"/vault/log\"=\"read\""));
+        assert!(codex[1].contains("\"/vault/library/sicp/book.md\"=\"read\""));
+
+        let claude = claude_settings(Path::new("/vault"), &keeping());
+        let deny_write = claude["sandbox"]["filesystem"]["denyWrite"]
+            .as_array()
+            .unwrap();
+        assert!(deny_write.contains(&json!("/vault/log")));
+        assert!(deny_write.contains(&json!("/vault/library/sicp/book.md")));
+        let deny = claude["permissions"]["deny"].as_array().unwrap();
+        for rule in [
+            "Edit(//vault/log/**)",
+            "Write(//vault/log)",
+            "Edit(//vault/library/sicp/book.md)",
+            "Write(//vault/library/sicp/book.md)",
+        ] {
+            assert!(deny.contains(&json!(rule)), "{rule}");
+        }
+
+        let seatbelt = seatbelt_profile(
+            Path::new("/vault"),
+            &keeping(),
+            Path::new("/scratch/tmp"),
+            None,
+        );
+        assert!(seatbelt.contains("(require-not (subpath \"/vault/log\"))"));
+        assert!(seatbelt.contains("(require-not (subpath \"/vault/library/sicp/book.md\"))"));
+
+        let bwrap = bwrap_args(Path::new("/vault"), &keeping(), Path::new("/scratch/tmp"));
+        let at = bwrap.iter().position(|a| a == "/vault/log").unwrap();
+        assert_eq!(bwrap[at - 1], "--ro-bind-try");
+        let writable = bwrap.iter().position(|a| a == "/vault").unwrap();
+        assert!(writable < at, "bound read-only over the writable workspace");
+
+        // An agent that only reads has nothing more to keep.
+        let reading = Sandbox {
+            write: false,
+            ..keeping()
+        };
+        assert!(!codex_profile(Path::new("/vault"), &reading, &[])[1].contains("/vault/log"));
+    }
+
     #[test]
     fn a_shell_word_survives_quotes() {
         assert_eq!(shell_word("it's"), "'it'\\''s'");
@@ -462,9 +553,12 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(workspace.join("note.md"), "hello").unwrap();
         std::fs::write(outside.join("secret.md"), "private").unwrap();
+        std::fs::create_dir_all(workspace.join("log")).unwrap();
+        std::fs::write(workspace.join("log/reviews.jsonl"), "{}\n").unwrap();
         let sandbox = Sandbox {
             write: true,
             read_also: vec![],
+            read_only: vec![PathBuf::from("log"), PathBuf::from("AGENTS.md")],
         };
         let shell = sandboxed_shell(
             &real(&workspace),
@@ -488,6 +582,16 @@ mod tests {
             .status
             .success());
         assert!(!sh("echo x > .git/config").status.success());
+        assert!(!sh("echo x >> log/reviews.jsonl").status.success());
+        assert!(!sh("echo x > log/agents.jsonl").status.success());
+        assert!(
+            !sh("echo x > AGENTS.md").status.success(),
+            "nor one not made yet"
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("log/reviews.jsonl")).unwrap(),
+            "{}\n"
+        );
         assert!(!sh(&format!("echo x > {}", outside.join("x").display()))
             .status
             .success());

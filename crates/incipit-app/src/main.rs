@@ -19,6 +19,7 @@ mod math;
 mod models;
 mod new_way;
 mod notes;
+mod progress;
 mod reader;
 mod review;
 mod settings;
@@ -127,6 +128,8 @@ impl Root {
         let workspace = cx.new(workspace::Workspace::new);
         let models = cx.new(models::Models::new);
         let reader = cx.new(|cx| reader::ReaderView::new(workspace.clone(), models.clone(), cx));
+        // Reading counts while the window is the one in use.
+        reader.update(cx, |reader, cx| reader.watch_window(window, cx));
         let settings =
             cx.new(|cx| settings::SettingsView::new(workspace.clone(), models.clone(), cx));
         let figure = cx.new(|cx| figure::FigureView::new(workspace.clone(), cx));
@@ -198,6 +201,10 @@ impl Root {
             match go {
                 today::Go::Review => this.go(Page::Review, cx),
                 today::Go::Library => this.page = Page::Library,
+                today::Go::Book(id) => {
+                    let id = id.clone();
+                    this.open(Kind::Book, &id, cx);
+                }
                 today::Go::Note(id) => {
                     let id = id.clone();
                     this.notes.update(cx, |notes, cx| notes.select(id, cx));
@@ -381,6 +388,10 @@ impl Render for Root {
             Page::Reader => self.reader.clone().into_any_element(),
             Page::Settings => self.settings.clone().into_any_element(),
         };
+        // The reader counts reading only while it is the page shown.
+        let on_reader = self.page == Page::Reader;
+        self.reader
+            .update(cx, |reader, cx| reader.show(on_reader, cx));
         let shown = gpui::ElementId::Name(format!("page-{:?}", self.page).into());
         div()
             .size_full()
@@ -455,6 +466,14 @@ fn main() {
             cx.on_action(move |_: &Act, cx| {
                 let _ = window.update(cx, |root, window, cx| root.act(window, cx));
             });
+            // Reading in progress is written before the app goes.
+            cx.on_app_quit(move |cx| {
+                let _ = window.update(cx, |root, _, cx| {
+                    root.reader.update(cx, |reader, cx| reader.end_sittings(cx))
+                });
+                async {}
+            })
+            .detach();
             // A run that only takes a picture stays behind whatever the person is working in.
             if std::env::var_os("INCIPIT_SHOT").is_none() {
                 cx.activate(true);

@@ -1,6 +1,7 @@
 //! The library: the vault's books, and adding one. A book added is copied into the vault, in a
 //! folder of its own under `library/` with a record beside it, so the vault holds everything it
-//! needs; choosing a book opens it in the reader. INCIPIT_PAGE=library opens the page;
+//! needs; choosing a book opens it in the reader. The books are listed by when the learner last
+//! touched them, each with how far through it they are. INCIPIT_PAGE=library opens the page;
 //! INCIPIT_OPEN=words opens the first book whose title has those words, without clicking.
 
 use std::path::{Path, PathBuf};
@@ -9,9 +10,10 @@ use gpui::{
     div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, PathPromptOptions, Render,
     ScrollHandle, Subscription, Window,
 };
-use incipit_ui::{button, card, page, page_header, Type};
+use incipit_ui::{button, card, meter, page, page_header, Type};
 use incipit_vault::{Book, Doc, DocId, Kind, Vault, VaultPath};
 
+use crate::progress::{states, words, BookState};
 use crate::reader::Shelved;
 use crate::workspace::{Happened, Workspace};
 
@@ -22,6 +24,8 @@ struct Listed {
     format: String,
     notes: usize,
     file: Option<PathBuf>,
+    /// How far through, and since when it was last touched, from the activity log.
+    state: BookState,
 }
 
 pub struct LibraryView {
@@ -102,7 +106,10 @@ impl LibraryView {
             cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
                 let books = match happened {
                     Happened::Opened => true,
-                    Happened::Changed(event) => event.path.as_str().starts_with("library/"),
+                    Happened::Changed(event) => {
+                        event.path.as_str().starts_with("library/")
+                            || event.path.as_str() == "log/activity.jsonl"
+                    }
                 };
                 if books {
                     this.list(cx);
@@ -127,6 +134,7 @@ impl LibraryView {
             return;
         };
         let annotations = vault.list(Some(Kind::Annotation));
+        let mut states = states(&vault, crate::study::now());
         self.books = vault
             .list(Some(Kind::Book))
             .into_iter()
@@ -138,6 +146,11 @@ impl LibraryView {
                     Some(vault.root().join(path.as_str()))
                 });
                 let id = doc.id().clone();
+                let state = states.remove(&id).unwrap_or(BookState {
+                    progress: None,
+                    touched: 0,
+                    chapter: None,
+                });
                 let notes = annotations
                     .iter()
                     .filter(|a| a.source().is_some_and(|s| s.book == id.as_str()))
@@ -149,10 +162,13 @@ impl LibraryView {
                     format: book.format.unwrap_or_default(),
                     notes,
                     file,
+                    state,
                 }
             })
             .collect();
-        self.books.sort_by_key(|b| b.title.to_lowercase());
+        // The book touched last comes first; books touched at the same moment by title.
+        self.books
+            .sort_by_key(|b| (std::cmp::Reverse(b.state.touched), b.title.to_lowercase()));
         let wanted = self
             .wanted
             .as_ref()
@@ -269,6 +285,23 @@ impl Render for LibraryView {
                     div()
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .child(book.title.clone()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .text_size(px(Type::META))
+                        .text_color(t.tertiary)
+                        .child(meter(
+                            book.state
+                                .progress
+                                .as_ref()
+                                .map_or(0.0, |p| p.fraction as f32),
+                            96.0,
+                            t,
+                        ))
+                        .child(words(book.state.progress.as_ref(), false)),
                 )
                 .child(
                     div()

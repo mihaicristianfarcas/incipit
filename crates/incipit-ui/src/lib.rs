@@ -16,6 +16,7 @@ pub mod login;
 pub mod markdown;
 pub mod markup;
 pub mod menus;
+pub mod meter;
 pub mod motion;
 pub mod text_field;
 pub mod theme;
@@ -39,6 +40,7 @@ pub use focus::{
 };
 pub use icon::{icon, Assets, Icon, IconName, IconSize};
 pub use markdown::{markdown, markdown_cloze, Cloze};
+pub use meter::meter;
 pub use motion::{ease, fade_in, Fade, Glide, Grow, FADE, RESIZE};
 pub use text_field::{field, Field, FieldEvent, TextField};
 pub use theme::{hex, rgba, Ink, Layer, Metrics, Radius, Theme, Type};

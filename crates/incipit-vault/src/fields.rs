@@ -485,6 +485,9 @@ pub struct Book {
     pub format: Option<String>,
     /// The first 16 hex digits of the file's SHA-256: which edition the notes were made on.
     pub edition: Option<String>,
+    /// How many pages a PDF has, or blocks any other book has. The reader writes it when the
+    /// book is first opened; progress through the book is measured against it.
+    pub parts: Option<u32>,
 }
 
 impl Fields for Book {
@@ -496,6 +499,7 @@ impl Fields for Book {
             file: p.text("file"),
             format: p.text("format"),
             edition: p.text("edition"),
+            parts: p.get("parts").and_then(Value::as_u32),
         }
     }
     fn write(&self, doc: &mut Doc) {
@@ -503,6 +507,7 @@ impl Fields for Book {
         doc.set_property("file", self.file.as_deref().and_then(text_or_none));
         doc.set_property("format", self.format.as_deref().and_then(text_or_none));
         doc.set_property("edition", self.edition.as_deref().and_then(text_or_none));
+        doc.set_property("parts", self.parts.map(|n| Value::Int(n.into())));
     }
 }
 
@@ -640,6 +645,23 @@ mod tests {
         assert_eq!(session.turns[0].speaker, Speaker::Learner);
         assert_eq!(session.turns[1].text, "Because.\nTwo lines.");
         assert_eq!(doc.title(), "Why?");
+    }
+
+    #[test]
+    fn a_books_length_is_kept_as_a_number_and_left_out_when_unknown() {
+        let mut doc = parse(
+            "library/x/book.md",
+            "---\nkind: book\nformat: pdf\nparts: 312\n---\n",
+        );
+        assert_eq!(doc.fields::<Book>().unwrap().parts, Some(312));
+        let mut book = doc.fields::<Book>().unwrap();
+        book.parts = Some(400);
+        doc.set_fields(&book);
+        assert_eq!(doc.fields::<Book>().unwrap().parts, Some(400));
+        book.parts = None;
+        doc.set_fields(&book);
+        assert_eq!(doc.fields::<Book>().unwrap().parts, None);
+        assert!(!doc.properties().contains("parts"));
     }
 
     #[test]

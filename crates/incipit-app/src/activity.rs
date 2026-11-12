@@ -29,6 +29,25 @@ pub fn log(vault: &Vault, entry: &Activity) {
     }
 }
 
+/// A reading sitting that ended: its time is when the last report came. `title` is the book's.
+pub fn read(sitting: &incipit_learn::Ended, title: &str) -> Activity {
+    let mut data = serde_json::Map::new();
+    data.insert("minutes".into(), json!(sitting.whole_minutes()));
+    if let Some(chapter) = &sitting.chapter {
+        data.insert("chapter".into(), json!(chapter));
+    }
+    if let Some(id) = &sitting.chapter_id {
+        data.insert("chapterId".into(), json!(id));
+    }
+    if let Some(position) = sitting.position {
+        data.insert("position".into(), json!(position));
+    }
+    data.insert("pages".into(), json!(sitting.pages));
+    Activity::new(ActivityType::Read, sitting.at, sitting.text(title))
+        .book(&sitting.book)
+        .data(serde_json::Value::Object(data))
+}
+
 /// A book was added to the library.
 pub fn book_added(at: i64, book: &str, title: &str) -> Activity {
     Activity::new(ActivityType::Book, at, format!("Added {title}")).book(book)
@@ -217,6 +236,40 @@ mod tests {
         assert_eq!(quiz.number("score"), Some(2.0));
         assert_eq!(quiz.number("total"), Some(3.0));
         assert_eq!(quiz.text_of("mode"), Some("quiz"));
+    }
+
+    #[test]
+    fn a_sitting_is_a_read_line_at_the_time_of_its_last_report_with_its_place() {
+        let sitting = incipit_learn::Ended {
+            book: "b1".into(),
+            at: 1_700_000_000_000,
+            minutes: 23.6,
+            chapter: Some("Chapter III".into()),
+            chapter_id: Some("4".into()),
+            position: Some(12.5),
+            pages: 7,
+        };
+        let line = read(&sitting, "Calculus Made Easy");
+        assert_eq!(line.kind, ActivityType::Read);
+        assert_eq!(line.text, "Read 24 min of Calculus Made Easy (Chapter III)");
+        assert_eq!(line.millis(), Some(1_700_000_000_000));
+        assert_eq!(line.book.as_deref(), Some("b1"));
+        assert_eq!(line.number("minutes"), Some(24.0));
+        assert_eq!(line.text_of("chapter"), Some("Chapter III"));
+        assert_eq!(line.text_of("chapterId"), Some("4"));
+        assert_eq!(line.number("position"), Some(12.5));
+        assert_eq!(line.number("pages"), Some(7.0));
+        // What is not known is left out, not written as null.
+        let bare = incipit_learn::Ended {
+            chapter: None,
+            chapter_id: None,
+            position: None,
+            ..sitting
+        };
+        let data = read(&bare, "").data.unwrap();
+        let mut keys: Vec<_> = data.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["minutes", "pages"]);
     }
 
     #[test]

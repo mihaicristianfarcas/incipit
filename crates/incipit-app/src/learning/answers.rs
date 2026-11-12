@@ -526,6 +526,37 @@ mod tests {
     }
 
     #[test]
+    fn a_pending_answer_is_written_again_from_its_request_and_marked_ready() {
+        use incipit_llm::{Cancel, Provider};
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let source = Source {
+            book: "optics".into(),
+            page: Some(3),
+            quote: Some("Light bends.".into()),
+            ..Source::default()
+        };
+        // Still pending when the app stopped: its request is read back from the file.
+        let doc = vault.add(pending(&source, Way::Ask, Some("Why?"))).unwrap();
+        let kept = doc.fields::<Annotation>().unwrap();
+        assert_eq!(kept.status, Status::Pending);
+        let again = Asked {
+            question: kept.request.clone(),
+            passage: doc.source().unwrap().quote.unwrap(),
+            ..asked(Way::Ask)
+        };
+        let provider = crate::learning::scripted::Scripted::new(vec![serde_json::json!("Speed.")]);
+        let answer = provider
+            .text(&request(&again), &Cancel::new(), &mut |_| {})
+            .unwrap();
+        assert_eq!(provider.seen()[0].turns[0].text, "Why?");
+        finish(&vault, doc.id(), &answer.text, &answer.model).unwrap();
+        let read = vault.get(doc.id()).unwrap().fields::<Annotation>().unwrap();
+        assert_eq!(read.status, Status::Ready);
+        assert!(read.answer.contains("Speed."));
+    }
+
+    #[test]
     fn an_explanation_keeps_no_request_and_its_type() {
         let doc = pending(&Source::default(), Way::Explain, Some("ignored"));
         assert_eq!(doc.doc_type(), Some("explain"));

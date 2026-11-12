@@ -23,6 +23,7 @@ mod models;
 mod new_way;
 mod notes;
 mod progress;
+mod quiz;
 mod reader;
 mod review;
 mod settings;

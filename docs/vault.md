@@ -17,7 +17,6 @@ library/<book>/annotations/  highlights, notes and answers on passages
 library/<book>/sessions/     conversations with the tutor about the book
 log/reviews.jsonl            one line per flashcard review
 log/activity.jsonl           one line per thing the learner did
-log/quizzes.jsonl            one line per quiz finished
 .jj/                         the history
 .incipit/                    generated indexes and caches; safe to delete
 .trash/                      what was deleted
@@ -159,9 +158,6 @@ a minute or more. `position` says where the sitting ended: a PDF's page
 far into it. Progress and the finish estimate are worked out from these
 lines (`incipit-learn`'s `progress`). The earlier app's `ts` lines are
 not read.
-
-A line of `log/quizzes.jsonl` is one quiz finished: `at` (RFC 3339),
-`book`, `part` (the page or block the quiz was on), `right` and `of`.
 
 ## Changes
 

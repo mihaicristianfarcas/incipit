@@ -13,6 +13,11 @@
 //! runs out. A card made or changed meanwhile, here or by another program, is read again without
 //! disturbing the order of what waits (`refresh`).
 //!
+//! A mixed review quiz across the concepts known least, as the earlier app's Review page had,
+//! opens in the quiz sheet from the page's header (`crate::quiz`); the page's keys wait while it
+//! is open. INCIPIT_QUIZ=mixed starts one once the vault is open (it calls a model), and
+//! INCIPIT_QUIZ=demo|done shows a made-up quiz.
+//!
 //! A card known for weeks is now and then asked a new way, as in the earlier app: a fresh
 //! question on the same idea, written by the chosen model while the first cards are reviewed
 //! (`crate::new_way`), stands in for the card's front, and its answer, then the card itself,
@@ -35,10 +40,15 @@ use incipit_ui::{
 use incipit_vault::{Concept, DocId, Kind, Vault};
 
 use crate::concepts::ties::Ties;
+use crate::learning::quiz::Mode;
 use crate::models::Models;
 use crate::new_way::{self, About, NewWay, Written};
+use crate::quiz::QuizView;
 use crate::study::{add_card, now, Deck, Local};
 use crate::workspace::{Happened, Workspace};
+
+/// The deck cards made of a mixed review's misses go into: the earlier app's.
+const MIXED: &str = "Mixed review";
 
 pub struct ReviewView {
     workspace: Entity<Workspace>,
@@ -63,6 +73,10 @@ pub struct ReviewView {
     problem: Option<String>,
     focus: FocusHandle,
     scroll: ScrollHandle,
+    /// The sheet of a mixed review quiz.
+    quiz: Entity<QuizView>,
+    /// INCIPIT_QUIZ=mixed: start a mixed review once a vault is open.
+    mixed_on_open: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -98,6 +112,12 @@ impl ReviewView {
                 }
             }),
         ];
+        let quiz = cx.new(|cx| QuizView::new(workspace.clone(), models.clone(), cx));
+        match std::env::var("INCIPIT_QUIZ").as_deref() {
+            Ok("demo") => quiz.update(cx, |quiz, cx| quiz.show_demo(false, cx)),
+            Ok("done") => quiz.update(cx, |quiz, cx| quiz.show_demo(true, cx)),
+            _ => {}
+        }
         let mut view = ReviewView {
             workspace,
             models,
@@ -115,6 +135,8 @@ impl ReviewView {
             problem: None,
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
+            quiz,
+            mixed_on_open: std::env::var("INCIPIT_QUIZ").as_deref() == Ok("mixed"),
             _subscriptions: subscriptions,
         };
         view.begin(cx);
@@ -141,7 +163,17 @@ impl ReviewView {
         self.shown = Instant::now();
         self.face();
         self.write_new_ways(cx);
+        if self.deck.is_some() && std::mem::take(&mut self.mixed_on_open) {
+            self.mixed_quiz(cx);
+        }
         cx.notify();
+    }
+
+    /// A mixed review quiz across the concepts known least, with the earlier app's count.
+    fn mixed_quiz(&mut self, cx: &mut Context<Self>) {
+        self.quiz.update(cx, |quiz, cx| {
+            quiz.start_review(&[], Mode::Review.count(), MIXED, cx)
+        });
     }
 
     /// Decides how the card that has just come up is asked: by the question written for it,
@@ -324,7 +356,7 @@ impl ReviewView {
     }
 
     fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        if self.adding {
+        if self.adding || self.quiz.read(cx).is_open() {
             return;
         }
         let rating = match event.keystroke.key.as_str() {
@@ -594,7 +626,12 @@ impl Render for ReviewView {
                     TextField::focus(&this.front, window, cx);
                     cx.notify();
                 },
-            )));
+            )))
+            .child(
+                button("review-mixed", "Mixed quiz", t)
+                    .tooltip("A quiz across the concepts you know least")
+                    .on_click(cx.listener(|this, _, _, cx| this.mixed_quiz(cx))),
+            );
         let body = div()
             .flex()
             .flex_col()
@@ -613,6 +650,7 @@ impl Render for ReviewView {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
             .child(page("review-page", &self.scroll, 640.0, t, body))
+            .child(self.quiz.clone())
             .into_any_element()
     }
 }

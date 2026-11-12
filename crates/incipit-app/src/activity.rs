@@ -85,13 +85,15 @@ pub fn figure_made(at: i64, book: &str, figure: &str, title: &str, kind: &str) -
         .data(json!({ "figureId": figure, "kind": kind }))
 }
 
-/// Flashcards were made, from a passage of a book when `book` says which.
-pub fn cards_made(at: i64, book: Option<&str>, count: usize) -> Activity {
+/// Flashcards were made, from a passage of a book when `book` says which, on `concepts` (their
+/// ids).
+pub fn cards_made(at: i64, book: Option<&str>, count: usize, concepts: &[String]) -> Activity {
     let entry = Activity::new(
         ActivityType::Card,
         at,
         format!("Made {count} card{}", if count == 1 { "" } else { "s" }),
-    );
+    )
+    .concepts(concepts.iter().cloned());
     match book {
         Some(book) => entry.book(book),
         None => entry,
@@ -167,8 +169,8 @@ mod tests {
             "Explained: “x”"
         );
         assert_eq!(passage(0, "b", Passage::Asked, "x").text, "Asked: “x”");
-        assert_eq!(cards_made(0, None, 1).text, "Made 1 card");
-        assert_eq!(cards_made(0, Some("b"), 3).text, "Made 3 cards");
+        assert_eq!(cards_made(0, None, 1, &[]).text, "Made 1 card");
+        assert_eq!(cards_made(0, Some("b"), 3, &[]).text, "Made 3 cards");
         assert_eq!(
             quiz_finished(0, "b", "Optics", 2, 3).text,
             "Quiz: Optics · 2/3"
@@ -200,7 +202,7 @@ mod tests {
             kind(figure_made(0, "b", "f", "t", "plot")),
             ActivityType::Figure
         );
-        assert_eq!(kind(cards_made(0, None, 2)), ActivityType::Card);
+        assert_eq!(kind(cards_made(0, None, 2, &[])), ActivityType::Card);
         assert_eq!(kind(quiz_finished(0, "b", "t", 1, 2)), ActivityType::Quiz);
         assert_eq!(kind(tutor_asked(0, None, "why")), ActivityType::Ask);
         assert_eq!(

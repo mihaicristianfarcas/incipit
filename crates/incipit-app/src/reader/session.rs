@@ -11,7 +11,8 @@
 //! A session is kept in the vault after each finished turn, as a session document beside the
 //! book with the passage as its source. It takes the place of the answer it started from, which
 //! it holds as its opening, so the margin has one card for one conversation. From the sheet the
-//! conversation can be kept as a note, or made into flashcards by the reader's card maker.
+//! conversation can be kept as a note, or made into flashcards in the drafter, whose sheet
+//! stands in for this one until it closes (`crate::drafter`).
 
 use futures::StreamExt;
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, ScrollHandle, Window};
@@ -21,7 +22,7 @@ use incipit_ui::{button, field, sheet, IconName, TextField, Theme, Type};
 use incipit_vault::fields::{Session as Kept, Speaker, Turn};
 use incipit_vault::{Doc, Kind, Source};
 
-use super::asking::{made_something, CARDS_FROM_SESSION};
+use super::asking::made_something;
 use super::model::Note;
 use super::ReaderView;
 
@@ -30,8 +31,6 @@ const TUTOR: &str = "You are a tutor talking with a learner about a passage of a
     reading. Answer what they said last, plainly: at most about 150 words, in Markdown without \
     headings. Build on what was said before. When they have misunderstood something, say so \
     kindly and show why. Use the text around the passage only to understand it.";
-/// What the conversation is called when it is material for the card maker.
-const CONVERSATION: &str = "conversation with the tutor about the passage";
 /// The sheet's width, and the most height the turns take before they scroll: with the passage,
 /// the field and the buttons, the sheet fits the smallest window.
 const WIDTH: f32 = 560.0;
@@ -53,8 +52,6 @@ pub struct Session {
     problem: Option<String>,
     /// What keeping the conversation as a note did.
     said: Option<String>,
-    /// The margin card of the flashcards made from the conversation.
-    cards: Option<u64>,
     scroll: ScrollHandle,
 }
 
@@ -289,7 +286,6 @@ impl ReaderView {
             run: 0,
             problem: None,
             said: None,
-            cards: None,
             scroll,
         });
         cx.notify();
@@ -522,8 +518,8 @@ impl ReaderView {
         cx.notify();
     }
 
-    /// Have the card maker write flashcards from the passage and the conversation. The sheet
-    /// says how it went, and so does a card in the margin afterwards.
+    /// Have the drafter write flashcards on the conversation. The sheet gives way to the
+    /// drafter's and comes back when it closes.
     fn session_cards(&mut self, cx: &mut Context<Self>) {
         let Some(session) = self.session.as_ref().filter(|s| s.writing.is_none()) else {
             return;
@@ -531,34 +527,18 @@ impl ReaderView {
         let Some(card) = self.notes.iter().find(|n| n.id == session.note) else {
             return;
         };
-        let also = (CONVERSATION.to_owned(), transcript(&session.turns));
-        let cards = self.cards_about(card.anchors.clone(), Some(also), CARDS_FROM_SESSION, cx);
-        if let Some(session) = &mut self.session {
-            session.cards = Some(cards);
-            session.scroll.scroll_to_bottom();
-        }
+        let (anchors, conversation) = (card.anchors.clone(), transcript(&session.turns));
+        self.draft_from_session(&anchors, conversation, cx);
         cx.notify();
-    }
-
-    /// How making cards from the session went, as its margin card has it.
-    fn cards_line(&self, session: &Session, t: Theme) -> Option<AnyElement> {
-        let made = self.notes.iter().find(|n| Some(n.id) == session.cards)?;
-        Some(match (&made.problem, made.waiting) {
-            (Some(problem), _) => div()
-                .text_color(t.danger)
-                .child(problem.clone())
-                .into_any_element(),
-            (None, true) => div()
-                .text_color(t.tertiary)
-                .child("Writing cards…")
-                .into_any_element(),
-            (None, false) => incipit_ui::markdown("session-cards-made", &made.words, t),
-        })
     }
 
     /// The session's sheet, when one is open.
     pub(super) fn session_sheet(&self, t: Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
         let session = self.session.as_ref()?;
+        // The drafter's sheet stands in for this one while it is open.
+        if self.drafter.read(cx).is_open() {
+            return None;
+        }
         let card = self.notes.iter().find(|n| n.id == session.note)?;
         let writing = session.writing.is_some();
         let turns = session
@@ -603,8 +583,7 @@ impl ReaderView {
                     .said
                     .clone()
                     .map(|said| div().text_color(t.secondary).child(said)),
-            )
-            .children(self.cards_line(session, t));
+            );
         let buttons = div()
             .flex()
             .items_center()

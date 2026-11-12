@@ -1,14 +1,12 @@
 //! Putting a passage to the model, from the reader: explaining it, answering a question about
-//! it, making flashcards from it (or from a tutor session about it), and drawing a figure of it
-//! (`crate::figures`). The passage and the text around it are material for the model, apart
-//! from the instructions; what comes back is text for a card in the margin or
-//! fields for flashcards, never anything that runs.
+//! it, and drawing a figure of it (`crate::figures`). The passage and the text around it are
+//! material for the model, apart from the instructions; what comes back is text for a card in
+//! the margin, never anything that runs. Flashcards are drafted in `studying`.
 
 use futures::StreamExt;
 use gpui::Context;
 use incipit_book::Anchor;
 use incipit_llm::{Event, Request, Update};
-use serde_json::{json, Value};
 
 use super::model::{Doc, Note};
 use super::{ReaderView, State};
@@ -18,71 +16,16 @@ const TUTOR: &str = "You are helping a learner who is reading a book. Answer abo
     they marked, plainly and briefly: at most about 120 words, in Markdown without headings. Use \
     the text around the passage only to understand it.";
 pub(super) const EXPLAIN: &str = "Explain this passage.";
-/// What the model is told when asked for flashcards.
-const CARD_MAKER: &str = "You write flashcards for a learner who is reading a book. From the \
-    passage they marked, write one to four cards that test understanding of its ideas, not its \
-    wording. Each front is one question; each back is a short answer. Use the text around the \
-    passage only to understand it.";
-const MAKE_CARDS: &str = "Make flashcards from this passage.";
-/// The same, asked from a tutor session: the conversation is material beside the passage.
-pub(super) const CARDS_FROM_SESSION: &str =
-    "Make flashcards from this passage and from what the conversation about it made clear.";
 const MAKE_FIGURE: &str = "Draw a figure of this.";
-/// The most cards kept from one answer, whatever the model sends.
-const MOST_CARDS: usize = 4;
 
-/// Whether what was asked made something (cards, a figure) instead of an answer to talk over.
+/// Whether what was asked made something (a figure) instead of an answer to talk over.
 pub(super) fn made_something(asked: &str) -> bool {
-    [MAKE_CARDS, CARDS_FROM_SESSION, MAKE_FIGURE].contains(&asked)
+    asked == MAKE_FIGURE
 }
 
 /// What a figure's card in the margin says: its title, then what to look for.
 pub(super) fn about_figure(figure: &incipit_scene::Figure) -> String {
     format!("**{}**\n\n{}", figure.title(), figure.hint())
-}
-
-/// The form the model fills for flashcards.
-fn cards_form() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "cards": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "front": { "type": "string" },
-                        "back": { "type": "string" }
-                    },
-                    "required": ["front", "back"],
-                    "additionalProperties": false
-                }
-            }
-        },
-        "required": ["cards"],
-        "additionalProperties": false
-    })
-}
-
-/// The cards in a filled form: those with both sides, `MOST_CARDS` at most.
-fn cards_in(filled: &Value) -> Vec<(String, String)> {
-    let side = |card: &Value, name: &str| {
-        card.get(name)
-            .and_then(Value::as_str)
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
-    };
-    filled
-        .get("cards")
-        .and_then(Value::as_array)
-        .map(|cards| {
-            cards
-                .iter()
-                .filter_map(|card| Some((side(card, "front")?, side(card, "back")?)))
-                .take(MOST_CARDS)
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 impl ReaderView {
@@ -331,150 +274,5 @@ impl ReaderView {
             ),
         );
         Some(added.id().clone())
-    }
-
-    /// Have the model write flashcards from the selection. They go into the vault as cards
-    /// that remember the passage; the margin says which were made.
-    pub(super) fn make_cards(&mut self, cx: &mut Context<Self>) {
-        let anchors = self.anchors();
-        self.selection = None;
-        self.menu = None;
-        if anchors.is_empty() {
-            return;
-        }
-        self.margin = true;
-        self.cards_about(anchors, None, MAKE_CARDS, cx);
-    }
-
-    /// Have the model write flashcards about a passage, from it and from `also` (more material
-    /// with its label: a conversation about the passage). Returns the margin card that says how
-    /// it went.
-    pub(super) fn cards_about(
-        &mut self,
-        anchors: Vec<Anchor>,
-        also: Option<(String, String)>,
-        ask: &str,
-        cx: &mut Context<Self>,
-    ) -> u64 {
-        let mut request = self.about(CARD_MAKER, &anchors);
-        if let Some((label, text)) = also {
-            request = request.with_material(label, text);
-        }
-        let request = request.ask(ask);
-        let asking = self.models.read(cx).fill(request, cards_form());
-        let id = self.id();
-        let mut note = Note {
-            id,
-            anchors,
-            asked: Some(ask.to_owned()),
-            ..Note::default()
-        };
-        self.open = Some(id);
-        let mut asking = match asking {
-            Ok(asking) => asking,
-            Err(problem) => {
-                note.problem = Some(problem);
-                self.notes.push(note);
-                cx.notify();
-                return id;
-            }
-        };
-        note.waiting = true;
-        self.notes.push(note);
-        self.answers.insert(id, asking.cancel.clone());
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            while let Some(update) = asking.updates.next().await {
-                let Update::Done(result) = update else {
-                    continue;
-                };
-                let _ = this.update(cx, |this, cx| {
-                    this.answers.remove(&id);
-                    let Some(at) = this.notes.iter().position(|n| n.id == id) else {
-                        return;
-                    };
-                    let outcome = result
-                        .map_err(|e| e.to_string())
-                        .and_then(|filled| this.keep_cards(at, &cards_in(&filled.value), cx));
-                    let note = &mut this.notes[at];
-                    note.waiting = false;
-                    match outcome {
-                        Ok(words) => note.words = words,
-                        Err(problem) => note.problem = Some(problem),
-                    }
-                    cx.notify();
-                });
-                break;
-            }
-        })
-        .detach();
-        id
-    }
-
-    /// Add the cards to the vault, and say in Markdown which were made.
-    fn keep_cards(
-        &self,
-        note: usize,
-        cards: &[(String, String)],
-        cx: &mut Context<Self>,
-    ) -> Result<String, String> {
-        if cards.is_empty() {
-            return Err("The model wrote no cards for this passage. Try a longer one.".into());
-        }
-        let vault = self.workspace.read(cx).vault.clone();
-        let book = self.book.as_ref().and_then(|b| b.id.clone());
-        let first = self.notes[note].anchors.first();
-        let (Some(vault), Some(book), Some(first)) = (vault, book, first) else {
-            return Err("Cards are kept in a vault: add this book to the Library first.".into());
-        };
-        let source = self.source(&book, first);
-        let mut made = Vec::new();
-        for (front, back) in cards {
-            crate::study::add_card_about(&vault, front, back, &source)?;
-            made.push(format!("- {front}"));
-        }
-        let count = match made.len() {
-            1 => "1 card".to_owned(),
-            n => format!("{n} cards"),
-        };
-        crate::activity::log(
-            &vault,
-            &crate::activity::cards_made(crate::study::now(), Some(book.as_str()), made.len()),
-        );
-        Ok(format!("Added {count} to Review:\n\n{}", made.join("\n")))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cards_without_both_sides_are_left_out_and_the_rest_are_trimmed() {
-        let filled = json!({ "cards": [
-            { "front": " What is attention? ", "back": "A weighted sum." },
-            { "front": "No back", "back": "  " },
-            { "front": 3, "back": "Not text" },
-        ]});
-        assert_eq!(
-            cards_in(&filled),
-            [(
-                "What is attention?".to_owned(),
-                "A weighted sum.".to_owned()
-            )]
-        );
-    }
-
-    #[test]
-    fn no_more_cards_are_kept_than_the_most_asked_for() {
-        let card = json!({ "front": "Q", "back": "A" });
-        let filled = json!({ "cards": vec![card; 9] });
-        assert_eq!(cards_in(&filled).len(), MOST_CARDS);
-    }
-
-    #[test]
-    fn an_answer_that_is_not_the_form_holds_no_cards() {
-        assert!(cards_in(&json!("cards")).is_empty());
-        assert!(cards_in(&json!({ "cards": "none" })).is_empty());
     }
 }

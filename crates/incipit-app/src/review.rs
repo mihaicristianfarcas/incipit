@@ -310,7 +310,7 @@ impl ReviewView {
             Ok(_) => {
                 crate::activity::log(
                     &vault,
-                    &crate::activity::cards_made(crate::study::now(), None, 1),
+                    &crate::activity::cards_made(crate::study::now(), None, 1, &[]),
                 );
                 self.problem = None;
                 self.front.update(cx, |f, cx| f.set_text("", cx));

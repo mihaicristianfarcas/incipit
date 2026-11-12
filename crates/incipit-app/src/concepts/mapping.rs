@@ -160,7 +160,7 @@ impl Chapter {
 }
 
 /// The author the vault's record of `book` names, if it names one.
-fn author_of(vault: &Vault, book: &DocId) -> Option<String> {
+pub(crate) fn author_of(vault: &Vault, book: &DocId) -> Option<String> {
     let record = vault.get(book)?.fields::<Book>()?;
     record
         .author

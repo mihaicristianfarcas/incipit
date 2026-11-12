@@ -449,6 +449,14 @@ impl AgentView {
             // Whatever it changed, also when it was stopped or failed, is one change under the
             // learner's request.
             let name = change_name(&request);
+            // The earlier app logged an agent's request when its change landed: here, when it
+            // ended without being stopped or failing.
+            if outcome.is_ok() {
+                crate::activity::log(
+                    &vault,
+                    &crate::activity::agent_asked(crate::study::now(), &request),
+                );
+            }
             let into = vault.clone();
             let taken = cx
                 .background_executor()

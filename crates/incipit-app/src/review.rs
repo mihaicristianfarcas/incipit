@@ -308,6 +308,10 @@ impl ReviewView {
         }
         match add_card(&vault, &front, &back) {
             Ok(_) => {
+                crate::activity::log(
+                    &vault,
+                    &crate::activity::cards_made(crate::study::now(), None, 1),
+                );
                 self.problem = None;
                 self.front.update(cx, |f, cx| f.set_text("", cx));
                 self.back.update(cx, |f, cx| f.set_text("", cx));

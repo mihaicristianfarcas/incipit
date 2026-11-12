@@ -201,15 +201,30 @@ impl ReaderView {
         }
         picked.push(answer);
         if picked.len() == questions.len() {
+            let right = right_among(questions, picked);
             let line = json!({
                 "at": incipit_vault::rfc3339(crate::study::now()),
                 "book": self.book.as_ref().and_then(|b| b.id.as_ref()).map(|id| id.as_str()),
                 "part": self.quiz_on,
-                "right": right_among(questions, picked),
+                "right": right,
                 "of": questions.len(),
             });
             if let Some(vault) = self.workspace.read(cx).vault.clone() {
                 let _ = vault.append_log(LOG, &line);
+                if let Some(book) = self.book.as_ref() {
+                    if let Some(id) = &book.id {
+                        crate::activity::log(
+                            &vault,
+                            &crate::activity::quiz_finished(
+                                crate::study::now(),
+                                id.as_str(),
+                                &book.title,
+                                right,
+                                questions.len(),
+                            ),
+                        );
+                    }
+                }
             }
         }
         cx.notify();

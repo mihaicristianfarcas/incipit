@@ -319,7 +319,18 @@ impl ReaderView {
             spec: serde_json::to_value(figure).ok(),
             notes: String::new(),
         });
-        vault.add(doc).ok().map(|doc| doc.id().clone())
+        let added = vault.add(doc).ok()?;
+        crate::activity::log(
+            &vault,
+            &crate::activity::figure_made(
+                crate::study::now(),
+                book.as_str(),
+                added.id().as_str(),
+                figure.title(),
+                figure.kind().name(),
+            ),
+        );
+        Some(added.id().clone())
     }
 
     /// Have the model write flashcards from the selection. They go into the vault as cards
@@ -426,6 +437,10 @@ impl ReaderView {
             1 => "1 card".to_owned(),
             n => format!("{n} cards"),
         };
+        crate::activity::log(
+            &vault,
+            &crate::activity::cards_made(crate::study::now(), Some(book.as_str()), made.len()),
+        );
         Ok(format!("Added {count} to Review:\n\n{}", made.join("\n")))
     }
 }

@@ -218,6 +218,7 @@ pub fn map(
     let cut = pieces(&chapter.parts, MOST);
     let author = author_of(vault, &chapter.book);
     let mut count = 0;
+    let mut ids: Vec<String> = Vec::new();
     for (at, piece) in cut.iter().enumerate() {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
@@ -263,9 +264,20 @@ pub fn map(
                 source: std::io::Error::other(e),
             })?;
             count += 1;
+            ids.push(added.id.as_str().to_owned());
             landed(added);
         }
     }
+    let named: Vec<&str> = ids.iter().map(String::as_str).collect();
+    crate::activity::log(
+        vault,
+        &crate::activity::concepts_mapped(
+            crate::study::now(),
+            chapter.book.as_str(),
+            &chapter.title,
+            &named,
+        ),
+    );
     let name = format!("Mapped “{}” into concepts", chapter.title);
     let _ = vault.close_sitting(Some(&name));
     Ok(count)
@@ -410,6 +422,12 @@ mod tests {
             .material
             .iter()
             .any(|m| m.label == "the chapter's text" && m.text.contains("Self-attention is")));
+        // The activity log says which concepts the chapter was mapped into.
+        let log = vault.activity().unwrap();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].text, "Mapped 2 concepts in 2 Background");
+        assert_eq!(log[0].concepts.len(), 2);
+        assert_eq!(log[0].book.as_deref(), Some("book1"));
         // The map is one entry of the history, named after the chapter.
         let log = vault.history().log(5).unwrap();
         assert!(log.iter().any(|v| v

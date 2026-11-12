@@ -114,6 +114,19 @@ Records that only grow are JSON Lines in `log/`. A card's schedule is
 replayed from `log/reviews.jsonl`, so reviewing never rewrites the card's
 file. A line that cannot be read is skipped, not fatal.
 
+A line of `log/reviews.jsonl` is one review of a card:
+
+| Field | |
+|---|---|
+| `card` | the card's id |
+| `at` | when, as an RFC 3339 time (`2026-11-12T08:14:03.120Z`) |
+| `rating` | how well it was recalled: 1 again, 2 hard, 3 good, 4 easy |
+| `took` | seconds to answer; left out when not known |
+| `variant` | `true` when the card was asked a new way, not by its face; left out otherwise |
+
+The earlier app wrote the time as `ts`, in milliseconds; its review logs
+are not read.
+
 ## Changes
 
 Every write goes through the vault crate: the file is written whole and

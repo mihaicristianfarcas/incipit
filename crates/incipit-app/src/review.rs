@@ -4,6 +4,9 @@
 //! here too, from a front and a back. INCIPIT_PAGE=review opens the page; INCIPIT_BACK=1 shows the
 //! first card's back.
 //!
+//! A card's `{{hidden words}}` are a blank until its answer is shown, and stand out after
+//! (`incipit_ui::markdown_cloze`), whatever the card's type, as in the earlier app.
+//!
 //! A visit to the page is a sitting (`incipit_learn::sitting`), as in the earlier app: the queue
 //! is built when the page opens (`begin`) and not again after a rating, so a card that is due
 //! again within the sitting comes back a few cards later, and the sitting is over when its list
@@ -17,7 +20,9 @@ use gpui::{
     ScrollHandle, Subscription, Window,
 };
 use incipit_learn::{format_interval, Rating, Sitting};
-use incipit_ui::{button, card, field, markdown, page, FieldEvent, TextField, Theme, Type};
+use incipit_ui::{
+    button, card, field, markdown_cloze, page, Cloze, FieldEvent, TextField, Theme, Type,
+};
 use incipit_vault::{DocId, Kind, Vault};
 
 use crate::study::{add_card, now, Deck, Local};
@@ -284,12 +289,18 @@ impl ReviewView {
             .flex_col()
             .gap(px(16.0))
             .text_size(px(17.0))
-            .child(markdown("card-front", &entry.card.front, t));
+            .child(markdown_cloze(
+                "card-front",
+                &entry.card.front,
+                t,
+                hidden_until(self.revealed),
+            ));
         if self.revealed {
-            face = face.child(incipit_ui::hairline(t)).child(markdown(
+            face = face.child(incipit_ui::hairline(t)).child(markdown_cloze(
                 "card-back",
                 &entry.card.back,
                 t,
+                Cloze::Shown,
             ));
         }
         let controls = if self.revealed {
@@ -401,5 +412,25 @@ impl Render for ReviewView {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
             .child(page("review-page", &self.scroll, 640.0, t, body))
             .into_any_element()
+    }
+}
+
+/// How the question's `{{hidden words}}` are drawn: a blank until the answer is shown.
+fn hidden_until(revealed: bool) -> Cloze {
+    if revealed {
+        Cloze::Shown
+    } else {
+        Cloze::Hidden
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_questions_hidden_words_are_a_blank_until_the_answer_is_shown() {
+        assert_eq!(hidden_until(false), Cloze::Hidden);
+        assert_eq!(hidden_until(true), Cloze::Shown);
     }
 }

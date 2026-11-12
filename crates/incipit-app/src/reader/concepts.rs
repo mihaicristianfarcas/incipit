@@ -7,7 +7,8 @@
 //!
 //! The concepts that came from a passage of the open book have a card in the margin beside it
 //! (`concept_notes`), read again whenever a concept file changes, so the cards of a chapter being
-//! mapped appear as the concepts land. A card says what the concept is and opens its page.
+//! mapped appear as the concepts land. A card says what the concept is, opens its page, and
+//! offers to explain it back (`studying`).
 
 use futures::channel::{mpsc::unbounded, oneshot};
 use futures::future::Either;
@@ -301,14 +302,26 @@ impl ReaderView {
                 card.child(div().child(note.words.clone()))
             })
             .child(
-                div().flex().child(
-                    button(("note-concept", id as usize), "Open the concept", t)
-                        .icon(IconName::Network)
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.stop_propagation();
-                            cx.emit(OpenConcept(concept_id.clone()));
-                        })),
-                ),
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(6.0))
+                    .child(
+                        button(("note-concept", id as usize), "Open the concept", t)
+                            .icon(IconName::Network)
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.stop_propagation();
+                                cx.emit(OpenConcept(concept_id.clone()));
+                            })),
+                    )
+                    .child(
+                        button(("note-explain", id as usize), "Explain it back", t)
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.explain_concept(id, cx);
+                            })),
+                    ),
             )
     }
 

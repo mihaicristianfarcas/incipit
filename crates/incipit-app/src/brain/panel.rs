@@ -1,6 +1,7 @@
 //! The card beside the Brain's picture for the selected node: its title and kind, a button that
 //! opens its document on the page that shows it (a concept on its own page here; for the rest the
-//! page emits `Open`, and the window decides where), and the nodes it links with, in the order their titles read, each of which selects
+//! page emits `Open`, and the window decides where), for a concept one that explains it back,
+//! and the nodes it links with, in the order their titles read, each of which selects
 //! that node and brings it to the middle. It is reached from the keyboard too: Enter in the find field selects a node,
 //! and Tab goes on to the button and the rows.
 
@@ -132,14 +133,27 @@ impl BrainView {
                             .child(format!("{}  ·  {count}", kind_word(kind))),
                     ),
             )
-            .child(div().flex_none().flex().child(
-                button("brain-open", open_label(kind), t).on_click(cx.listener(
-                    move |this, _, _, cx| match kind {
-                        Kind::Concept => this.show_concept(id.clone(), cx),
-                        _ => cx.emit(Open(kind, id.clone())),
-                    },
-                )),
-            ))
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(6.0))
+                    .child({
+                        let id = id.clone();
+                        button("brain-open", open_label(kind), t).on_click(cx.listener(
+                            move |this, _, _, cx| match kind {
+                                Kind::Concept => this.show_concept(id.clone(), cx),
+                                _ => cx.emit(Open(kind, id.clone())),
+                            },
+                        ))
+                    })
+                    .when(kind == Kind::Concept, |row| {
+                        row.child(button("brain-explain", "Explain it back", t).on_click(
+                            cx.listener(move |this, _, _, cx| this.explain_concept(&id, cx)),
+                        ))
+                    }),
+            )
             .when(!links.is_empty(), |card| {
                 card.child(
                     div()

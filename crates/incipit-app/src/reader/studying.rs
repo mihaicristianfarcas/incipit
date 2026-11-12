@@ -1,6 +1,7 @@
 //! The study tools from the reader: flashcards drafted from a selected passage or from a tutor
-//! session (`crate::drafter`), and a pretest or a quiz on the chapter on screen
-//! (`crate::quiz`). The reader gathers what the earlier app sent with each (the book's title,
+//! session (`crate::drafter`), a pretest or a quiz on the chapter on screen (`crate::quiz`), and
+//! explaining back a selected passage or a concept that has a card in the margin
+//! (`crate::explain`). The reader gathers what the earlier app sent with each (the book's title,
 //! its author when the vault's record names one, the chapter, and the text around the passage
 //! or the chapter's text: `learning::context`), an EPUB's from the blocks it holds and a PDF's
 //! from the PDF's thread, without drawing the pages, and hands it to the tool's sheet.
@@ -20,6 +21,7 @@ use super::model::Doc;
 use super::{ReaderView, State};
 use crate::concepts::chapter::span;
 use crate::drafter::From;
+use crate::explain::About;
 use crate::learning::context::{around, cut, BookContext};
 use crate::learning::drafts::{Asked, Meta};
 use crate::learning::quiz::{Mode, AROUND, CHAPTER};
@@ -232,6 +234,74 @@ impl ReaderView {
                     quiz.start(mode, cx);
                 }
             });
+        })
+        .detach();
+    }
+
+    /// Explain the selection back, naming the concept it is about.
+    pub(super) fn teach_back(&mut self, cx: &mut Context<Self>) {
+        let anchors = self.anchors();
+        self.selection = None;
+        self.menu = None;
+        let Some(first) = anchors.first() else {
+            return;
+        };
+        let passage = anchors
+            .iter()
+            .map(|a| a.quote.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let about = About {
+            concept: None,
+            passage: Some(passage),
+            source: self
+                .book
+                .as_ref()
+                .and_then(|b| b.id.clone())
+                .map(|book| self.source(&book, first)),
+            context: BookContext::default(),
+        };
+        self.explain_at(first.part, about, cx);
+        cx.notify();
+    }
+
+    /// Explain back the concept whose card in the margin is `note`, with its summary.
+    pub(super) fn explain_concept(&mut self, note: u64, cx: &mut Context<Self>) {
+        let Some(card) = self.notes.iter().find(|n| n.id == note) else {
+            return;
+        };
+        let (Some(concept), Some(first)) = (&card.concept, card.anchors.first()) else {
+            return;
+        };
+        let about = About {
+            concept: Some(concept.title.clone()),
+            passage: Some(card.words.clone()).filter(|w| !w.trim().is_empty()),
+            source: self
+                .book
+                .as_ref()
+                .and_then(|b| b.id.clone())
+                .map(|book| self.source(&book, first)),
+            context: BookContext::default(),
+        };
+        let part = first.part;
+        self.explain_at(part, about, cx);
+    }
+
+    /// Gathers the text around part `part`, then opens the explaining sheet on `about`.
+    fn explain_at(&mut self, part: usize, about: About, cx: &mut Context<Self>) {
+        let context = self.book_context(Some(part), cx);
+        let text = self.text_around(part);
+        let explain = self.explain.clone();
+        cx.spawn(async move |_, cx| {
+            let texts = text.await.unwrap_or_else(|_| Ok(Vec::new()));
+            let about = About {
+                context: BookContext {
+                    text: texts.unwrap_or_default().join("\n\n"),
+                    ..context
+                },
+                ..about
+            };
+            explain.update(cx, |explain, cx| explain.start(about, cx));
         })
         .detach();
     }

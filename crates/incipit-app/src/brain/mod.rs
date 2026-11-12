@@ -16,10 +16,14 @@
 //! it was opened from. The page asks the window to open a document with `Open`, a concept in
 //! Notes to edit it with `Edit`, and a passage in the reader with `Read`.
 //!
+//! A concept can be explained back from its page or from its card beside the picture
+//! (`crate::explain`), with its summary and the book its first passage is in.
+//!
 //! Without clicking: INCIPIT_PAGE=brain opens the page, and INCIPIT_NODE=words types the words
 //! into the field and presses Enter once the picture is there. INCIPIT_PAGE=concepts opens the
 //! list of concepts, and INCIPIT_CONCEPT=words the page of the concept whose title has the
-//! words, once the vault is open.
+//! words, once the vault is open; with INCIPIT_EXPLAIN=write, the sheet to explain it back opens
+//! over it. INCIPIT_EXPLAIN=demo opens that sheet on a made-up explanation, graded.
 
 mod concept;
 mod concepts;
@@ -110,6 +114,8 @@ pub struct BrainView {
     page_scroll: ScrollHandle,
     /// Words of a concept's title, to open its page once the vault is open (INCIPIT_CONCEPT).
     wanted: Option<String>,
+    /// The sheet where a concept is explained back.
+    explain: Entity<crate::explain::ExplainView>,
     _subscriptions: [Subscription; 3],
 }
 
@@ -127,7 +133,11 @@ fn ink(kind: Kind, t: Theme) -> Rgba {
 }
 
 impl BrainView {
-    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        workspace: Entity<Workspace>,
+        models: Entity<crate::models::Models>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let heard = cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
             // A document made, removed or renamed changes the picture; typing in one does too,
             // when it adds a link, so every change to a file of the vault lays it out again.
@@ -138,6 +148,11 @@ impl BrainView {
                     this.read_concepts(cx);
                     if let Some(words) = this.wanted.take() {
                         this.open_named(&words, cx);
+                        if std::env::var("INCIPIT_EXPLAIN").as_deref() == Ok("write") {
+                            if let Shown::Concept(id) = this.shown.clone() {
+                                this.explain_concept(&id, cx);
+                            }
+                        }
                     }
                 }
                 Happened::Changed(event) if event.path.is_markdown() => {
@@ -193,6 +208,10 @@ impl BrainView {
             Ok("concepts") => Shown::List,
             _ => Shown::Graph,
         };
+        let explain = cx.new(|cx| crate::explain::ExplainView::new(workspace.clone(), models, cx));
+        if std::env::var("INCIPIT_EXPLAIN").as_deref() == Ok("demo") {
+            explain.update(cx, |explain, cx| explain.show_demo(cx));
+        }
         let mut view = BrainView {
             workspace,
             picture: None,
@@ -216,6 +235,7 @@ impl BrainView {
             list_scroll: ScrollHandle::new(),
             page_scroll: ScrollHandle::new(),
             wanted,
+            explain,
             _subscriptions: [heard, typed, narrowed],
         };
         view.build(cx);
@@ -241,6 +261,34 @@ impl BrainView {
             }
         }
         cx.notify();
+    }
+
+    /// Opens the sheet to explain concept `id` back, with its summary, and the book, author and
+    /// chapter its first passage is in. The book is not open here, so no text of it goes.
+    pub(super) fn explain_concept(&mut self, id: &DocId, cx: &mut Context<Self>) {
+        let Some(vault) = self.workspace.read(cx).vault.clone() else {
+            return;
+        };
+        let Some(doc) = vault.get(id) else {
+            return;
+        };
+        let fields = doc.fields::<incipit_vault::Concept>().unwrap_or_default();
+        let source = fields.sources.first().cloned();
+        let mut context = crate::learning::context::BookContext::default();
+        if let Some(source) = &source {
+            let book = DocId::from(source.book.as_str());
+            context.title = vault.get(&book).map(|record| record.title());
+            context.author = crate::concepts::mapping::author_of(&vault, &book);
+            context.chapter = source.chapter.clone();
+        }
+        let about = crate::explain::About {
+            concept: Some(doc.title()),
+            passage: Some(fields.summary).filter(|s| !s.trim().is_empty()),
+            source,
+            context,
+        };
+        self.explain
+            .update(cx, |explain, cx| explain.start(about, cx));
     }
 
     /// Shows the picture or the list.
@@ -528,6 +576,14 @@ impl BrainView {
 
 impl Render for BrainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let shown = self.shown_page(window, cx);
+        div().size_full().child(shown).child(self.explain.clone())
+    }
+}
+
+impl BrainView {
+    /// What the page shows: the picture, the list of concepts or a concept's page.
+    fn shown_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = crate::theme(window);
         if self.workspace.read(cx).vault.is_none() {
             return div()

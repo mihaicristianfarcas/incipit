@@ -201,7 +201,16 @@ outside.
 
 History is kept by Jujutsu through its library; nothing is installed. The
 repository is `.jj/` inside the vault, with jj's Git backend inside it.
-One entry is kept per sitting. History leaves out `.incipit/`, `.trash/`,
+One entry is kept per sitting. Three seconds after a write (one deadline,
+moved by each new write) the files are recorded into the change in progress
+and it is named after what happened in the sitting: one thing by its name,
+several by their counts, the logs ignored unless nothing else changed. After
+three quiet minutes the sitting is closed and a new one begins, unless only
+the logs changed; they wait for the next real change. The app starts this
+with `Vault::keep_sittings`, a thread that sleeps until the next deadline or
+announcement; `tend_sitting` does what is due at a time it is given, which is
+how tests keep the clock. Closing a sitting for an agent's work or an undo
+forgets the deadlines. History leaves out `.incipit/`, `.trash/`,
 Obsidian's window layout and the books' own PDF and EPUB files, and
 honours a `.gitignore` the learner writes. It records no machine or user
 name.

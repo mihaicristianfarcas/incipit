@@ -48,7 +48,7 @@ impl Inner {
             place(self, &mut state, path, origin, &mut events);
         }
         // Sent while the lock is held, so listeners hear changes in the order they were made.
-        self.subscribers.send(events);
+        self.announce(events);
     }
 
     /// Compares every file with the index: after the watcher lost track of events.
@@ -68,7 +68,7 @@ impl Inner {
         for path in known.iter().filter(|p| !present.contains(p)) {
             missing(&mut state, path, origin, &mut events);
         }
-        self.subscribers.send(events);
+        self.announce(events);
     }
 }
 

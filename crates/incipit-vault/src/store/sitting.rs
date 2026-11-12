@@ -5,8 +5,8 @@
 //! When history rewrites files, the vault holds its lock for the whole call and reads the
 //! changed files again before letting go, so the index is right when the call returns, the
 //! changes are announced as made here, and the watcher, which hears of them afterwards, finds
-//! nothing new. When to close a sitting (after some idle minutes, before an agent's work comes
-//! in) is the app's to decide: it knows when the learner stops.
+//! nothing new. When a sitting closes on its own (after some idle minutes) is `timing.rs`; closing
+//! one before an agent's work comes in is done here.
 //!
 //! An agent's work is one change of its own, made in its working copy (`copies.rs`) and never
 //! mixed with the learner's: `land` brings it in after whatever the learner wrote meanwhile,
@@ -88,7 +88,13 @@ impl Vault {
                 describe(&self.inner.lock(), &files)
             }
         };
-        history.close_sitting(&description)
+        let closed = history.close_sitting(&description)?;
+        self.inner
+            .timing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .forget();
+        Ok(closed)
     }
 
     /// Brings an agent's change (by its change id) into the vault after everything written
@@ -115,7 +121,13 @@ impl Vault {
     }
 
     /// Runs a history call that changes files, and reads the files it changed again.
-    fn rewind(&self, call: impl FnOnce(&History) -> Result<Vec<String>>) -> Result<()> {
+    /// `own_entry` is for a call that makes a change of its own in the history (taking one out),
+    /// which the sitting's timing then has nothing to record for.
+    fn rewind(
+        &self,
+        own_entry: bool,
+        call: impl FnOnce(&History) -> Result<Vec<String>>,
+    ) -> Result<()> {
         let inner = &self.inner;
         let mut state = inner.lock();
         let changed = call(&inner.history)?;
@@ -123,19 +135,23 @@ impl Vault {
         for path in changed.iter().filter_map(|p| VaultPath::new(p).ok()) {
             reconcile::place(inner, &mut state, &path, Origin::Here, &mut events);
         }
-        inner.subscribers.send(events);
+        if own_entry {
+            inner.subscribers.send(events);
+        } else {
+            inner.announce(events);
+        }
         Ok(())
     }
 
     /// Brings one document's file back to how it was in a version.
     pub fn restore_doc(&self, path: &VaultPath, commit: &str) -> Result<()> {
-        self.rewind(|history| history.restore_file(path.as_str(), commit))
+        self.rewind(false, |history| history.restore_file(path.as_str(), commit))
     }
 
     /// Undo: brings the whole vault back to how it was just before a change. The change, and
     /// everything since, stay in the history.
     pub fn restore_before(&self, commit: &str) -> Result<()> {
-        self.rewind(|history| history.restore_before(commit))
+        self.rewind(false, |history| history.restore_before(commit))
     }
 
     /// Takes a change (by its change id) out of the history as if it had never been made,
@@ -143,11 +159,11 @@ impl Vault {
     /// edits touched the same lines.
     pub fn drop_change(&self, change: &str) -> Result<()> {
         self.close_sitting(None)?;
-        self.rewind(|history| history.drop_change(change))
+        self.rewind(true, |history| history.drop_change(change))
     }
 
     /// Goes back to an earlier operation of the history (see `History::operations`).
     pub fn restore_operation(&self, operation: &str) -> Result<()> {
-        self.rewind(|history| history.restore_operation(operation))
+        self.rewind(false, |history| history.restore_operation(operation))
     }
 }

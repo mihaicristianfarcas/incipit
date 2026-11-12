@@ -11,26 +11,28 @@
 //! - [`answers`]: quiz answers as evidence of how well a concept is known.
 //! - [`card`]: [`Card`], [`Rating`], [`State`] and the [`Review`] log record.
 //! - [`day`]: the learner's day, which starts at 4 am on their own clock.
+//! - [`journey`]: the days studied, recall over time and the streak, with its pause.
 //! - [`new_way`]: which reviews ask a card known for weeks a new way.
 //! - [`params`]: the 21 FSRS-6 weights, desired retention and the learning steps.
 //! - [`schedule`]: one review, the preview of the four buttons, recall probability.
+//! - [`plan`]: what Today suggests doing next.
 //! - [`progress`]: how far through a book the learner is, and a rough finish at the recent pace.
 //! - [`queue`]: which cards to show now and in what order, and the counts for the Today page.
 //! - [`sittings`]: reading sittings, counted from the reader's reports.
 //! - [`sitting`]: one sitting's list of cards, and where a rated card goes in it.
-//! - [`streak`]: the forgiving streak of study days.
 
 pub mod answers;
 pub mod card;
 pub mod day;
+pub mod journey;
 pub mod new_way;
 pub mod params;
+pub mod plan;
 pub mod progress;
 pub mod queue;
 pub mod schedule;
 pub mod sitting;
 pub mod sittings;
-pub mod streak;
 
 pub use answers::{evidence, rating_for, Evidence, Quizzed};
 pub use card::{Card, Rating, Review, State};
@@ -44,7 +46,6 @@ pub use queue::{
 pub use schedule::{credit, format_interval, preview, retrievability, schedule, Preview};
 pub use sitting::Sitting;
 pub use sittings::{Beat, Ended, Sittings};
-pub use streak::{streaks, Streaks};
 
 /// Milliseconds in a day.
 pub const DAY_MS: i64 = 86_400_000;

@@ -18,6 +18,7 @@ mod figure;
 mod figures;
 mod find;
 mod first_run;
+mod journey;
 mod learning;
 mod library;
 mod math;
@@ -53,6 +54,7 @@ enum Page {
     Notes,
     Review,
     Brain,
+    Journey,
     Math,
     Figure,
     Settings,
@@ -68,19 +70,21 @@ impl Page {
             Page::Notes => Some("notes"),
             Page::Review => Some("review"),
             Page::Brain => Some("brain"),
+            Page::Journey => Some("journey"),
             Page::Settings => Some("settings"),
             Page::Reader | Page::Math | Page::Figure => None,
         }
     }
 }
 
-const PAGES: [(Page, &str, &str, IconName); 9] = [
+const PAGES: [(Page, &str, &str, IconName); 10] = [
     (Page::Today, "nav-today", "Today", IconName::Clock),
     (Page::Library, "nav-library", "Library", IconName::Display),
     (Page::Reader, "nav-reader", "Reader", IconName::List),
     (Page::Notes, "nav-notes", "Notes", IconName::Pencil),
     (Page::Review, "nav-review", "Review", IconName::Bolt),
     (Page::Brain, "nav-brain", "Brain", IconName::Network),
+    (Page::Journey, "nav-journey", "Journey", IconName::ChartBar),
     (Page::Math, "nav-math", "Math", IconName::Type),
     (Page::Figure, "nav-figure", "Figure", IconName::Activity),
     (
@@ -103,6 +107,7 @@ struct Root {
     brain: Entity<brain::BrainView>,
     today: Entity<today::TodayView>,
     reader: Entity<reader::ReaderView>,
+    journey: Entity<journey::view::JourneyView>,
     settings: Entity<settings::SettingsView>,
     /// Shown in place of the app until it is done (`first_run`).
     first_run: Entity<first_run::FirstRun>,
@@ -123,6 +128,7 @@ impl Root {
             Ok("review") => Page::Review,
             Ok("library") => Page::Library,
             Ok("brain") | Ok("concepts") => Page::Brain,
+            Ok("journey") => Page::Journey,
             Ok("figure") => Page::Figure,
             Ok("settings") => Page::Settings,
             // A node or a concept to show is on the Brain page.
@@ -236,18 +242,48 @@ impl Root {
                     this.review.update(cx, |review, cx| review.mixed_quiz(cx));
                 }
                 today::Go::Library => this.page = Page::Library,
+                today::Go::Journey => this.page = Page::Journey,
+                today::Go::Explain(id) => {
+                    let id = id.clone();
+                    this.brain.update(cx, |brain, cx| {
+                        brain.show_concept(id.clone(), cx);
+                        brain.explain_concept(&id, cx);
+                    });
+                    this.page = Page::Brain;
+                }
+                today::Go::Quiz(book, chapter) => {
+                    let (book, chapter) = (book.clone(), *chapter);
+                    let there = this
+                        .reader
+                        .update(cx, |reader, cx| reader.quiz_chapter(&book, chapter, cx));
+                    if there {
+                        this.page = Page::Reader;
+                    } else if !this
+                        .library
+                        .update(cx, |library, cx| library.open(&book, cx))
+                    {
+                        this.reader
+                            .update(cx, |reader, _| reader.quiz_chapter = None);
+                        this.page = Page::Library;
+                    }
+                }
                 today::Go::Book(id) => {
                     let id = id.clone();
                     this.open(Kind::Book, &id, cx);
                 }
-                today::Go::Note(id) => {
-                    let id = id.clone();
-                    this.notes.update(cx, |notes, cx| notes.select(id, cx));
-                    this.page = Page::Notes;
-                }
             }
             cx.notify();
         })
+        .detach();
+        let journey = cx.new(|cx| journey::view::JourneyView::new(workspace.clone(), cx));
+        // A concept or a book named on the journey opens where it is shown.
+        cx.subscribe(
+            &journey,
+            |this: &mut Self, _, open: &journey::view::Open, cx| {
+                this.open(open.0, &open.1, cx);
+                cx.notify();
+            },
+        )
         .detach();
         let find = cx.new(|cx| find::FindView::new(workspace.clone(), cx));
         cx.subscribe(&find, |this: &mut Self, _, found: &find::Found, cx| {
@@ -339,6 +375,7 @@ impl Root {
             notes,
             review: cx.new(|cx| review::ReviewView::new(workspace.clone(), models.clone(), cx)),
             reader,
+            journey,
             settings,
             first_run,
             library,
@@ -497,6 +534,7 @@ impl Render for Root {
             Page::Math => self.math.clone().into_any_element(),
             Page::Notes => self.notes.clone().into_any_element(),
             Page::Today => self.today.clone().into_any_element(),
+            Page::Journey => self.journey.clone().into_any_element(),
             Page::Brain => self.brain.clone().into_any_element(),
             Page::Library => self.library.clone().into_any_element(),
             Page::Review => self.review.clone().into_any_element(),

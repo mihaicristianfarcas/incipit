@@ -120,6 +120,33 @@ fn line_tops(placed: &[Option<(f32, f32)>], height: f32) -> Vec<Option<f32>> {
 /// The characters of a page `height` points high whose line of text has its top at or below
 /// `top` and above `bottom`, each a share of the height from the page's top. Each character
 /// comes with its baseline and size, as `line_tops` takes them.
+/// A drawn page's glyphs with each line ending in `\n` alone, as [`plain_lines`] ends the
+/// page's text, so that the two stay the same characters (a quote taken from one is found in
+/// the other).
+fn plain_glyphs(glyphs: Vec<Glyph>) -> Vec<Glyph> {
+    let mut out = Vec::with_capacity(glyphs.len());
+    let mut glyphs = glyphs.into_iter().peekable();
+    while let Some(mut glyph) = glyphs.next() {
+        if glyph.c == '\r' {
+            if glyphs.peek().is_some_and(|next| next.c == '\n') {
+                continue;
+            }
+            glyph.c = '\n';
+        }
+        out.push(glyph);
+    }
+    out
+}
+
+/// `text` with each line ending in `\n` alone, however the PDF ended it.
+fn plain_lines(text: String) -> String {
+    if text.contains('\r') {
+        text.replace("\r\n", "\n").replace('\r', "\n")
+    } else {
+        text
+    }
+}
+
 fn text_between(
     chars: &[(char, Option<(f32, f32)>)],
     height: f32,
@@ -268,6 +295,7 @@ impl Pdf {
                 }
             })
             .collect();
+        let glyphs = plain_glyphs(glyphs);
         Ok(Page {
             width,
             height,
@@ -281,6 +309,8 @@ impl Pdf {
 
 impl Pdf {
     /// The text of page `index` (from 0), the characters `Page::text` gives, without drawing it.
+    /// Lines end in `\n`: pdfium ends them in `\r\n`, which would reach a model, and the quotes
+    /// it copies, as written.
     pub fn text(&self, index: usize) -> Result<String> {
         let page = self
             .document
@@ -290,11 +320,12 @@ impl Pdf {
         let text = page
             .text()
             .map_err(|e| anyhow!("page {index} has no text: {e:?}"))?;
-        Ok(text
-            .chars()
-            .iter()
-            .map(|c| c.unicode_char().unwrap_or(' '))
-            .collect())
+        Ok(plain_lines(
+            text.chars()
+                .iter()
+                .map(|c| c.unicode_char().unwrap_or(' '))
+                .collect(),
+        ))
     }
 
     /// The text of each of `pages` as `text` gives it, the run cut at its ends as `cut` says.
@@ -342,7 +373,12 @@ impl Pdf {
                 (c.unicode_char().unwrap_or(' '), at)
             })
             .collect();
-        Ok(text_between(&chars, page.height().value, top, bottom))
+        Ok(plain_lines(text_between(
+            &chars,
+            page.height().value,
+            top,
+            bottom,
+        )))
     }
 }
 
@@ -414,6 +450,24 @@ impl Page {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn lines_end_in_a_line_break_alone_in_the_text_and_the_glyphs_alike() {
+        let text = "one\r\ntwo\rthree\n".to_string();
+        assert_eq!(plain_lines(text.clone()), "one\ntwo\nthree\n");
+        let glyphs: Vec<Glyph> = text
+            .chars()
+            .map(|c| Glyph {
+                c,
+                x: 0.0,
+                y: 0.0,
+                w: 0.0,
+                h: 0.0,
+            })
+            .collect();
+        let plain: String = plain_glyphs(glyphs).iter().map(|g| g.c).collect();
+        assert_eq!(plain, plain_lines(text));
+    }
 
     fn sample() -> Pdf {
         let root = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
@@ -528,15 +582,16 @@ mod tests {
             bottom: Some(0.8),
         };
         let cut = &pdf.texts(1..2, section).unwrap()[0];
-        assert!(cut.starts_with("2 Background\r\nThe goal of reducing"));
-        assert!(cut.ends_with("such as [17, 18] and [9].\r\n"));
+        assert!(cut.starts_with("2 Background\nThe goal of reducing"));
+        assert!(cut.ends_with("such as [17, 18] and [9].\n"));
+        assert!(!whole.iter().any(|page| page.contains('\r')));
         assert!(whole[0].contains(cut.as_str()));
         // Over two pages the first is cut at its top only, the last at its bottom only.
         let both = pdf.texts(1..3, section).unwrap();
         assert!(both[0].starts_with("2 Background"));
-        assert!(both[0].ends_with("\r\n2"));
+        assert!(both[0].ends_with("\n2"));
         assert!(both[1].starts_with("Figure 1"));
-        assert!(both[1].ends_with("We also modify the self-attention\r\n"));
+        assert!(both[1].ends_with("We also modify the self-attention\n"));
         // A bottom above the page takes nothing from the last page.
         let none = Cut {
             top: None,

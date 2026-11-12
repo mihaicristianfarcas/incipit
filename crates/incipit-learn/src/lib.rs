@@ -13,6 +13,7 @@
 //! - [`new_way`]: which reviews ask a card known for weeks a new way.
 //! - [`params`]: the 21 FSRS-6 weights, desired retention and the learning steps.
 //! - [`schedule`]: one review, the preview of the four buttons, recall probability.
+//! - [`progress`]: how far through a book the learner is, and a rough finish at the recent pace.
 //! - [`queue`]: which cards to show now and in what order, and the counts for the Today page.
 //! - [`sitting`]: one sitting's list of cards, and where a rated card goes in it.
 //! - [`streak`]: the forgiving streak of study days.
@@ -21,6 +22,7 @@ pub mod card;
 pub mod day;
 pub mod new_way;
 pub mod params;
+pub mod progress;
 pub mod queue;
 pub mod schedule;
 pub mod sitting;
@@ -30,6 +32,7 @@ pub use card::{Card, Rating, Review, State};
 pub use day::{day_number, day_start, Fixed, Zone};
 pub use new_way::{asks_new_way, KNOWN_DAYS};
 pub use params::Params;
+pub use progress::{book_progress, fraction_of, last_touched, roughly, Length, Progress, Reading};
 pub use queue::{
     build_queue, new_today, today_counts, Candidate, Queue, QueueOptions, TodayCounts,
 };

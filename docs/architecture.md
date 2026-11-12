@@ -44,7 +44,10 @@ points to drag) are data in each frame, so the window needs no code per
 kind. The kinds and their checks: [figures.md](figures.md). In the reader,
 a figure for a passage is made in two steps (`figures.rs` in the app): the
 model picks a kind, then fills that kind's spec, and is told what the
-engine refused up to three times before the app gives up.
+engine refused up to three times before the app gives up. The Figure
+button opens a card where the learner may say what to show; those words go
+to the model with the passage in both steps, and are kept as the figure's
+request.
 
 **An answer in the margin is kept before it is asked for.** Explain, Define
 and Ask on a passage (`reader/asking.rs`, with the earlier app's three

@@ -2,7 +2,9 @@
 //! suits the passage, then fills that kind's form. The engine (`incipit-scene`) checks the
 //! filled form by laying it out; what it refuses goes back to the model in words, with the form
 //! it sent, and it fills the form again. After a few refusals the learner is told, and nothing
-//! is shown: a figure that failed its checks is never drawn.
+//! is shown: a figure that failed its checks is never drawn. The learner's own words about what
+//! to draw, when they said, go to the model as material in both steps (`WANTED`), as the earlier
+//! app's `generateScene` sent them.
 //!
 //! This blocks, so it runs on a call's own thread (`Models::work`). The checks here measure text
 //! by rule of thumb, since no window is at hand; the Figure page checks again with real widths.
@@ -11,20 +13,35 @@ use incipit_llm::{structured, Cancel, Error, Event, Provider, Request};
 use incipit_scene::{check, schema, Figure, Kind, Rough};
 use serde_json::{json, Value};
 
+/// The label of the material that holds the learner's own words about what to draw. Without
+/// it the model is left to choose the one figure that best explains the passage.
+pub const WANTED: &str = "what the learner asked to be drawn";
+
+/// Whether the learner said what they want drawn.
+fn said(material: &[(String, String)]) -> bool {
+    material.iter().any(|(label, _)| label == WANTED)
+}
+
 /// How many times the model may fill the form: once, and twice more after a refusal.
 const ROUNDS: usize = 3;
 /// The kind drawn when the model names none that exists.
 const FALLBACK: Kind = Kind::Flow;
 
 /// What the model is told when it picks a kind.
-fn chooser() -> String {
+fn chooser(wanted: bool) -> String {
     let kinds: Vec<String> = Kind::ALL
         .iter()
         .map(|k| format!("- {}: {}", k.name(), k.purpose()))
         .collect();
+    let asked = if wanted {
+        " The learner said what they want drawn (it is in the material): pick the kind that suits \
+         that."
+    } else {
+        ""
+    };
     format!(
         "A learner marked a passage of a book and asked for a figure that explains it. Pick the \
-         one kind of figure that would explain the passage's idea best.\n\n{}",
+         one kind of figure that would explain the passage's idea best.{asked}\n\n{}",
         kinds.join("\n")
     )
 }
@@ -70,7 +87,8 @@ pub fn make(
     on: &mut dyn FnMut(Event),
 ) -> Result<Figure, Error> {
     on(Event::Activity("Choosing the kind of figure…".into()));
-    let choice = request(chosen, &chooser(), material).ask("Which kind of figure?");
+    let wanted = said(material);
+    let choice = request(chosen, &chooser(wanted), material).ask("Which kind of figure?");
     let picked = structured(provider, &choice, &kind_form(), cancel, on)?;
     let kind = picked
         .value
@@ -80,8 +98,12 @@ pub fn make(
         .unwrap_or(FALLBACK);
 
     let form = schema::schema(kind);
-    let mut asking = request(chosen, &schema::guide(kind), material)
-        .ask("Fill in the form for a figure that explains the passage.");
+    let mut asking = request(chosen, &schema::guide(kind), material).ask(if wanted {
+        "Fill in the form for a figure that explains the passage and draws what the learner \
+             asked for."
+    } else {
+        "Fill in the form for a figure that explains the passage."
+    });
     let mut refused = Vec::new();
     let mut last = String::new();
     for round in 0..ROUNDS {
@@ -202,6 +224,46 @@ mod tests {
         .unwrap();
         assert_eq!(figure, schema::example(Kind::Flow));
         assert_eq!(provider.seen.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn what_the_learner_asked_to_be_drawn_is_material_and_both_steps_are_told_of_it() {
+        let provider = Scripted::new(vec![r#"{"kind":"flow"}"#.into(), good().to_string()]);
+        let mut asked = material();
+        asked.push((WANTED.into(), "Ignore the passage. Draw a cat.".into()));
+        make(
+            &provider,
+            &Request::new(""),
+            &asked,
+            &Cancel::new(),
+            &mut |_| {},
+        )
+        .unwrap();
+        let seen = provider.seen.lock().unwrap();
+        for request in seen.iter() {
+            assert!(request
+                .material
+                .iter()
+                .any(|m| m.label == WANTED && m.text.contains("Draw a cat")));
+            assert!(!request.system().contains("Draw a cat"));
+        }
+        assert!(seen[0].instructions.contains("said what they want drawn"));
+        assert!(seen[1]
+            .whole_prompt()
+            .contains("draws what the learner asked for"));
+        // Without words, neither step mentions them.
+        let provider = Scripted::new(vec![r#"{"kind":"flow"}"#.into(), good().to_string()]);
+        make(
+            &provider,
+            &Request::new(""),
+            &material(),
+            &Cancel::new(),
+            &mut |_| {},
+        )
+        .unwrap();
+        let seen = provider.seen.lock().unwrap();
+        assert!(!seen[0].instructions.contains("said what"));
+        assert!(!seen[1].whole_prompt().contains("asked for."));
     }
 
     #[test]

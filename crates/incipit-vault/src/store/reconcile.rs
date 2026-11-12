@@ -150,7 +150,8 @@ fn file(
     let Ok(full) = inner.locate(path) else {
         return; // it leads outside the vault: not the vault's to read
     };
-    if !path.is_markdown() {
+    // The profile is Markdown but not a document: only its file is watched (`profile`).
+    if !path.is_markdown() || path.as_str() == crate::profile::PROFILE {
         let Some(print) = stat_fingerprint(&full) else {
             return missing(state, path, origin, events);
         };

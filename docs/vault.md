@@ -18,6 +18,7 @@ library/<book>/sessions/     conversations with the tutor about the book
 log/reviews.jsonl            one line per flashcard review
 log/activity.jsonl           one line per thing the learner did
 log/agents.jsonl             the agent's runs: a line each time one starts or changes
+profile.md                   the learner's profile (not a document)
 .jj/                         the history
 .incipit/                    generated indexes and caches; safe to delete
 .trash/                      what was deleted
@@ -104,6 +105,32 @@ or id counts too). How well a concept is known is worked out from the
 cards about it and their reviews, from the answers on it in `quiz` lines
 of the activity log, and from the `score` (0 to 100) of notes of type
 `explanation` about it; it is written in no file.
+
+## The profile
+
+`profile.md` at the root says who the learner is and how they learn. It is
+Markdown but not a document: it has no id, is not listed among the notes,
+and the vault reads and writes it itself (`Vault::profile`,
+`Vault::save_profile`). The names are the earlier app's.
+
+| Property | |
+|---|---|
+| `name` | what the tutor calls them |
+| `role` | `student`, `professor`, `professional` or `curious` (default) |
+| `goals` | what they want to learn, and why |
+| `background` | their background and expertise |
+| `level` | `beginner`, `intermediate` (default), `advanced` or `expert` |
+| `styles` | `visual`, `reader` and `doer`, each 0 to 1 (defaults 0.6, 0.5, 0.6): how much they want pictures, words, and things to touch |
+| `interests` | a list |
+| `dailyNew` | new cards a day, 0 to 200 (default 20) |
+| `retention` | the recall a card is scheduled to fall to when it comes due, 0.7 to 0.97 (default 0.9) |
+| `onboarded` | `true` once the first run is done |
+
+The body is the learner's own words about how they learn; until they write
+some it holds a hint, which is not read as theirs. A missing file is the
+default profile. A value of the wrong type takes its default, one outside
+its limits the nearest limit, and properties the app does not know are kept
+when it saves. An agent may not change the file (see Changes).
 
 ## Links
 
@@ -233,7 +260,7 @@ whatever the learner wrote meanwhile (`Vault::land`); one that touches lines
 changed meanwhile does not land. Before it lands, the files it changed are
 checked (`checks`): a change to what the app keeps (`log/`, `.jj/`,
 `.git/`, `.incipit/`, `.obsidian/`, `AGENTS.md`, `CLAUDE.md`,
-`.gitignore`, a book's `book.md` and its PDF or EPUB file) fails the run,
+`profile.md`, `.gitignore`, a book's `book.md` and its PDF or EPUB file) fails the run,
 and nothing of it lands (the agent's sandbox is also given these as
 read-only from the start, where it can keep them: [models.md](models.md));
 a JSON or JSON Lines file, or a Markdown file's

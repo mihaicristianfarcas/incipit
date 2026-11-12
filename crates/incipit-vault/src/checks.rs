@@ -48,12 +48,12 @@ impl std::fmt::Display for Problem {
 
 /// Whether a path is one the app keeps: the logs, the history's own folders, the app's
 /// generated folder, a book's record and its own file, Obsidian's settings, the instructions a
-/// command-line agent reads from the vault, and what history leaves out.
+/// command-line agent reads from the vault, the learner's profile, and what history leaves out.
 pub fn forbidden(path: &str) -> bool {
     let parts: Vec<&str> = path.split('/').collect();
     match parts.as_slice() {
         ["log", ..] | [".jj", ..] | [".git", ..] | [".incipit", ..] | [".obsidian", ..] => true,
-        ["AGENTS.md"] | ["CLAUDE.md"] | [".gitignore"] => true,
+        ["AGENTS.md"] | ["CLAUDE.md"] | ["profile.md"] | [".gitignore"] => true,
         ["library", _, "book.md"] => true,
         ["library", _, file] => {
             let lower = file.to_ascii_lowercase();
@@ -65,12 +65,13 @@ pub fn forbidden(path: &str) -> bool {
 
 /// The app's folders and files at the top of a vault, which `forbidden` names. The history's
 /// own (`.jj`, `.git`) are left to the sandbox, which never lets an agent write them.
-const KEPT_AT_TOP: [&str; 6] = [
+const KEPT_AT_TOP: [&str; 7] = [
     "log",
     ".incipit",
     ".obsidian",
     "AGENTS.md",
     "CLAUDE.md",
+    "profile.md",
     ".gitignore",
 ];
 
@@ -214,6 +215,7 @@ mod tests {
             ".obsidian/app.json",
             "AGENTS.md",
             "CLAUDE.md",
+            "profile.md",
             ".gitignore",
             "library/sicp/book.md",
             "library/sicp/sicp.pdf",
@@ -252,6 +254,7 @@ mod tests {
                 ".obsidian",
                 "AGENTS.md",
                 "CLAUDE.md",
+                "profile.md",
                 ".gitignore",
                 "library/calculus/book.md",
                 "library/calculus/calculus.epub",

@@ -50,9 +50,6 @@ fn key(name: &str) -> String {
         .to_lowercase()
 }
 
-/// The longest slug compared, enough for any concept's name.
-const SLUG: usize = 120;
-
 /// The length of the earlier app's ids, the slug of a name cut there: names alike up to it are
 /// one concept.
 const ID_SLUG: usize = 60;
@@ -65,6 +62,12 @@ fn slug_of(name: &str) -> Option<String> {
     name.nfkd()
         .any(|c| c.is_ascii_alphanumeric())
         .then(|| slug(name, ID_SLUG))
+}
+
+/// Whether two names are the same concept's: alike in any case, or with the same slug when they
+/// have one.
+fn same_name(a: &str, b: &str) -> bool {
+    key(a) == key(b) || slug_of(a).is_some_and(|slug| slug_of(b) == Some(slug))
 }
 
 /// The concept `name` means: one whose id is the name, or whose title or other name is it, in
@@ -116,7 +119,7 @@ fn links_to(vault: &Vault, names: &[String], me: &str) -> Vec<String> {
             Some(found) => found.title(),
             None => file_name_of(name),
         })
-        .filter(|title| slug(title, SLUG) != slug(me, SLUG))
+        .filter(|title| !same_name(title, me))
         .map(|title| format!("[[{title}]]"))
         .collect()
 }
@@ -377,5 +380,24 @@ mod tests {
         assert_eq!(vault.count(Some(Kind::Concept)), 3);
         // By its title it is still found.
         assert_eq!(made("注意力").id, one.id);
+    }
+
+    #[test]
+    fn concepts_named_without_a_letter_a_slug_keeps_link_to_each_other() {
+        let (_folder, vault) = vault();
+        let made = upsert(
+            &vault,
+            &Upsert {
+                name: "自注意力".into(),
+                builds_on: names(&["注意力", "自注意力"]),
+                related: names(&["Σ"]),
+                ..Upsert::default()
+            },
+        )
+        .unwrap();
+        let doc = vault.get(&made.id).unwrap();
+        // The other two are linked; the concept itself is not.
+        assert_eq!(doc.fields::<Concept>().unwrap().builds_on, ["[[注意力]]"]);
+        assert_eq!(doc.related(), ["[[Σ]]"]);
     }
 }

@@ -18,6 +18,9 @@ pub struct Workspace {
     pub vault: Option<Vault>,
     /// Why the last attempt to open a vault failed, in words for the learner.
     pub problem: Option<String>,
+    /// A vault is being opened (its files read, its history started): the first run waits for it
+    /// rather than ask where the vault is.
+    pub opening: bool,
     home: PathBuf,
 }
 
@@ -44,6 +47,7 @@ impl Workspace {
         let mut workspace = Workspace {
             vault: None,
             problem: None,
+            opening: false,
             home: home(),
         };
         let asked = std::env::var_os("INCIPIT_VAULT").map(PathBuf::from);
@@ -63,6 +67,7 @@ impl Workspace {
     pub fn open(&mut self, folder: &Path, cx: &mut Context<Self>) {
         let folder = folder.to_path_buf();
         let home = self.home.clone();
+        self.opening = true;
         cx.spawn(async move |this, cx| {
             let at = folder.clone();
             let opened = cx
@@ -81,6 +86,7 @@ impl Workspace {
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
+                this.opening = false;
                 match opened {
                     Ok(vault) => {
                         if std::env::var("INCIPIT_HISTORY").as_deref() == Ok("demo") {
@@ -151,6 +157,18 @@ impl Workspace {
         .detach();
     }
 
+    /// Make a new folder called `name` in `parent` and open a vault in it.
+    pub fn make(&mut self, parent: &Path, name: &str, cx: &mut Context<Self>) {
+        match new_folder(parent, name) {
+            Ok(folder) => self.open(&folder, cx),
+            Err(problem) => {
+                self.problem = Some(problem);
+                cx.emit(Happened::Opened);
+                cx.notify();
+            }
+        }
+    }
+
     /// Ask for a folder and open the vault in it.
     pub fn choose(&mut self, cx: &mut Context<Self>) {
         let chosen = cx.prompt_for_paths(PathPromptOptions {
@@ -169,5 +187,51 @@ impl Workspace {
             let _ = this.update(cx, |this, cx| this.open(&folder, cx));
         })
         .detach();
+    }
+}
+
+/// Where new vaults are offered to be made: the person's documents, else their home.
+pub fn documents() -> PathBuf {
+    dirs::document_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// A new folder called `name` (a character a file name cannot hold becomes a space) in `parent`,
+/// made now. A folder of that name already there is not used: a new vault never mixes with what
+/// is in one.
+pub fn new_folder(parent: &Path, name: &str) -> Result<PathBuf, String> {
+    if name.trim().is_empty() {
+        return Err("Give the new folder a name.".to_owned());
+    }
+    let name = incipit_vault::kind::file_name_of(name);
+    if !parent.is_dir() {
+        return Err(format!("{} is not a folder.", parent.display()));
+    }
+    let folder = parent.join(&name);
+    if folder.exists() {
+        return Err(format!(
+            "{name} is already in {}. Pick another name, or choose that folder as it is.",
+            parent.display()
+        ));
+    }
+    std::fs::create_dir(&folder)
+        .map_err(|e| format!("{} could not be made: {e}", folder.display()))?;
+    Ok(folder)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_folder_is_made_under_a_clean_name_and_never_over_one_that_exists() {
+        let parent = tempfile::tempdir().unwrap();
+        let made = new_folder(parent.path(), "  My: notes  ").unwrap();
+        assert_eq!(made.file_name().unwrap(), "My notes");
+        assert!(made.is_dir());
+        assert!(new_folder(parent.path(), "My notes").is_err());
+        assert!(new_folder(parent.path(), "   ").is_err());
+        assert!(new_folder(&parent.path().join("gone"), "x").is_err());
     }
 }

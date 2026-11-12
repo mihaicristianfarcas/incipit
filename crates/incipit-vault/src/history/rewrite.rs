@@ -1,17 +1,24 @@
 //! Changes to the history, and so to the files: naming the change in progress, closing a sitting,
-//! bringing a file or the whole vault back to how it was, taking one change out, and going back
-//! to an earlier operation. Each one first records the files as they are, so nothing the learner
-//! wrote is ever lost: every state stays in the operation log, and each of these is itself
-//! undone the same way.
+//! bringing a file or the whole vault back to how it was, bringing in a change made in a working
+//! copy of its own, taking one change out, and going back to an earlier operation. Each one first
+//! records the files as they are, so nothing the learner wrote is ever lost: every state stays in
+//! the operation log, and each of these is itself undone the same way.
+//!
+//! Landing and taking out run in one transaction and are only committed when they leave no
+//! conflict, so a refusal changes nothing.
 //!
 //! The calls that change files on disk return the paths they changed, so the vault can read
 //! them again at once instead of waiting to hear about them from the file watcher.
 
-use jj_lib::merge::Merge;
+use jj_lib::commit::Commit;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::merged_tree_builder::MergedTreeBuilder;
 use jj_lib::object_id::ObjectId;
+use jj_lib::repo::Repo;
+use jj_lib::revset::RevsetExpression;
+use jj_lib::rewrite::{rebase_commit, RebaseOptions, RebasedCommit};
 
+use super::workspaces::find_change;
 use super::{changed_files, locked_wc, repo_path, version_of, History, Jj, Locked, Version};
 use crate::error::{Error, Result};
 
@@ -23,6 +30,23 @@ async fn release(locked: Locked<'_>) -> Result<()> {
         .finish(op)
         .await
         .jj("saving the state of the vault's files")
+}
+
+/// The paths left in conflict in any of `commits`.
+fn conflicted(commits: &[&Commit]) -> Vec<String> {
+    let mut paths: Vec<String> = commits
+        .iter()
+        .flat_map(|commit| {
+            commit
+                .tree()
+                .conflicts()
+                .map(|(path, _)| path.as_internal_file_string().to_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 /// Makes the change in progress hold `tree`, writes the files that differ, and returns them.
@@ -181,34 +205,144 @@ impl History {
         })
     }
 
-    /// Takes out what one change did and keeps everything after it. Refused, with nothing
-    /// changed, when later edits touched the same lines: conflict markers never reach a note.
-    pub fn take_out(&self, commit: &str) -> Result<Vec<String>> {
+    /// Brings a change made in a working copy of its own (already forgotten) into the history
+    /// after everything written in the vault meanwhile, and writes its files: the change moves
+    /// onto the latest closed change, and the change in progress onto it. Refused with
+    /// `Error::Clash`, nothing changed, when either would mix with edits to the same lines.
+    /// Returns the change as it now is and the files that changed on disk.
+    pub fn land(&self, change: &str) -> Result<(Version, Vec<String>)> {
+        let mut workspace = self.workspace();
+        pollster::block_on(async {
+            let (mut locked, _) = Self::lock_and_snapshot(&mut workspace).await?;
+            let found = match find_change(&locked.repo, change).await {
+                Ok(found) => found,
+                Err(error) => {
+                    release(locked).await?;
+                    return Err(error);
+                }
+            };
+            let what = "bringing a change in";
+            let mut tx = locked.repo.start_transaction();
+            let base = locked.wc.parent_ids().to_vec();
+            let moved = rebase_commit(tx.repo_mut(), found, base).await.jj(what)?;
+            let wc = rebase_commit(tx.repo_mut(), locked.wc.clone(), vec![moved.id().clone()])
+                .await
+                .jj(what)?;
+            let clashes = conflicted(&[&moved, &wc]);
+            if !clashes.is_empty() {
+                drop(tx);
+                release(locked).await?;
+                return Err(Error::Clash(clashes.join(", ")));
+            }
+            tx.repo_mut()
+                .set_wc_commit(locked.name.clone(), wc.id().clone())
+                .jj(what)?;
+            tx.repo_mut().rebase_descendants().await.jj(what)?;
+            let repo = tx.commit(format!("land {change}")).await.jj(what)?;
+            let changed: Vec<String> = changed_files(&locked.wc.tree(), &wc.tree())
+                .await?
+                .into_iter()
+                .map(|f| f.path)
+                .collect();
+            locked_wc(&mut locked)
+                .check_out(&wc)
+                .await
+                .jj("writing the vault's files")?;
+            locked
+                .workspace
+                .finish(repo.op_id().clone())
+                .await
+                .jj("saving the state of the vault's files")?;
+            Ok((version_of(&repo, &moved).await?, changed))
+        })
+    }
+
+    /// Takes a change out of the history as if it had never been made: what came after it,
+    /// the change in progress too, moves onto its parent, and the files follow. Refused with
+    /// `Error::WouldConflict`, nothing changed, when later edits touched the same lines:
+    /// conflict markers never reach a note.
+    pub fn drop_change(&self, change: &str) -> Result<Vec<String>> {
+        let mut workspace = self.workspace();
+        pollster::block_on(async {
+            let (mut locked, _) = Self::lock_and_snapshot(&mut workspace).await?;
+            let found = match find_change(&locked.repo, change).await {
+                Ok(found) => found,
+                Err(error) => {
+                    release(locked).await?;
+                    return Err(error);
+                }
+            };
+            let what = "taking a change out";
+            let mut tx = locked.repo.start_transaction();
+            tx.repo_mut().record_abandoned_commit(&found);
+            let mut rebased = Vec::new();
+            tx.repo_mut()
+                .rebase_descendants_with_options(
+                    &RevsetExpression::none(),
+                    &RebaseOptions::default(),
+                    |_, commit| {
+                        if let RebasedCommit::Rewritten(commit) = commit {
+                            rebased.push(commit);
+                        }
+                    },
+                )
+                .await
+                .jj(what)?;
+            let clashes = conflicted(&rebased.iter().collect::<Vec<_>>());
+            if !clashes.is_empty() {
+                drop(tx);
+                release(locked).await?;
+                return Err(Error::WouldConflict(clashes.join(", ")));
+            }
+            let wc_id = tx
+                .repo()
+                .view()
+                .get_wc_commit_id(&locked.name)
+                .cloned()
+                .ok_or_else(|| Error::History("the vault has no change in progress".into()))?;
+            let wc = tx.repo().store().get_commit_async(&wc_id).await.jj(what)?;
+            let repo = tx.commit(format!("abandon {change}")).await.jj(what)?;
+            let changed: Vec<String> = changed_files(&locked.wc.tree(), &wc.tree())
+                .await?
+                .into_iter()
+                .map(|f| f.path)
+                .collect();
+            locked_wc(&mut locked)
+                .check_out(&wc)
+                .await
+                .jj("writing the vault's files")?;
+            locked
+                .workspace
+                .finish(repo.op_id().clone())
+                .await
+                .jj("saving the state of the vault's files")?;
+            Ok(changed)
+        })
+    }
+
+    /// Hides a change that never landed (one that was refused or turned down). It stays in
+    /// the operation log.
+    pub fn abandon(&self, change: &str) -> Result<()> {
         let mut workspace = self.workspace();
         pollster::block_on(async {
             let (locked, _) = Self::lock_and_snapshot(&mut workspace).await?;
-            let change = Self::find_commit(&locked.repo, commit).await?;
-            let before = change
-                .parent_tree(locked.repo.as_ref())
+            let found = match find_change(&locked.repo, change).await {
+                Ok(found) => found,
+                Err(error) => {
+                    release(locked).await?;
+                    return Err(error);
+                }
+            };
+            let what = "leaving a change out";
+            let mut tx = locked.repo.start_transaction();
+            tx.repo_mut().record_abandoned_commit(&found);
+            tx.repo_mut().rebase_descendants().await.jj(what)?;
+            let repo = tx.commit(format!("abandon {change}")).await.jj(what)?;
+            locked
+                .workspace
+                .finish(repo.op_id().clone())
                 .await
-                .jj("reading a version")?;
-            // The vault now, minus what the change did: now - change + before.
-            let merged = MergedTree::merge(Merge::from_vec(vec![
-                (locked.wc.tree(), "the vault now".to_owned()),
-                (change.tree(), "the change".to_owned()),
-                (before, "before the change".to_owned()),
-            ]))
-            .await
-            .jj("taking a change out")?;
-            if merged.has_conflict() {
-                let paths: Vec<String> = merged
-                    .conflicts()
-                    .map(|(path, _)| path.as_internal_file_string().to_owned())
-                    .collect();
-                release(locked).await?;
-                return Err(Error::WouldConflict(paths.join(", ")));
-            }
-            put_tree(locked, merged, &format!("take out {commit}")).await
+                .jj("saving the state of the vault's files")
         })
     }
 

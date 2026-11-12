@@ -187,16 +187,19 @@ executor and a command line use them the same way, with no async runtime.
 
 **The agent is confined by the provider and undone by the history.** The
 agent's sheet (`agent/` in the app) hands the learner's words to
-`Models::act`, which runs the chosen command-line agent in the open
-vault's folder with the sandbox `incipit-llm` builds for it
-([models.md](models.md)): it writes there only, never in `.jj`, and the
-app adds no other way in or out. Its instructions are a constant; the
-learner's words are the request; what it reads in the files is material.
-One request is one entry in the history: the learner's pending work is
-closed before the agent starts, what the agent changed is taken in after
-it, named with the request (`Vault::take_in`), and Undo takes that entry
-out (`Vault::take_out`), keeping what was written since
-([vault.md](vault.md)).
+`Models::act`, which runs the chosen command-line agent with the sandbox
+`incipit-llm` builds for it ([models.md](models.md)) in a working copy of
+the vault of its own (`agent/run.rs`, `Vault::agent_copy`): a jj workspace
+in the app's own folder, outside the vault, made from the latest closed
+change after the learner's pending work is closed. The agent writes there
+only, never in `.jj`, and reads the vault; the app adds no other way in or
+out. Its instructions are a constant; the learner's words are the request;
+what it reads in the files is material. One request is one entry in the
+history, holding the agent's work alone: when the agent ends, its change
+lands after whatever the learner wrote meanwhile (`Vault::land`), or not at
+all if it clashes with that or the agent failed or was stopped, and Undo
+takes that entry out of the history (`Vault::drop_change`), keeping what
+was written before and after it ([vault.md](vault.md)).
 
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,

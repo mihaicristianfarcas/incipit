@@ -8,8 +8,11 @@
 //! be open in one process. A `Vault` is cheap to clone and can be used from any thread; one lock
 //! keeps the index and the files in step, so a write and the watcher never interleave.
 
+mod copies;
 mod reconcile;
 mod sitting;
+
+pub use copies::AgentCopy;
 mod write;
 
 use std::collections::{BTreeMap, HashMap};

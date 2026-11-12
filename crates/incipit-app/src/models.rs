@@ -9,7 +9,7 @@
 //! `secrets` beside it, readable only by their owner. One provider does every job it can: the
 //! learner picks one, not one per job.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::channel::mpsc::{unbounded, UnboundedReceiver};
@@ -18,8 +18,7 @@ use gpui::{Context, EventEmitter};
 use incipit_llm::cli::login;
 use incipit_llm::{
     spawn_with, Answer, Cancel, Choice, Claude, Codex, Effort, Error, Event, FileSecrets, Job,
-    MemorySecrets, Provider, Registry, Request, Sandbox, SecretStore, Settings, Status, Structured,
-    Update,
+    MemorySecrets, Provider, Registry, Request, SecretStore, Settings, Status, Structured, Update,
 };
 
 /// A provider as the Settings page shows it.
@@ -309,13 +308,20 @@ impl Models {
         Ok(Asking { updates, cancel })
     }
 
-    /// Have the agent the learner chose work on the files in `folder`: `request` holds the
-    /// app's instructions and what the learner asked for. The agent runs in the provider's own
-    /// OS sandbox (`incipit_llm::sandbox`): it reads and writes in `folder`, never in the
-    /// `.jj` there, and neither writes anywhere else nor reaches the network. Its updates say
-    /// what it is doing; the last holds its closing words. The error says what the learner can
-    /// do when no agent can work.
-    pub fn act(&self, request: Request, folder: &Path) -> Result<Asking, String> {
+    /// Run `work` with the agent the learner chose, on a thread of its own: `request` holds
+    /// the app's instructions and what the learner asked for, and comes back as the provider
+    /// takes it (with the model and effort that were chosen). `work` calls the provider's
+    /// `agent` with the folder it may work in and the `Sandbox` it gets; the agent runs in the
+    /// provider's own OS sandbox (`incipit_llm::sandbox`). Its updates say what it is doing;
+    /// the last holds what `work` returns. The error says what the learner can do when no agent
+    /// can work.
+    pub fn act<T, F>(&self, request: Request, work: F) -> Result<Asking<T>, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&dyn Provider, &Request, &Cancel, &mut dyn FnMut(Event)) -> Result<T, Error>
+            + Send
+            + 'static,
+    {
         let (provider, request) = self
             .registry
             .prepare(&self.settings, Job::Agent, request)
@@ -326,15 +332,10 @@ impl Models {
                 return Err(problem);
             }
         }
-        let folder = folder.to_path_buf();
-        let sandbox = Sandbox {
-            write: true,
-            read_also: Vec::new(),
-        };
         let (send, updates) = unbounded();
         let cancel = spawn_with(
             move |cancel: &Cancel, on: &mut dyn FnMut(Event)| {
-                provider.agent(&request, &folder, &sandbox, cancel, on)
+                work(provider.as_ref(), &request, cancel, on)
             },
             move |update| {
                 let _ = send.unbounded_send(update);

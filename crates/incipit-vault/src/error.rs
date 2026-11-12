@@ -45,6 +45,10 @@ pub enum Error {
     /// Taking a change out would mix it with later edits to the same lines.
     #[error("taking that change out would clash with later edits to {0}")]
     WouldConflict(String),
+    /// A change made in a working copy of its own touches lines the vault's files changed
+    /// meanwhile, so it cannot be brought in without mixing the two.
+    #[error("it clashes with edits made while the agent worked")]
+    Clash(String),
     /// No version of the history has this id.
     #[error("there is no version {0} in the vault's history")]
     NoVersion(String),

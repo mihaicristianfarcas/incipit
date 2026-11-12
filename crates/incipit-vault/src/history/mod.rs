@@ -24,6 +24,7 @@
 //! whole length, which also keeps another jj process from changing the files halfway.
 
 mod rewrite;
+mod workspaces;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -50,6 +51,8 @@ use jj_lib::working_copy::{LockedWorkingCopy, SnapshotOptions, WorkingCopyFreshn
 use jj_lib::workspace::{LockedWorkspace, Workspace};
 
 use crate::error::{Error, Result};
+
+pub use workspaces::WorkingCopy;
 
 /// The settings jj runs with in every vault.
 const SETTINGS: &str = r#"

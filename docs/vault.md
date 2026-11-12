@@ -176,12 +176,20 @@ Obsidian's window layout and the books' own PDF and EPUB files, and
 honours a `.gitignore` the learner writes. It records no machine or user
 name.
 
-What an agent does is an entry of its own. The learner's pending work is
-closed before the agent starts; what the agent changed is closed after it,
-named with the learner's request (`Vault::take_in`). Undo takes that one
-entry out and keeps what was written after it (`Vault::take_out`); it is
-refused when later edits touched the same lines. A book's own PDF or EPUB
-file is not in the history, so deleting one cannot be undone this way.
+What an agent does is an entry of its own, made in a working copy of its
+own: a jj workspace named `agent-<run>` in the app's own folder, outside
+the vault, made from the latest closed change after the learner's pending
+work is closed. The books' own PDF and EPUB files are linked into it for
+the agent to read, and taken out again before history looks. When the
+agent ends, its change is named `agent: ` and the first line of the
+learner's request, the workspace is forgotten, and the change lands after
+whatever the learner wrote meanwhile (`Vault::land`); one that touches lines
+changed meanwhile does not land. Undo takes that one entry out of the
+history and keeps what was written before and after it
+(`Vault::drop_change`); it is refused when later edits touched the same
+lines. Working copies of runs that were going when the app quit are
+cleaned up when the vault opens. A book's own PDF or EPUB file is not in
+the history, so deleting one cannot be undone this way.
 
 ## The list of vaults
 

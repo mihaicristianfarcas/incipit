@@ -222,6 +222,13 @@ impl ExplainView {
         }
         let concept = self.concept_name(cx);
         let explanation = self.words.read(cx).text().trim().to_owned();
+        let learner = self
+            .workspace
+            .read(cx)
+            .vault
+            .as_ref()
+            .map(|vault| crate::learning::learner::of(vault, crate::study::now()))
+            .unwrap_or_default();
         let Some(open) = self.open.as_ref() else {
             return;
         };
@@ -230,6 +237,7 @@ impl ExplainView {
             explanation,
             passage: open.about.passage.clone(),
             context: open.about.context.clone(),
+            learner,
         };
         self.run += 1;
         let run = self.run;

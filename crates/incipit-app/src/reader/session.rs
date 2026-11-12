@@ -273,6 +273,7 @@ impl ReaderView {
         let context = self.book_context(first, cx);
         let text = first.map(|part| self.text_around(part));
         let run = self.id();
+        let learner = self.learner(cx);
         self.reply.update(cx, |reply, cx| reply.set_text("", cx));
         let Some(session) = &mut self.session else {
             return;
@@ -299,7 +300,9 @@ impl ReaderView {
                 this.session.as_ref().filter(|s| s.run == run)?;
                 let models = this.models.read(cx);
                 let effort = models.effort(Job::Quick);
-                let asking = models.ask(tutor::request(mode, &context, &passage, &turns, effort));
+                let asking = models.ask(tutor::request(
+                    mode, &context, &passage, &turns, effort, &learner,
+                ));
                 match asking {
                     Ok(asking) => {
                         if let Some(session) = &mut this.session {
@@ -486,10 +489,11 @@ impl ReaderView {
             .as_ref()
             .map(|b| b.title.clone())
             .unwrap_or_default();
+        let learner = crate::learning::learner::of(&vault, crate::study::now());
         let models = self.models.read(cx);
         let effort = models.effort(Job::Figure);
         let asking = models.fill(
-            tutor::note_request(&context, &passage, &turns, effort),
+            tutor::note_request(&context, &passage, &turns, effort, &learner),
             tutor::note_form(),
         );
         let mut asking = match asking {

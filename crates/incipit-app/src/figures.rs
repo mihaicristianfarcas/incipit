@@ -4,7 +4,8 @@
 //! it sent, and it fills the form again. After a few refusals the learner is told, and nothing
 //! is shown: a figure that failed its checks is never drawn. The learner's own words about what
 //! to draw, when they said, go to the model as material in both steps (`WANTED`), as the earlier
-//! app's `generateScene` sent them.
+//! app's `generateScene` sent them, and the paragraph about the learner (`learner`) goes the same
+//! way, as the first of the material.
 //!
 //! This blocks, so it runs on a call's own thread (`Models::work`). The checks here measure text
 //! by rule of thumb, since no window is at hand; the Figure page checks again with real widths.

@@ -40,6 +40,7 @@ use incipit_ui::{
 use incipit_vault::{Concept, DocId, Kind, Vault};
 
 use crate::concepts::ties::Ties;
+use crate::learning::learner;
 use crate::learning::quiz::Mode;
 use crate::models::Models;
 use crate::new_way::{self, About, NewWay, Written};
@@ -235,11 +236,10 @@ impl ReviewView {
                 })
             })
             .collect();
-        let Ok(mut asking) = self
-            .models
-            .read(cx)
-            .fill(new_way::request(&cards), new_way::form())
-        else {
+        let Ok(mut asking) = self.models.read(cx).fill(
+            new_way::request(&cards, &learner::of(&vault, crate::study::now())),
+            new_way::form(),
+        ) else {
             return;
         };
         self.writing = Some(asking.cancel.clone());

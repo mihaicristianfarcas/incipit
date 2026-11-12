@@ -14,7 +14,7 @@
 //! disturbing the order of what waits (`refresh`).
 //!
 //! A mixed review quiz across the concepts known least, as the earlier app's Review page had,
-//! opens in the quiz sheet from the page's header (`crate::quiz`); the page's keys wait while it
+//! opens in the quiz sheet from the page's header or from Today (`crate::quiz`); the page's keys wait while it
 //! is open. INCIPIT_QUIZ=mixed starts one once the vault is open (it calls a model), and
 //! INCIPIT_QUIZ=demo|done shows a made-up quiz.
 //!
@@ -170,7 +170,7 @@ impl ReviewView {
     }
 
     /// A mixed review quiz across the concepts known least, with the earlier app's count.
-    fn mixed_quiz(&mut self, cx: &mut Context<Self>) {
+    pub fn mixed_quiz(&mut self, cx: &mut Context<Self>) {
         self.quiz.update(cx, |quiz, cx| {
             quiz.start_review(&[], Mode::Review.count(), MIXED, cx)
         });

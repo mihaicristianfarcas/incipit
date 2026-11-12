@@ -2,7 +2,9 @@
 //! chapter, how far through it and when it would be finished at the recent pace, as the earlier
 //! app's Today says it) beside the other books by how lately they were touched, and the notes
 //! touched last, each one click from its page. Nothing here is a score: the numbers are what is
-//! left to recall today and how many days in a row recall was practised.
+//! left to recall today and how many days in a row recall was practised. With nothing left to
+//! review and cards in the vault, a mixed review quiz is offered, as the earlier app's Today
+//! offered it.
 
 use gpui::{
     div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, Render, ScrollHandle,
@@ -18,6 +20,8 @@ use crate::workspace::{Happened, Workspace};
 /// Where the learner asked to go from Today.
 pub enum Go {
     Review,
+    /// A mixed review quiz, on the Review page.
+    MixedQuiz,
     Library,
     Note(DocId),
     /// Read this book, from where it was left.
@@ -40,6 +44,8 @@ pub struct TodayView {
     fresh: usize,
     done: usize,
     streak: u32,
+    /// The cards that are not suspended.
+    cards: usize,
     /// The books, the one touched last first.
     books: Vec<Reading>,
     notes: Vec<(DocId, String)>,
@@ -61,6 +67,7 @@ impl TodayView {
             fresh: 0,
             done: 0,
             streak: 0,
+            cards: 0,
             books: Vec::new(),
             notes: Vec::new(),
             scroll: ScrollHandle::new(),
@@ -79,6 +86,15 @@ impl TodayView {
         (self.due, self.fresh, self.done) =
             (counts.due_now, counts.new_available, counts.done_today);
         self.streak = deck.streaks(now(), &Local).current;
+        self.cards = vault
+            .list(Some(Kind::Card))
+            .iter()
+            .filter(|card| {
+                !card
+                    .fields::<incipit_vault::Card>()
+                    .is_some_and(|c| c.suspended)
+            })
+            .count();
         let mut states = states(&vault, now());
         self.books = vault
             .list(Some(Kind::Book))
@@ -259,6 +275,14 @@ impl Render for TodayView {
                         .accent()
                         .large()
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(Go::Review))),
+                )
+            })
+            .when(to_review == 0 && self.cards > 0, |card| {
+                card.child(
+                    button("today-mixed", "Mixed quiz", t)
+                        .large()
+                        .tooltip("A quiz across the concepts you know least")
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(Go::MixedQuiz))),
                 )
             });
         let reading = self.reading(t, cx);

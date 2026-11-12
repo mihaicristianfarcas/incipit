@@ -205,6 +205,10 @@ impl Root {
         cx.subscribe(&today, |this: &mut Self, _, go: &today::Go, cx| {
             match go {
                 today::Go::Review => this.go(Page::Review, cx),
+                today::Go::MixedQuiz => {
+                    this.go(Page::Review, cx);
+                    this.review.update(cx, |review, cx| review.mixed_quiz(cx));
+                }
                 today::Go::Library => this.page = Page::Library,
                 today::Go::Book(id) => {
                     let id = id.clone();

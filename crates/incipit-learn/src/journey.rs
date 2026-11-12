@@ -6,9 +6,12 @@
 //!   it took, at most two minutes, twelve seconds when unknown) and, when rated above Again, a
 //!   correct answer. Each other activity adds an event, and a reading sitting its minutes.
 //!   A pause is a break, not study, and the caller leaves it out.
-//! - **Streak.** The consecutive days with any activity, counted back from today. Today may still
-//!   be empty. A day without study ends the streak, unless a pause covers it: a paused day neither
-//!   counts nor breaks, even after the pause has ended.
+//! - **Streak.** The days with any activity in a run, counted back from today. Today may still be
+//!   empty. A paused day neither counts nor breaks, even after the pause has ended.
+//!   **This departs from the earlier app,** whose streak a single day without study ended: here
+//!   one missed day between days with study is forgiven (it does not count either), and two
+//!   missed days in a row end the streak. Where no day is missed the two rules agree, and a
+//!   longer break is what the pause is for.
 //! - **Pause.** One to thirty days from today, kept as `from` and `until` days (`YYYY-MM-DD`).
 //! - **Recall.** The mean chance now of recalling the cards reviewed; the share of the last 30
 //!   days' reviews rated above Again; and how many cards are mature (stable for 21 days or more),
@@ -25,6 +28,8 @@ use crate::{Card, Params, DAY_MS};
 
 /// The most days a pause can cover, and the least.
 pub const PAUSE_MOST: i64 = 30;
+/// The days without study in a row that a streak forgives.
+const FORGIVEN: u32 = 1;
 /// How far back the streak is counted: ten years of days.
 const LOOK_BACK: i64 = 3650;
 /// The longest a card's review counts for, in minutes.
@@ -123,15 +128,22 @@ pub fn pause_from(today: i64, days: i64) -> (i64, i64) {
     (today, today + n - 1)
 }
 
-/// The consecutive days with any activity, counted back from `today`.
+/// The days studied in the run that reaches today, counted back from `today`. Today and paused
+/// days are passed over when empty; a single other day without study is forgiven, and a second
+/// one in a row (paused days between them do not part them) ends the run.
 pub fn streak(days: &BTreeMap<i64, Day>, paused: &BTreeSet<i64>, today: i64) -> u32 {
     let mut streak = 0;
+    let mut missed = 0;
     for back in 0..LOOK_BACK {
         let day = today - back;
         if days.contains_key(&day) {
             streak += 1;
+            missed = 0;
         } else if day != today && !paused.contains(&day) {
-            break;
+            missed += 1;
+            if missed > FORGIVEN {
+                break;
+            }
         }
     }
     streak
@@ -344,17 +356,39 @@ mod tests {
     }
 
     #[test]
-    fn a_day_without_study_breaks_the_streak() {
-        // 6, 5, 4 days ago and today: only today is in the run.
+    fn two_days_without_study_in_a_row_break_the_streak() {
+        // 6, 5, 4 days ago and today: three days missed, only today is in the run.
         assert_eq!(run(&[6, 5, 4, 0], &[]), 1);
         assert_eq!(run(&[2, 1, 0], &[]), 3);
+        assert_eq!(run(&[5, 4, 1, 0], &[]), 2);
     }
 
     #[test]
-    fn today_may_still_be_empty_but_yesterday_may_not() {
+    fn one_missed_day_is_forgiven_and_does_not_count() {
+        assert_eq!(run(&[3, 2, 0], &[]), 3);
+        assert_eq!(run(&[4, 2, 0], &[]), 3);
+        // Forgiven again later in the run, as long as they are not in a row.
+        assert_eq!(run(&[6, 4, 2, 0], &[]), 4);
+        assert_eq!(run(&[7, 5, 4, 2, 0], &[]), 5);
+        // Two in a row end it there.
+        assert_eq!(run(&[6, 3, 1, 0], &[]), 3);
+    }
+
+    #[test]
+    fn today_may_still_be_empty_and_so_may_yesterday_with_the_day_before_studied() {
         assert_eq!(run(&[3, 2, 1], &[]), 3);
-        assert_eq!(run(&[3, 2], &[]), 0);
+        // Yesterday missed, today still to come: the run is alive.
+        assert_eq!(run(&[3, 2], &[]), 2);
+        // Two days missed and today still to come: ended.
+        assert_eq!(run(&[3], &[]), 0);
         assert_eq!(run(&[], &[]), 0);
+    }
+
+    #[test]
+    fn a_single_study_day_then_nothing_is_a_streak_of_one_for_two_days() {
+        assert_eq!(run(&[1], &[]), 1);
+        assert_eq!(run(&[2], &[]), 1);
+        assert_eq!(run(&[3], &[]), 0);
     }
 
     #[test]
@@ -362,8 +396,9 @@ mod tests {
         // 6, 5, 4 studied; 3, 2, 1 paused; today studied.
         let pause = [(TODAY - 3, TODAY - 1)];
         assert_eq!(run(&[6, 5, 4, 0], &pause), 4);
-        // A pause does not make the days before it count if one is missed beyond it.
-        assert_eq!(run(&[6, 5, 0], &pause), 1);
+        // The day missed before the pause is forgiven; a second one in a row is not.
+        assert_eq!(run(&[6, 5, 0], &pause), 3);
+        assert_eq!(run(&[7, 0], &pause), 1);
     }
 
     #[test]

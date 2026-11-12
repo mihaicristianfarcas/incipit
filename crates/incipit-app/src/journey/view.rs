@@ -18,7 +18,8 @@ use incipit_learn::journey::{
     chart_start, heat_level, long_date, month_marks, month_name, CHART_WEEKS,
 };
 use incipit_ui::{
-    button, focus_handle, focus_ring, keep_focus, meter, page, ringed, tooltip, Radius, Theme, Type,
+    button, focus_handle, focus_ring, keep_focus, meter, page, ringed, tooltip, IconName, Radius,
+    Theme, Type,
 };
 use incipit_vault::{DocId, Kind};
 
@@ -163,19 +164,18 @@ impl JourneyView {
                     )),
             );
         }
-        let ask = button(
-            "journey-break",
-            if self.asking {
-                "Hide"
+        // The question stays the button's words whether its choices are open or not, as a
+        // disclosure's summary does; the chevron says which.
+        let ask = button("journey-break", "Taking a break?", t)
+            .icon(if self.asking {
+                IconName::ChevronDown
             } else {
-                "Taking a break?"
-            },
-            t,
-        )
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.asking = !this.asking;
-            cx.notify();
-        }));
+                IconName::ChevronRight
+            })
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.asking = !this.asking;
+                cx.notify();
+            }));
         let mut body = body.child(div().flex().child(ask));
         if self.asking {
             body = body

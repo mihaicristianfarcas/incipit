@@ -10,7 +10,8 @@
 //! A passage can also be put to the model the learner chose: the answer is written into a card in
 //! the margin as it arrives, and kept like a note once it is whole. The passage and the text
 //! around it go to the model as material, never as instructions. An answer can be talked over
-//! with the tutor in a sheet (`session`), and a page turned into a quiz (`quiz`).
+//! with the tutor in a sheet (`session`), a page turned into a quiz (`quiz`), and a passage or
+//! a session made into flashcards to look over before they are kept (`studying`).
 //!
 //! A chapter can be mapped into concepts from the contents, and the concepts that came from the
 //! book's passages have cards in the margin beside them (`concepts`).
@@ -18,6 +19,7 @@
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =session for a tutor session with a made-up conversation),
 //! INCIPIT_ASK=explain|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
+//! INCIPIT_DRAFTS=demo (the drafter's sheet on made-up flashcards),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block),
 //! INCIPIT_MAP=n (map line n of the contents, from 0, into concepts once the book is open).
 
@@ -29,6 +31,7 @@ mod quiz;
 mod reading;
 mod rows;
 mod session;
+mod studying;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -148,6 +151,8 @@ pub struct ReaderView {
     demo: bool,
     /// The reading in progress: sittings, and where the book is kept.
     reading: reading::Reading,
+    /// The sheet where drafted flashcards are looked over.
+    drafter: Entity<crate::drafter::DrafterView>,
     _draft_events: Subscription,
     _reply_events: Subscription,
     _vault_events: Subscription,
@@ -202,6 +207,14 @@ impl ReaderView {
         let (drawn, pages) = unbounded();
         cx.spawn(async move |this, cx| Self::take_pages(this, pages, cx).await)
             .detach();
+        let drafter =
+            cx.new(|_| crate::drafter::DrafterView::new(workspace.clone(), models.clone()));
+        // A session waiting under the drafter comes back when it closes.
+        cx.subscribe(&drafter, |_, _, _: &crate::drafter::Closed, cx| cx.notify())
+            .detach();
+        if std::env::var("INCIPIT_DRAFTS").as_deref() == Ok("demo") {
+            drafter.update(cx, |drafter, cx| drafter.show_demo(cx));
+        }
         let mut view = ReaderView {
             workspace,
             models,
@@ -237,6 +250,7 @@ impl ReaderView {
                 .and_then(|n| n.trim().parse().ok()),
             demo: std::env::var_os("INCIPIT_NOTE").is_some(),
             reading: reading::Reading::new(),
+            drafter,
             _draft_events: draft_events,
             _reply_events: reply_events,
             _vault_events: vault_events,
@@ -1216,6 +1230,7 @@ impl Render for ReaderView {
             .children(self.selection_menu(t, cx))
             .children(self.quiz_sheet(t, cx))
             .children(self.session_sheet(t, cx))
+            .child(self.drafter.clone())
     }
 }
 

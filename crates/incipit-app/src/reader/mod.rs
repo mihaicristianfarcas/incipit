@@ -111,6 +111,14 @@ pub struct OpenConcept(pub DocId);
 
 impl gpui::EventEmitter<OpenConcept> for ReaderView {}
 
+/// What a card in the margin is written for: a question for the model, or the words that say
+/// what to draw.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Compose {
+    Ask,
+    Figure,
+}
+
 pub struct ReaderView {
     workspace: Entity<Workspace>,
     models: Entity<Models>,
@@ -130,6 +138,8 @@ pub struct ReaderView {
     open: Option<u64>,
     /// The passage a note is being written for.
     composing: Option<Vec<Anchor>>,
+    /// What the card being written is for.
+    compose: Compose,
     /// What the last thing done with a selection said, for the learner: where a passage was
     /// added, or why not.
     said: Option<String>,
@@ -255,6 +265,7 @@ impl ReaderView {
             next_id: 1,
             open: None,
             composing: None,
+            compose: Compose::Ask,
             said: None,
             answers: HashMap::new(),
             quiz,
@@ -631,7 +642,7 @@ impl ReaderView {
             Ok("note") => self.note_passage(cx),
             Ok("cards") => self.make_cards(cx),
             Ok("quiz") => self.offer_quiz(Some(Mode::Check), cx),
-            Ok("figure") => self.make_figure(cx),
+            Ok("figure") => self.draw_selection(cx),
             // With INCIPIT_NOTE=session: the learner's next turn, sent to the model.
             Ok("session") => {
                 self.reply.update(cx, |reply, cx| {
@@ -767,18 +778,29 @@ impl ReaderView {
         cx.notify();
     }
 
-    /// Open the card to write a question about the selection in.
-    fn start_ask(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Open the card to write a question about the selection in, or the words that say what to
+    /// draw of it.
+    fn start_writing(&mut self, compose: Compose, window: &mut Window, cx: &mut Context<Self>) {
         let anchors = self.anchors();
         if anchors.is_empty() {
             return;
         }
+        self.compose = compose;
         self.composing = Some(anchors);
         self.selection = None;
         self.menu = None;
         self.margin = true;
         self.said = None;
-        self.draft.update(cx, |draft, cx| draft.set_text("", cx));
+        self.draft.update(cx, |draft, cx| {
+            draft.set_text("", cx);
+            draft.set_placeholder(
+                match compose {
+                    Compose::Ask => "Ask about this passage",
+                    Compose::Figure => "What should the figure show? (or leave this empty)",
+                },
+                cx,
+            );
+        });
         TextField::focus(&self.draft, window, cx);
         cx.notify();
     }
@@ -786,8 +808,12 @@ impl ReaderView {
     fn keep_note(&mut self, cx: &mut Context<Self>) {
         let words = self.draft.read(cx).text().trim().to_string();
         if let Some(anchors) = self.composing.take() {
-            if !words.is_empty() {
-                self.ask(anchors, Way::Ask, Some(words), cx);
+            match self.compose {
+                Compose::Ask if !words.is_empty() => self.ask(anchors, Way::Ask, Some(words), cx),
+                Compose::Ask => {}
+                Compose::Figure => {
+                    self.make_figure(anchors, (!words.is_empty()).then_some(words), cx)
+                }
             }
         }
         cx.notify();
@@ -1118,13 +1144,18 @@ impl ReaderView {
                 button("reader-ask", "Ask", t)
                     .ghost()
                     .icon(IconName::Message)
-                    .on_click(cx.listener(|this, _, window, cx| this.start_ask(window, cx))),
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.start_writing(Compose::Ask, window, cx)
+                    })),
             )
             .child(
                 button("reader-figure", "Figure", t)
                     .ghost()
                     .icon(IconName::Activity)
-                    .on_click(cx.listener(|this, _, _, cx| this.make_figure(cx))),
+                    .tooltip("Have the model draw a figure of it; say what to show if you like")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.start_writing(Compose::Figure, window, cx)
+                    })),
             )
             .child(
                 button("reader-cards", "Cards", t)
@@ -1297,9 +1328,16 @@ impl ReaderView {
                             })),
                     )
                     .child(
-                        button("note-keep", "Ask", t)
-                            .accent()
-                            .on_click(cx.listener(|this, _, _, cx| this.keep_note(cx))),
+                        button(
+                            "note-keep",
+                            match self.compose {
+                                Compose::Ask => "Ask",
+                                Compose::Figure => "Draw",
+                            },
+                            t,
+                        )
+                        .accent()
+                        .on_click(cx.listener(|this, _, _, cx| this.keep_note(cx))),
                     ),
             )
     }

@@ -228,12 +228,24 @@ impl ReaderView {
         }
     }
 
-    /// Have the model make a figure that explains the selection. The margin says what it is
-    /// doing; a figure that passed the checks is kept in the vault and can be opened.
-    pub(super) fn make_figure(&mut self, cx: &mut Context<Self>) {
+    /// Have the model make a figure of the selection, with no words of the learner's.
+    pub(super) fn draw_selection(&mut self, cx: &mut Context<Self>) {
         let anchors = self.anchors();
         self.selection = None;
         self.menu = None;
+        self.said = None;
+        self.make_figure(anchors, None, cx);
+    }
+
+    /// Have the model make a figure that explains the passage, and draws what the learner
+    /// asked for when they said. The margin says what it is doing; a figure that passed the
+    /// checks is kept in the vault and can be opened.
+    pub(super) fn make_figure(
+        &mut self,
+        anchors: Vec<Anchor>,
+        request: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         if anchors.is_empty() {
             return;
         }
@@ -242,7 +254,7 @@ impl ReaderView {
         let note = Note {
             id,
             anchors,
-            asked: Some(MAKE_FIGURE.to_owned()),
+            asked: Some(request.clone().unwrap_or_else(|| MAKE_FIGURE.to_owned())),
             waiting: true,
             ..Note::default()
         };
@@ -312,7 +324,7 @@ impl ReaderView {
                         Update::Event(Event::Activity(doing)) => this.notes[at].words = doing,
                         Update::Event(_) => {}
                         Update::Done(Ok(figure)) => {
-                            let doc = this.keep_figure(at, &figure, cx);
+                            let doc = this.keep_figure(at, &figure, request.as_deref(), cx);
                             let note = &mut this.notes[at];
                             note.waiting = false;
                             note.doc = doc;
@@ -344,11 +356,13 @@ impl ReaderView {
         .detach();
     }
 
-    /// Keep a figure in the vault: its spec in the file, the passage as its source.
+    /// Keep a figure in the vault: its spec in the file, the passage as its source and the
+    /// learner's words, if they said what to draw, as its request.
     fn keep_figure(
         &self,
         note: usize,
         figure: &incipit_scene::Figure,
+        request: Option<&str>,
         cx: &mut Context<Self>,
     ) -> Option<incipit_vault::DocId> {
         let vault = self.workspace.read(cx).vault.clone()?;
@@ -358,7 +372,7 @@ impl ReaderView {
         doc.set_title(figure.title());
         doc.set_source(Some(&self.source(&book, first)));
         doc.set_fields(&incipit_vault::Figure {
-            request: Some(MAKE_FIGURE.to_owned()),
+            request: request.map(str::to_owned),
             spec: serde_json::to_value(figure).ok(),
             notes: String::new(),
         });

@@ -321,6 +321,17 @@ pub fn long_date(day: i64) -> String {
     format!("{}, {} {date}", weekday_name(day), month_name(month))
 }
 
+/// The greeting for an hour of the learner's clock (0 to 23): "Up late" before 5, then morning
+/// to noon, afternoon to 6 pm, and evening.
+pub fn greeting(hour: u32) -> &'static str {
+    match hour {
+        0..=4 => "Up late",
+        5..=11 => "Good morning",
+        12..=17 => "Good afternoon",
+        _ => "Good evening",
+    }
+}
+
 /// What the activity log says of a pause that ends on `until`.
 pub fn pause_words(until: i64) -> String {
     format!("Paused the streak until {}", long_date(until))
@@ -607,6 +618,24 @@ mod tests {
         for bad in ["2025-02-29", "2025-13-01", "2025-1-01", "yesterday", ""] {
             assert_eq!(parse_day(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn the_greeting_follows_the_hour() {
+        let said: Vec<&str> = [0, 4, 5, 11, 12, 17, 18, 23].map(greeting).to_vec();
+        assert_eq!(
+            said,
+            [
+                "Up late",
+                "Up late",
+                "Good morning",
+                "Good morning",
+                "Good afternoon",
+                "Good afternoon",
+                "Good evening",
+                "Good evening"
+            ]
+        );
     }
 
     #[test]

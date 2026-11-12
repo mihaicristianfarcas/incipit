@@ -45,6 +45,16 @@ impl ReaderView {
             .map(|e| e.title.clone())
     }
 
+    /// Where a passage of a book of the vault is, with its chapter, as the earlier app's study
+    /// tools kept it; none for a book outside the vault.
+    fn passage_source(&self, first: &Anchor) -> Option<incipit_vault::Source> {
+        let book = self.book.as_ref()?.id.clone()?;
+        Some(incipit_vault::Source {
+            chapter: self.chapter_at(first.part),
+            ..self.source(&book, first)
+        })
+    }
+
     /// Where text of part `part` comes from: the book's title, its author and the chapter. The
     /// text is to be gathered.
     pub(super) fn book_context(&self, part: Option<usize>, cx: &Context<Self>) -> BookContext {
@@ -148,11 +158,7 @@ impl ReaderView {
         let Some(first) = anchors.first() else {
             return;
         };
-        let source = self
-            .book
-            .as_ref()
-            .and_then(|b| b.id.clone())
-            .map(|book| self.source(&book, first));
+        let source = self.passage_source(first);
         let meta = Meta {
             deck: self
                 .book
@@ -254,11 +260,7 @@ impl ReaderView {
         let about = About {
             concept: None,
             passage: Some(passage),
-            source: self
-                .book
-                .as_ref()
-                .and_then(|b| b.id.clone())
-                .map(|book| self.source(&book, first)),
+            source: self.passage_source(first),
             context: BookContext::default(),
         };
         self.explain_at(first.part, about, cx);
@@ -276,11 +278,7 @@ impl ReaderView {
         let about = About {
             concept: Some(concept.title.clone()),
             passage: Some(card.words.clone()).filter(|w| !w.trim().is_empty()),
-            source: self
-                .book
-                .as_ref()
-                .and_then(|b| b.id.clone())
-                .map(|book| self.source(&book, first)),
+            source: self.passage_source(first),
             context: BookContext::default(),
         };
         let part = first.part;

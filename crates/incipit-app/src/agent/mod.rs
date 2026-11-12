@@ -34,8 +34,9 @@
 //! Without clicking: INCIPIT_AGENT=demo shows a made-up run that landed, `review` one waiting for
 //! the learner's OK, `refused` one refused for changing the review log, `thread` a conversation
 //! of an answer and a follow-up, and `recent` the list of recent conversations with one
-//! working; none calls a model, and what is done with them changes nothing. INCIPIT_AGENT with
-//! other words runs them once the vault is open, with the learner's login. On the Reader page,
+//! working; none calls a model, and what is done with them changes nothing. INCIPIT_AGENT=open
+//! opens the sheet as the key does, on the vault's own runs. INCIPIT_AGENT with other words runs
+//! them once the vault is open, with the learner's login. On the Reader page,
 //! the sheet knows the book and the selection once the reader has them.
 
 use std::collections::HashMap;

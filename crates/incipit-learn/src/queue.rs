@@ -1,14 +1,15 @@
-//! The review queue and the Today counts. Order: cards in short steps first (soonest first, those
-//! due within the next 20 minutes included so a learner is not left waiting), then reviews that are
-//! due, most overdue relative to their interval first, then new cards, oldest first, up to the
-//! daily limit less what was already introduced today. Reviews and new cards are interleaved so
-//! neighbours come from different decks.
+//! The review queue and the Today counts. Order, as in the earlier app's `reviewQueue`: cards in
+//! short steps first (soonest first, those due within the next 20 minutes included so a learner
+//! is not left waiting), then reviews that are due, earliest due first, then new cards, oldest
+//! first, up to the daily limit less what was already introduced today. Reviews and new cards are
+//! interleaved so neighbours come from different decks. Cards that tie keep the order they were
+//! given in.
 
 use std::collections::BTreeMap;
 
 use crate::card::{Card, Review, State};
 use crate::day::{day_number, day_start, Zone};
-use crate::{DAY_MS, MINUTE_MS};
+use crate::MINUTE_MS;
 
 /// How far ahead a card in short steps is shown, so waiting for the next step is not idle time.
 pub const LEARNING_LOOKAHEAD_MS: i64 = 20 * MINUTE_MS;
@@ -70,14 +71,6 @@ fn interleave<T>(items: Vec<(String, T)>) -> Vec<T> {
     }
 }
 
-/// How late a review is as a share of its interval: 0.5 means half an interval overdue.
-fn overdue_ratio(card: &Card, now: i64) -> f64 {
-    let interval = card
-        .last_review
-        .map_or(DAY_MS, |l| (card.due - l).max(DAY_MS));
-    (now - card.due) as f64 / interval as f64
-}
-
 /// Picks and orders the cards to show.
 pub fn build_queue<K: Clone>(candidates: &[Candidate<K>], opts: QueueOptions) -> Queue<K> {
     let live = || candidates.iter().filter(|c| !c.suspended);
@@ -92,9 +85,7 @@ pub fn build_queue<K: Clone>(candidates: &[Candidate<K>], opts: QueueOptions) ->
     let mut due: Vec<&Candidate<K>> = live()
         .filter(|c| c.card.state == State::Review && c.card.due <= opts.now)
         .collect();
-    due.sort_by(|a, b| {
-        overdue_ratio(&b.card, opts.now).total_cmp(&overdue_ratio(&a.card, opts.now))
-    });
+    due.sort_by_key(|c| c.card.due);
     let due = interleave(due.into_iter().map(|c| (c.deck.clone(), c)).collect());
 
     let mut fresh: Vec<&Candidate<K>> = live().filter(|c| c.card.state == State::New).collect();
@@ -168,6 +159,7 @@ pub fn today_counts<K>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DAY_MS;
 
     const NOW: i64 = 100 * DAY_MS;
 
@@ -218,12 +210,36 @@ mod tests {
     }
 
     #[test]
-    fn a_review_more_overdue_for_its_interval_comes_before_a_longer_overdue_one() {
-        // 2 days late on a 2-day interval beats 5 days late on a 50-day interval.
+    fn due_reviews_come_earliest_due_first() {
+        // Due 5 days ago on a 50-day interval comes before due 2 days ago on a 2-day one: the
+        // date it came due decides, not how late it is for its interval.
         let short = review_card(NOW - 2 * DAY_MS, NOW - 4 * DAY_MS);
         let long = review_card(NOW - 5 * DAY_MS, NOW - 55 * DAY_MS);
-        let cards = [cand("long", long, "a", 1), cand("short", short, "a", 2)];
-        assert_eq!(build_queue(&cards, opts(0, 0)).cards, ["short", "long"]);
+        let today = review_card(NOW - MINUTE_MS, NOW - 9 * DAY_MS);
+        let cards = [
+            cand("today", today, "a", 1),
+            cand("short", short, "a", 2),
+            cand("long", long, "a", 3),
+        ];
+        assert_eq!(
+            build_queue(&cards, opts(0, 0)).cards,
+            ["long", "short", "today"]
+        );
+    }
+
+    #[test]
+    fn cards_that_tie_keep_the_order_they_were_given_in() {
+        let due = NOW - DAY_MS;
+        let cards = [
+            cand("b", review_card(due, NOW - 3 * DAY_MS), "x", 1),
+            cand("a", review_card(due, NOW - 9 * DAY_MS), "x", 1),
+            cand("n2", Card::new(0), "x", 7),
+            cand("n1", Card::new(0), "x", 7),
+        ];
+        assert_eq!(
+            build_queue(&cards, opts(9, 0)).cards,
+            ["b", "a", "n2", "n1"]
+        );
     }
 
     #[test]

@@ -667,7 +667,10 @@ fn render_inline(
                     });
                 }
                 Some(ClozePart::Blank) => {
-                    h.color = Some(gpui::transparent_black());
+                    // Faded out entirely: a colour given here is blended over the text's own
+                    // ink, so even a transparent one would leave the words showing.
+                    h.color = None;
+                    h.fade_out = Some(1.0);
                     h.background_color = Some(sunken.into());
                     h.underline = None;
                     h.strikethrough = None;

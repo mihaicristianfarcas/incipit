@@ -62,10 +62,19 @@ recalled, averaged with the recall from the quiz questions answered on it
 (`answers` in `incipit-learn`: the latest six quizzes' scores, the newest
 counting twice the oldest, times what remains of a memory reviewed in each
 quiz), and the best grade of an explanation of it; with none of these, the
-concept is not practised, which is not the same as 0. Which cards and notes
-are about a concept, and what a concept builds on, are links in their
-properties ([vault.md](vault.md)), and a recall of a card also gives part
-of a review to the cards on what its ideas build on.
+concept is not practised, which is not the same as 0. Which cards and
+notes are about a concept, and what a concept builds on, are links in
+their properties ([vault.md](vault.md)), and a recall of a card also gives
+part of a review to the cards on what its ideas build on.
+
+**The study tools leave the evidence.** Flashcards drafted from a passage
+are looked over before they are kept, each tied to the concept it tests; a
+finished quiz is a line of the activity log with each answer's concept and
+score; an explanation's grade is kept in its note. Those are what the
+measure above reads. Each tool is the earlier app's (`learning` in the
+app): its instructions, its form, and the book's text around the passage
+or the chapter's as material; what the model fills in is read from the
+form and becomes only text in files.
 
 **A card known for weeks is asked a new way.** Every other review of a
 card whose stability is three weeks or more asks a fresh question on the

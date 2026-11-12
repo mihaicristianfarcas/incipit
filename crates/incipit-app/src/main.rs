@@ -294,6 +294,28 @@ impl Root {
             }
             _ => false,
         };
+        if acting && page == Page::Reader {
+            // The reader opens its book off the window's thread and notifies as it goes: once it
+            // has the book or a selection, the sheet knows where the learner is, as if it had
+            // been opened there with the key.
+            let placed = std::rc::Rc::new(std::cell::Cell::new(false));
+            let agent = agent.clone();
+            cx.observe(&reader, move |_, reader, cx| {
+                let (book, selection) = reader.read(cx).here();
+                if placed.get() || (book.is_none() && selection.is_none()) {
+                    return;
+                }
+                placed.set(true);
+                let here = agent::here::Here {
+                    page: None,
+                    doc: None,
+                    book,
+                    selection,
+                };
+                agent.update(cx, |agent, cx| agent.know(here, cx));
+            })
+            .detach();
+        }
         Root {
             workspace: workspace.clone(),
             find,

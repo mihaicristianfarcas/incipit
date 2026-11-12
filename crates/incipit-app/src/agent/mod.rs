@@ -35,7 +35,8 @@
 //! the learner's OK, `refused` one refused for changing the review log, `thread` a conversation
 //! of an answer and a follow-up, and `recent` the list of recent conversations with one
 //! working; none calls a model, and what is done with them changes nothing. INCIPIT_AGENT with
-//! other words runs them once the vault is open, with the learner's login.
+//! other words runs them once the vault is open, with the learner's login. On the Reader page,
+//! the sheet knows the book and the selection once the reader has them.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -213,6 +214,12 @@ impl AgentView {
             }
         }
         TextField::focus(&self.words, window, cx);
+        cx.notify();
+    }
+
+    /// Where the learner is, learnt after the sheet opened (INCIPIT_AGENT on the Reader page).
+    pub fn know(&mut self, here: Here, cx: &mut Context<Self>) {
+        self.here = here;
         cx.notify();
     }
 

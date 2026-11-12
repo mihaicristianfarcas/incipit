@@ -9,20 +9,25 @@
 //! change the intervals a learner already knows. Intervals are not fuzzed, as in the original.
 //!
 //! - [`card`]: [`Card`], [`Rating`], [`State`] and the [`Review`] log record.
+//! - [`day`]: the learner's day, which starts at 4 am on their own clock.
 //! - [`params`]: the 21 FSRS-6 weights, desired retention and the learning steps.
 //! - [`schedule`]: one review, the preview of the four buttons, recall probability.
 //! - [`queue`]: which cards to show now and in what order, and the counts for the Today page.
 //! - [`streak`]: the forgiving streak of study days.
 
 pub mod card;
+pub mod day;
 pub mod params;
 pub mod queue;
 pub mod schedule;
 pub mod streak;
 
 pub use card::{Card, Rating, Review, State};
+pub use day::{day_number, day_start, Fixed, Zone};
 pub use params::Params;
-pub use queue::{build_queue, today_counts, Candidate, Queue, QueueOptions, TodayCounts};
+pub use queue::{
+    build_queue, new_today, today_counts, Candidate, Queue, QueueOptions, TodayCounts,
+};
 pub use schedule::{credit, format_interval, preview, retrievability, schedule, Preview};
 pub use streak::{streaks, Streaks};
 

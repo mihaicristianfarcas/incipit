@@ -76,6 +76,9 @@ impl Workspace {
             let _ = this.update(cx, |this, cx| {
                 match opened {
                     Ok(vault) => {
+                        if std::env::var("INCIPIT_HISTORY").as_deref() == Ok("demo") {
+                            crate::demo::reading_history(&vault, crate::study::now());
+                        }
                         this.remember(&vault);
                         this.listen(&vault, cx);
                         this.vault = Some(vault);

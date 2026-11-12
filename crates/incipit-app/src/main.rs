@@ -11,6 +11,7 @@ mod activity;
 mod agent;
 mod brain;
 mod concepts;
+mod demo;
 mod figure;
 mod figures;
 mod find;

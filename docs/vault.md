@@ -101,8 +101,9 @@ Links are written as quoted lists, the form in which Obsidian's
 properties hold links. A card or a note is about a concept when its
 `concepts` property links to it (`concepts: ["[[Softmax]]"]`; a bare name
 or id counts too). How well a concept is known is worked out from the
-cards about it and their reviews, and from the `score` (0 to 100) of
-notes of type `explanation` about it; it is written in no file.
+cards about it and their reviews, from the answers on it in `quiz` lines
+of the activity log, and from the `score` (0 to 100) of notes of type
+`explanation` about it; it is written in no file.
 
 ## Links
 
@@ -140,6 +141,12 @@ app's fields:
 | `concepts` | the ids of the concepts it was about; left out when none |
 | `text` | a short summary in plain words ("Read 24 min of Calculus Made Easy (Chapter III)") |
 | `data` | more, by type; left out when none |
+
+A `quiz` line is one quiz finished: its `data` has `score` (the points,
+to a tenth), `total` (the answers scored), `mode` (`check`, `pretest` or
+`review`) and `answers`, each an answer's `concept` (the concept's id) and
+its `score` (0 to 1). A pretest's answers are not counted toward how well
+a concept is known.
 
 A `read` line is one sitting with a book: its `data` has `minutes`,
 `chapter`, `chapterId`, `position` and `pages`. A sitting is time spent

@@ -52,6 +52,7 @@ use incipit_llm::Update;
 use incipit_ui::{button, field, sheet, spinner, FieldEvent, IconName, TextField, Theme, Type};
 use incipit_vault::{rfc3339, AgentRun, Vault, VaultPath};
 
+use crate::learning::learner;
 use crate::models::Models;
 use crate::study::now;
 use crate::workspace::{Happened, Workspace};
@@ -362,8 +363,13 @@ impl AgentView {
         };
         let records: Vec<AgentRun> = self.turns.iter().map(|t| t.run.clone()).collect();
         let earlier = runs::earlier(&runs::turns_before(&records, &record));
-        let request = prompt::request_for(&record.task, &described.lines, &earlier)
-            .with_timeout(runs::TIME_LIMIT);
+        let request = prompt::request_for(
+            &record.task,
+            &described.lines,
+            &earlier,
+            &learner::of(&vault, now()),
+        )
+        .with_timeout(runs::TIME_LIMIT);
         let job = Job {
             runs: run::runs_folder(&crate::workspace::home(), &vault),
             id: record.id.clone(),

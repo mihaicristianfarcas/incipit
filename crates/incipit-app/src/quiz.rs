@@ -189,6 +189,7 @@ impl QuizView {
             context: offer.context.clone(),
             topics: String::new(),
             book: offer.book.clone(),
+            learner: String::new(),
         };
         let deck = offer.deck.clone();
         self.ask(asked, deck, cx);
@@ -226,11 +227,19 @@ impl QuizView {
             context: BookContext::default(),
             topics,
             book: None,
+            learner: String::new(),
         };
         self.ask(asked, deck.to_owned(), cx);
     }
 
-    fn ask(&mut self, asked: Asked, deck: String, cx: &mut Context<Self>) {
+    fn ask(&mut self, mut asked: Asked, deck: String, cx: &mut Context<Self>) {
+        asked.learner = self
+            .workspace
+            .read(cx)
+            .vault
+            .as_ref()
+            .map(|vault| crate::learning::learner::of(vault, crate::study::now()))
+            .unwrap_or_default();
         self.stop();
         self.run += 1;
         let run = self.run;

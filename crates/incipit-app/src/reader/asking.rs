@@ -12,6 +12,7 @@ use super::model::Note;
 use super::ReaderView;
 use crate::learning::answers::{self, Asked, Way, RELATED};
 use crate::learning::context::BookContext;
+use crate::learning::learner;
 
 pub(super) use crate::learning::answers::EXPLAIN;
 const MAKE_FIGURE: &str = "Draw a figure of this.";
@@ -131,6 +132,7 @@ impl ReaderView {
             None => Vec::new(),
         };
         let context = self.book_context(Some(first.part), cx);
+        let learner = self.learner(cx);
         let text = self.text_around(first.part);
         cx.spawn(async move |this, cx| {
             let texts = text.await.unwrap_or_else(|_| Ok(Vec::new()));
@@ -144,6 +146,7 @@ impl ReaderView {
                     ..context
                 },
                 related,
+                learner,
             };
             let started = this.update(cx, |this, cx| {
                 if !this.notes.iter().any(|n| n.id == id) {
@@ -262,6 +265,7 @@ impl ReaderView {
             passage_of(&note.anchors),
             self.book_context(note.anchors.first().map(|a| a.part), cx),
         );
+        let learner = self.learner(cx);
         let text = self.text_around(note.anchors.first().map_or(0, |a| a.part));
         self.open = Some(id);
         self.notes.push(note);
@@ -273,16 +277,18 @@ impl ReaderView {
                 ..context
             }
             .cut_to(answers::AROUND);
-            let material: Vec<(String, String)> = context
-                .add_to(Request::new(""), "the text around the passage")
-                .material
-                .into_iter()
-                .map(|m| (m.label, m.text))
-                .chain(std::iter::once((
-                    "the selected passage".to_owned(),
-                    passage,
-                )))
-                .collect();
+            let material: Vec<(String, String)> = learner::add_to(
+                context.add_to(Request::new(""), "the text around the passage"),
+                &learner,
+            )
+            .material
+            .into_iter()
+            .map(|m| (m.label, m.text))
+            .chain(std::iter::once((
+                "the selected passage".to_owned(),
+                passage,
+            )))
+            .collect();
             let started = this.update(cx, |this, cx| {
                 if !this.notes.iter().any(|n| n.id == id) {
                     return None;

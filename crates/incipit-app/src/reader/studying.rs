@@ -86,6 +86,17 @@ impl ReaderView {
         })
     }
 
+    /// The paragraph about the learner of the open vault, for the requests of the study tools;
+    /// empty when no vault is open.
+    pub(super) fn learner(&self, cx: &Context<Self>) -> String {
+        self.workspace
+            .read(cx)
+            .vault
+            .as_ref()
+            .map(|vault| crate::learning::learner::of(vault, crate::study::now()))
+            .unwrap_or_default()
+    }
+
     /// Where text of part `part` comes from: the book's title, its author and the chapter. The
     /// text is to be gathered.
     pub(super) fn book_context(&self, part: Option<usize>, cx: &Context<Self>) -> BookContext {
@@ -200,6 +211,7 @@ impl ReaderView {
             concepts: Vec::new(),
         };
         let context = self.book_context(Some(first.part), cx);
+        let learner = self.learner(cx);
         let text = self.text_around(first.part);
         let drafter = self.drafter.clone();
         cx.spawn(async move |_, cx| {
@@ -212,6 +224,7 @@ impl ReaderView {
                 passage,
                 context,
                 focus,
+                learner,
             };
             drafter.update(cx, |drafter, cx| drafter.start(asked, meta, from, cx));
         })

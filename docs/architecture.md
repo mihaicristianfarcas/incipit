@@ -60,8 +60,9 @@ the answer may link to as `[[…]]`, and then mark the annotation ready, or
 failed with the reason. A failed answer has a Try again button, and one still
 pending when its book is opened is written again then (the text around a
 passage is read from the open book, so this waits for the book, not for the
-app). Incipit keeps no profile of the learner, so the earlier app's
-paragraph about them is left out of every request.
+app). Like every request that adapts to the learner, it also carries the
+earlier app's paragraph about them (`learning/learner.rs`, from the profile
+and what they know), as material apart from the instructions.
 
 **The reader's Note goes to the book's reading note.** The selection
 menu's Note (`learning/reading_note.rs`) highlights the passage and adds it,

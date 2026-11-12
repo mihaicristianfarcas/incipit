@@ -11,6 +11,7 @@
 mod copies;
 mod reconcile;
 mod sitting;
+mod timing;
 
 pub use copies::AgentCopy;
 mod write;
@@ -101,6 +102,7 @@ pub(crate) struct Inner {
     pub(crate) state: Mutex<State>,
     pub(crate) history: History,
     pub(crate) subscribers: Subscribers,
+    pub(crate) timing: Mutex<timing::Timing>,
     /// Kept so it watches as long as the vault is open; dropping it ends the watching thread.
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
 }
@@ -168,6 +170,7 @@ impl Vault {
             state: Mutex::new(State::default()),
             history,
             subscribers: Subscribers::default(),
+            timing: Mutex::new(timing::Timing::new(timing::SETTLE, timing::IDLE)),
             watcher: Mutex::new(None),
         });
         // Watching starts before the first read, so an edit made while reading is not missed:
@@ -291,7 +294,7 @@ impl Vault {
     }
 
     pub(crate) fn announce(&self, events: Vec<Event>) {
-        self.inner.subscribers.send(events);
+        self.inner.announce(events);
     }
 }
 

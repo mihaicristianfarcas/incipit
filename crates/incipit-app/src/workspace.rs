@@ -74,6 +74,9 @@ impl Workspace {
                         Vault::create(&at)
                     }?;
                     crate::agent::run::clean_up(&home, &vault);
+                    // history is written a few seconds after a write, and a sitting closes
+                    // after three quiet minutes
+                    vault.keep_sittings();
                     Ok::<Vault, incipit_vault::Error>(vault)
                 })
                 .await;

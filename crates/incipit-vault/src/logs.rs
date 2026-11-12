@@ -213,7 +213,7 @@ impl Vault {
         } else {
             Change::Created
         };
-        inner.subscribers.send(vec![here(&path, change, None)]);
+        inner.announce(vec![here(&path, change, None)]);
         Ok(())
     }
 

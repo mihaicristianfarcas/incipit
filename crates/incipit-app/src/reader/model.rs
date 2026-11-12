@@ -74,6 +74,8 @@ pub struct Note {
     pub figure: Option<incipit_scene::Figure>,
     /// The tutor session the card stands for, if it is one; `doc` is then the session's.
     pub turns: Vec<incipit_vault::fields::Turn>,
+    /// How the tutor answers in that session.
+    pub mode: incipit_vault::fields::Mode,
     /// The concept introduced at the passage, if the card is one's; `words` is then its summary.
     pub concept: Option<ConceptNote>,
 }

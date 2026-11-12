@@ -62,11 +62,18 @@ paragraph about them is left out of every request.
 
 **A tutor session sends the whole conversation each turn.** The reader's
 session sheet (`reader/session.rs` in the app) keeps the turns itself and
-no provider keeps any: each turn is one request with the same fixed
-instructions, the passage and the text around it as material, and what
-was said so far as turns. A session is a document beside its book, saved
-after each finished turn, and takes the place of the answer it started
-from.
+no provider keeps any: each turn is one request with the earlier app's
+instructions for the mode the learner chose (the tutor answers, or asks
+questions that lead them to the answer), the book's title, author and
+chapter, the text around the passage (9,000 characters at most) and the
+passage as material, and what was said so far as turns (the earlier app
+sent the last twelve messages as text). A session is a document beside its
+book, saved after each finished turn with its mode, titled by the
+learner's first question (by the passage's first words when it began with
+the Explain or Define button), and takes the place of the answer it
+started from. From the sheet the model writes the learner's own note from
+the conversation (`learning/tutor.rs`: a note of type `session` with one to
+four concepts, linked both ways with the session), as the earlier app does.
 
 **How well a concept is known is worked out, not stored.** The concept
 pages (`concepts` in the app) follow the earlier app's measure: the recall

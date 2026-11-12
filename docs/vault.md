@@ -143,9 +143,9 @@ app's fields:
 
 A `read` line is one sitting with a book: its `data` has `minutes`,
 `chapter`, `chapterId`, `position` and `pages`. A sitting is time spent
-with the book open and the reader active, at most a minute and a half
-for each thing the learner does (scrolling, turning a page, selecting);
-it ends after six quiet minutes, when the chapter changes, when the
+with the book open and the reader active, up to three minutes after
+the learner last did something (scrolling, turning a page, selecting);
+it ends six minutes after time stopped counting, when the chapter changes, when the
 vault is closed or when the app quits, and is written only if it lasted
 a minute or more. `position` says where the sitting ended: a PDF's page
 (from 1) plus how far down it, any other book's block (from 0) plus how

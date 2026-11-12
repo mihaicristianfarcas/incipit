@@ -2,24 +2,29 @@
 //! spent reading it is counted toward a sitting, and each sitting that lasted a minute or more
 //! becomes one line of the activity log ("Read 24 min of Calculus Made Easy (Chapter III)").
 //!
-//! - Each report of the reader (it scrolled, a page was turned, something was selected) counts the
-//!   time since the one before it, at most a minute and a half, so a long pause is not read time.
-//! - A sitting ends after six quiet minutes, when the chapter changes, or when it is ended by the
-//!   caller (the vault is closed, the app quits). One that lasted under a minute is dropped.
+//! - Time counts while the reader is in view and for three minutes after the learner last did
+//!   something with the book (scrolled, turned a page, selected something), as the earlier app's
+//!   reader pinged for three minutes after the last scroll: a slow page is read time, a long pause
+//!   is not.
+//! - A sitting ends six minutes after time stopped counting, when the chapter changes, or when it
+//!   is ended by the caller (the vault is closed, the app quits). One that lasted under a minute
+//!   is dropped.
 //!
-//! The earlier app's reader was another process and reported on a timer. Here the reader reports
-//! when something happens, and the six quiet minutes are a deadline ([`Sittings::next_deadline`])
-//! for the caller to set one timer for. There is no clock in here: every call is given the time
-//! (milliseconds since the epoch), so the rules are tested without waiting.
+//! The earlier app's reader was another process and pinged on a timer. Here the reader reports
+//! when something happens, tells when it is put away and taken up again, and the six quiet minutes
+//! are a deadline ([`Sittings::next_deadline`]) for the caller to set one timer for. There is no
+//! clock in here: every call is given the time (milliseconds since the epoch), so the rules are
+//! tested without waiting.
 
 use std::collections::{BTreeSet, HashMap};
 
 use crate::MINUTE_MS;
 
-/// The most one report counts: a pause longer than this between two reports is not read time.
-pub const REPORT_CAP_MS: i64 = 90_000;
+/// How long after the learner last did something time still counts: the earlier app's reader
+/// pinged while the book had been scrolled in the last three minutes.
+pub const LATELY_MS: i64 = 3 * MINUTE_MS;
 
-/// A sitting ends after this long with no report.
+/// A sitting ends after time has not counted for this long.
 pub const QUIET_MS: i64 = 6 * MINUTE_MS;
 
 /// A sitting shorter than this many minutes is not kept.
@@ -42,7 +47,8 @@ pub struct Beat {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ended {
     pub book: String,
-    /// When the last report came (ms since the epoch): the sitting's time in the log.
+    /// When time last counted (ms since the epoch): the sitting's time in the log, as the earlier
+    /// app's was its last ping.
     pub at: i64,
     /// The minutes counted, not yet rounded.
     pub minutes: f64,
@@ -71,10 +77,14 @@ impl Ended {
 }
 
 struct Session {
-    /// When the last report came.
-    last: i64,
-    /// Up to when time has been counted.
-    counted: i64,
+    /// Time counts from here: the last report, or the moment the reader was taken up again.
+    from: i64,
+    /// Time counts up to here at most: three minutes after the learner last did something, or the
+    /// moment the reader was put away. The six quiet minutes run from it.
+    until: i64,
+    /// The last moment the learner was there: a report, or the end of the last counted stretch.
+    /// The sitting's time in the log.
+    heard: i64,
     minutes: f64,
     chapter: Option<String>,
     chapter_id: Option<String>,
@@ -83,10 +93,40 @@ struct Session {
 }
 
 impl Session {
-    fn end(self, book: String) -> Option<Ended> {
+    fn new(now: i64) -> Session {
+        Session {
+            from: now,
+            until: now + LATELY_MS,
+            heard: now,
+            minutes: 0.0,
+            chapter: None,
+            chapter_id: None,
+            position: None,
+            pages: BTreeSet::new(),
+        }
+    }
+
+    /// Counts the time from `from` up to `now`, no further than `until`.
+    fn count(&mut self, now: i64) {
+        let end = now.min(self.until);
+        if end > self.from {
+            self.minutes += (end - self.from) as f64 / MINUTE_MS as f64;
+            self.from = end;
+            self.heard = end;
+        }
+    }
+
+    /// Quiet for more than six minutes by `now`.
+    fn stale(&self, now: i64) -> bool {
+        now - self.until > QUIET_MS
+    }
+
+    /// Counts up to `now` and ends: the sitting, if it lasted long enough to keep.
+    fn end(mut self, book: String, now: i64) -> Option<Ended> {
+        self.count(now);
         (self.minutes >= LEAST_MINUTES).then_some(Ended {
             book,
-            at: self.last,
+            at: self.heard,
             minutes: self.minutes,
             chapter: self.chapter,
             chapter_id: self.chapter_id,
@@ -108,32 +148,28 @@ impl Sittings {
     }
 
     /// Counts a report toward the book's sitting, and returns the sitting it ended, if it did
-    /// (the chapter changed, or the one before it was too long ago): the report then starts a
-    /// new one, which counts nothing for the gap.
+    /// (the chapter changed, or the one before it went quiet): the report then starts a new one,
+    /// which counts nothing for the gap. The time up to a new chapter counts toward the old one.
     pub fn record(&mut self, beat: Beat, now: i64) -> Option<Ended> {
         let mut ended = None;
-        let stale = self
+        let over = self
             .open
             .get(&beat.book)
-            .is_some_and(|s| beat.chapter_id != s.chapter_id || now - s.last > QUIET_MS);
-        if stale {
+            .is_some_and(|s| beat.chapter_id != s.chapter_id || s.stale(now));
+        if over {
             ended = self
                 .open
                 .remove(&beat.book)
-                .and_then(|s| s.end(beat.book.clone()));
+                .and_then(|s| s.end(beat.book.clone(), now));
         }
-        let session = self.open.entry(beat.book).or_insert_with(|| Session {
-            last: now,
-            counted: now,
-            minutes: 0.0,
-            chapter: None,
-            chapter_id: None,
-            position: None,
-            pages: BTreeSet::new(),
-        });
-        session.minutes += ((now - session.counted).clamp(0, REPORT_CAP_MS)) as f64 / 60_000.0;
-        session.last = now;
-        session.counted = now;
+        let session = self
+            .open
+            .entry(beat.book)
+            .or_insert_with(|| Session::new(now));
+        session.count(now);
+        session.from = now;
+        session.until = now + LATELY_MS;
+        session.heard = session.heard.max(now);
         session.chapter = beat.chapter;
         session.chapter_id = beat.chapter_id;
         session.position = beat.position;
@@ -144,25 +180,40 @@ impl Sittings {
         ended
     }
 
-    /// The reader was not being read for a while (the window was not the one in use, or another
-    /// page was shown) and is again: the time in between is not counted. The sitting still ends
-    /// on its six quiet minutes, counted from its last report.
-    pub fn resume(&mut self, now: i64) {
+    /// The reader was put away (the window is not the one in use, or another page is shown): the
+    /// time up to now counts, the time from now on does not. The six quiet minutes run from now.
+    pub fn pause(&mut self, now: i64) {
         for session in self.open.values_mut() {
-            session.counted = now;
+            session.count(now);
+            session.until = session.until.min(now);
         }
     }
 
-    /// Ends the book's sitting.
-    pub fn end(&mut self, book: &str) -> Option<Ended> {
-        self.open.remove(book).and_then(|s| s.end(book.to_owned()))
+    /// The reader was taken up again: that is the learner doing something, so time counts again
+    /// from now, as after a report. The time away is not counted, and a sitting already quiet for
+    /// six minutes stays over.
+    pub fn resume(&mut self, now: i64) {
+        for session in self.open.values_mut().filter(|s| !s.stale(now)) {
+            session.from = session.from.max(now);
+            session.until = now + LATELY_MS;
+        }
+    }
+
+    /// Ends the book's sitting, counting up to `now`.
+    pub fn end(&mut self, book: &str, now: i64) -> Option<Ended> {
+        self.open
+            .remove(book)
+            .and_then(|s| s.end(book.to_owned(), now))
     }
 
     /// Ends every sitting (the vault is being closed, or the app is quitting).
-    pub fn end_all(&mut self) -> Vec<Ended> {
+    pub fn end_all(&mut self, now: i64) -> Vec<Ended> {
         let mut books: Vec<String> = self.open.keys().cloned().collect();
         books.sort();
-        books.into_iter().filter_map(|b| self.end(&b)).collect()
+        books
+            .into_iter()
+            .filter_map(|b| self.end(&b, now))
+            .collect()
     }
 
     /// Ends the sittings that were quiet for six minutes by `now`.
@@ -170,17 +221,20 @@ impl Sittings {
         let mut quiet: Vec<String> = self
             .open
             .iter()
-            .filter(|(_, s)| now - s.last >= QUIET_MS)
+            .filter(|(_, s)| now - s.until >= QUIET_MS)
             .map(|(book, _)| book.clone())
             .collect();
         quiet.sort();
-        quiet.into_iter().filter_map(|b| self.end(&b)).collect()
+        quiet
+            .into_iter()
+            .filter_map(|b| self.end(&b, now))
+            .collect()
     }
 
     /// When the next sitting goes quiet (ms since the epoch): the one moment to wake at; `None`
     /// when no sitting is open.
     pub fn next_deadline(&self) -> Option<i64> {
-        self.open.values().map(|s| s.last + QUIET_MS).min()
+        self.open.values().map(|s| s.until + QUIET_MS).min()
     }
 }
 
@@ -202,18 +256,35 @@ mod tests {
     }
 
     #[test]
-    fn each_report_counts_the_time_since_the_last_up_to_a_minute_and_a_half() {
+    fn a_pause_between_reports_counts_up_to_three_minutes() {
         let mut s = Sittings::new();
         assert_eq!(s.record(beat("a", "1", 3.0), START), None);
         for n in 1..=4 {
             assert_eq!(s.record(beat("a", "1", 3.0), START + n * 60 * SEC), None);
         }
         // Four minutes of reports a minute apart, then a pause of five minutes before the next:
-        // it counts a minute and a half, not five.
+        // it counts three minutes, not five.
         assert_eq!(s.record(beat("a", "1", 4.0), START + 9 * 60 * SEC), None);
-        let ended = s.end("a").unwrap();
-        assert_eq!(ended.minutes, 5.5);
+        let ended = s.end("a", START + 9 * 60 * SEC).unwrap();
+        assert_eq!(ended.minutes, 7.0);
         assert_eq!(ended.at, START + 9 * 60 * SEC);
+    }
+
+    #[test]
+    fn a_slow_page_after_the_last_report_counts_when_the_sitting_ends() {
+        let mut s = Sittings::new();
+        s.record(beat("a", "1", 3.0), START);
+        s.record(beat("a", "1", 3.0), START + 60 * SEC);
+        // Ended two minutes after the last report: both count.
+        let ended = s.end("a", START + 180 * SEC).unwrap();
+        assert_eq!(ended.minutes, 3.0);
+        assert_eq!(ended.at, START + 180 * SEC);
+        // Ended ten minutes after it: three count.
+        s.record(beat("a", "1", 3.0), START);
+        s.record(beat("a", "1", 3.0), START + 60 * SEC);
+        let ended = s.end("a", START + 660 * SEC).unwrap();
+        assert_eq!(ended.minutes, 4.0);
+        assert_eq!(ended.at, START + 60 * SEC + LATELY_MS);
     }
 
     #[test]
@@ -222,14 +293,14 @@ mod tests {
         s.record(beat("a", "3", 7.0), START);
         s.record(beat("a", "3", 7.5), START + 60 * SEC);
         s.record(beat("a", "3", 8.0), START + 120 * SEC);
-        let ended = s.end("a").unwrap();
+        let ended = s.end("a", START + 120 * SEC).unwrap();
         assert_eq!(ended.whole_minutes(), 2);
         assert_eq!(ended.position, Some(8.0));
         assert_eq!(ended.chapter_id.as_deref(), Some("3"));
         // Pages 7 and 8: 7.5 is page 7 again.
         assert_eq!(ended.pages, 2);
         assert_eq!(ended.text("Calculus"), "Read 2 min of Calculus (Chapter 3)");
-        assert_eq!(s.end("a"), None);
+        assert_eq!(s.end("a", START + 120 * SEC), None);
     }
 
     #[test]
@@ -237,7 +308,7 @@ mod tests {
         let mut s = Sittings::new();
         s.record(beat("a", "1", 1.0), START);
         s.record(beat("a", "1", 1.0), START + 59 * SEC);
-        assert_eq!(s.end("a"), None);
+        assert_eq!(s.end("a", START + 59 * SEC), None);
         assert_eq!(s.next_deadline(), None);
     }
 
@@ -266,54 +337,57 @@ mod tests {
     }
 
     #[test]
-    fn a_new_chapter_ends_the_sitting_and_starts_another_that_counts_nothing_for_the_gap() {
+    fn a_new_chapter_ends_the_sitting_with_the_time_up_to_it_and_starts_another() {
         let mut s = Sittings::new();
         s.record(beat("a", "1", 3.0), START);
         s.record(beat("a", "1", 3.0), START + 90 * SEC);
         s.record(beat("a", "1", 3.0), START + 180 * SEC);
         let ended = s.record(beat("a", "2", 20.0), START + 240 * SEC).unwrap();
-        assert_eq!(ended.minutes, 3.0);
+        assert_eq!(ended.minutes, 4.0);
         assert_eq!(ended.chapter_id.as_deref(), Some("1"));
         // The new sitting began at the chapter's first report.
         s.record(beat("a", "2", 20.0), START + 300 * SEC);
         s.record(beat("a", "2", 20.0), START + 360 * SEC);
-        let next = s.end("a").unwrap();
+        let next = s.end("a", START + 360 * SEC).unwrap();
         assert_eq!(next.minutes, 2.0);
         assert_eq!(next.chapter_id.as_deref(), Some("2"));
     }
 
     #[test]
-    fn a_report_after_more_than_six_quiet_minutes_starts_a_new_sitting() {
+    fn a_report_six_minutes_after_time_stopped_counting_starts_a_new_sitting() {
         let mut s = Sittings::new();
         s.record(beat("a", "1", 3.0), START);
         s.record(beat("a", "1", 3.0), START + 60 * SEC);
         s.record(beat("a", "1", 3.0), START + 120 * SEC);
-        // Exactly six minutes is not yet more than six.
-        assert_eq!(
-            s.record(beat("a", "1", 3.0), START + 120 * SEC + QUIET_MS),
-            None
-        );
-        let late = START + 120 * SEC + QUIET_MS + QUIET_MS + SEC;
+        // Time counted up to three minutes after the last report; exactly six quiet minutes after
+        // that is not yet more than six.
+        let next = START + 120 * SEC + LATELY_MS + QUIET_MS;
+        assert_eq!(s.record(beat("a", "1", 3.0), next), None);
+        let late = next + LATELY_MS + QUIET_MS + SEC;
         let ended = s.record(beat("a", "1", 4.0), late).unwrap();
-        assert_eq!(ended.minutes, 2.0 + 1.5);
-        // The pause counted a minute and a half in the first, and nothing in the second.
-        assert_eq!(s.end("a"), None);
+        // Two minutes of reports, then three after each of the two pauses.
+        assert_eq!(ended.minutes, 2.0 + 3.0 + 3.0);
+        assert_eq!(ended.at, next + LATELY_MS);
+        // The second pause counted nothing in the new sitting.
+        assert_eq!(s.end("a", late), None);
     }
 
     #[test]
-    fn the_sitting_goes_quiet_at_one_deadline_six_minutes_after_the_last_report() {
+    fn the_sitting_goes_quiet_at_one_deadline_six_minutes_after_time_stopped_counting() {
         let mut s = Sittings::new();
         assert_eq!(s.next_deadline(), None);
         s.record(beat("a", "1", 3.0), START);
         s.record(beat("a", "1", 3.0), START + 60 * SEC);
         s.record(beat("a", "1", 3.0), START + 120 * SEC);
-        assert_eq!(s.next_deadline(), Some(START + 120 * SEC + QUIET_MS));
-        // Before the deadline nothing ends; at it, the sitting does, with its time of last report.
-        assert!(s.expire(START + 120 * SEC + QUIET_MS - 1).is_empty());
-        let ended = s.expire(START + 120 * SEC + QUIET_MS);
+        let due = START + 120 * SEC + LATELY_MS + QUIET_MS;
+        assert_eq!(s.next_deadline(), Some(due));
+        // Before the deadline nothing ends; at it, the sitting does, with the three minutes after
+        // its last report.
+        assert!(s.expire(due - 1).is_empty());
+        let ended = s.expire(due);
         assert_eq!(ended.len(), 1);
-        assert_eq!(ended[0].at, START + 120 * SEC);
-        assert_eq!(ended[0].whole_minutes(), 2);
+        assert_eq!(ended[0].at, START + 120 * SEC + LATELY_MS);
+        assert_eq!(ended[0].whole_minutes(), 5);
         assert_eq!(s.next_deadline(), None);
     }
 
@@ -324,23 +398,58 @@ mod tests {
         s.record(beat("a", "1", 3.0), START + 60 * SEC);
         s.record(beat("b", "1", 3.0), START + 100 * SEC);
         s.record(beat("b", "1", 3.0), START + 160 * SEC);
-        assert_eq!(s.next_deadline(), Some(START + 60 * SEC + QUIET_MS));
-        let ended = s.expire(START + 60 * SEC + QUIET_MS);
+        assert_eq!(
+            s.next_deadline(),
+            Some(START + 60 * SEC + LATELY_MS + QUIET_MS)
+        );
+        let ended = s.expire(START + 60 * SEC + LATELY_MS + QUIET_MS);
         assert_eq!(ended.len(), 1);
         assert_eq!(ended[0].book, "a");
-        assert_eq!(s.next_deadline(), Some(START + 160 * SEC + QUIET_MS));
+        assert_eq!(
+            s.next_deadline(),
+            Some(START + 160 * SEC + LATELY_MS + QUIET_MS)
+        );
     }
 
     #[test]
-    fn time_while_nothing_was_being_read_is_not_counted_after_a_resume() {
+    fn time_while_the_reader_is_put_away_is_not_counted() {
         let mut s = Sittings::new();
         s.record(beat("a", "1", 3.0), START);
         s.record(beat("a", "1", 3.0), START + 60 * SEC);
-        // Away for five minutes, back, and a report half a minute later.
+        // Put away half a minute later: that half minute counts, and the quiet minutes run from
+        // then.
+        s.pause(START + 90 * SEC);
+        assert_eq!(s.next_deadline(), Some(START + 90 * SEC + QUIET_MS));
+        // Away for four and a half minutes, back, and a report half a minute later.
         s.resume(START + 360 * SEC);
         s.record(beat("a", "1", 3.0), START + 390 * SEC);
-        let ended = s.end("a").unwrap();
-        assert_eq!(ended.minutes, 1.5);
+        let ended = s.end("a", START + 390 * SEC).unwrap();
+        assert_eq!(ended.minutes, 2.0);
+    }
+
+    #[test]
+    fn taking_the_reader_up_again_counts_as_doing_something() {
+        let mut s = Sittings::new();
+        s.record(beat("a", "1", 3.0), START);
+        s.record(beat("a", "1", 3.0), START + 60 * SEC);
+        s.pause(START + 60 * SEC);
+        // Back after five minutes, and reading a page for two without a report.
+        s.resume(START + 360 * SEC);
+        let ended = s.end("a", START + 480 * SEC).unwrap();
+        assert_eq!(ended.minutes, 3.0);
+    }
+
+    #[test]
+    fn a_sitting_quiet_for_six_minutes_while_away_stays_over() {
+        let mut s = Sittings::new();
+        s.record(beat("a", "1", 3.0), START);
+        s.record(beat("a", "1", 3.0), START + 60 * SEC);
+        s.pause(START + 60 * SEC);
+        let back = START + 60 * SEC + QUIET_MS + SEC;
+        s.resume(back);
+        let ended = s.expire(back);
+        assert_eq!(ended.len(), 1);
+        assert_eq!(ended[0].minutes, 1.0);
     }
 
     #[test]
@@ -350,11 +459,11 @@ mod tests {
             s.record(beat(book, "1", 3.0), START + start * SEC);
             s.record(beat(book, "1", 3.0), START + (start + 60) * SEC);
         }
-        s.record(beat("short", "1", 3.0), START);
-        let all = s.end_all();
+        s.record(beat("short", "1", 3.0), START + 70 * SEC);
+        let all = s.end_all(START + 70 * SEC);
         let books: Vec<_> = all.iter().map(|e| e.book.as_str()).collect();
         assert_eq!(books, ["a", "b"]);
-        assert!(s.end_all().is_empty());
+        assert!(s.end_all(START + 70 * SEC).is_empty());
         assert_eq!(s.next_deadline(), None);
     }
 
@@ -366,7 +475,7 @@ mod tests {
         s.record(first, START);
         s.record(beat("a", "1", 2.0), START - 5 * SEC);
         s.record(beat("a", "1", 2.0), START + 60 * SEC);
-        let ended = s.end("a").unwrap();
+        let ended = s.end("a", START + 60 * SEC).unwrap();
         assert_eq!(ended.pages, 1);
         assert!((ended.minutes - (1.0 + 5.0 / 60.0)).abs() < 1e-9);
     }

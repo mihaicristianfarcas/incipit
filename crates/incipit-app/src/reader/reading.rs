@@ -5,8 +5,9 @@
 //! (it was scrolled, a place was jumped to, something was selected, the window became active or
 //! inactive), and the one timer that exists is set for the moment a sitting goes quiet.
 //!
-//! The sittings' rules (the cap on each report, the six quiet minutes, the chapter) are in
-//! `incipit_learn::sittings`; the lines they make are in `crate::activity`.
+//! The sittings' rules (the three minutes after the learner last did something, the six quiet
+//! minutes, the chapter) are in `incipit_learn::sittings`; the lines they make are in
+//! `crate::activity`.
 
 use std::time::Duration;
 
@@ -81,31 +82,30 @@ impl ReaderView {
         if shown == self.reading.shown {
             return;
         }
-        self.in_use_by(|reading| reading.shown = shown, shown, cx);
+        self.in_use_by(|reading| reading.shown = shown, cx);
     }
 
     fn in_use(&mut self, active: bool, cx: &mut Context<Self>) {
         if active == self.reading.window_active {
             return;
         }
-        self.in_use_by(|reading| reading.window_active = active, active, cx);
+        self.in_use_by(|reading| reading.window_active = active, cx);
     }
 
-    /// Reading stops or starts. When it stops, the time since the last report counts (as one
-    /// more report would); when it starts, the time away does not.
-    fn in_use_by(
-        &mut self,
-        change: impl FnOnce(&mut Reading),
-        now_reading: bool,
-        cx: &mut Context<Self>,
-    ) {
-        if !now_reading {
-            self.report(cx);
-        }
+    /// Reading stops or starts. When it stops, the time up to now counts and the time away does
+    /// not; when it starts again, that counts as the learner doing something.
+    fn in_use_by(&mut self, change: impl FnOnce(&mut Reading), cx: &mut Context<Self>) {
+        let was = self.reading.watching();
         change(&mut self.reading);
-        if now_reading && self.reading.watching() {
+        let is = self.reading.watching();
+        if was && !is {
+            self.reading.sittings.pause(now());
+        } else if !was && is {
             self.reading.sittings.resume(now());
+        } else {
+            return;
         }
+        self.wake_when_quiet(cx);
     }
 
     /// Where the reading line is, as a place in the book (see `place`): `None` when no book is
@@ -203,7 +203,7 @@ impl ReaderView {
 
     /// Ends every sitting and writes them: the vault is being closed, or the app is quitting.
     pub fn end_sittings(&mut self, cx: &mut Context<Self>) {
-        let ended = self.reading.sittings.end_all();
+        let ended = self.reading.sittings.end_all(now());
         self.write(ended);
         self.reading.vault = None;
         self.reading.quiet = None;

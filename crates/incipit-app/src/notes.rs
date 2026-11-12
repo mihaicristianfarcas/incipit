@@ -188,6 +188,11 @@ impl NotesView {
         cx.notify();
     }
 
+    /// The note that is open, if any.
+    pub fn open_note(&self) -> Option<DocId> {
+        self.open.clone()
+    }
+
     /// Open a note, saving the one that was open.
     pub fn select(&mut self, id: DocId, cx: &mut Context<Self>) {
         self.save(cx);

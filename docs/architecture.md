@@ -193,8 +193,12 @@ the vault of its own (`agent/run.rs`, `Vault::agent_copy`): a jj workspace
 in the app's own folder, outside the vault, made from the latest closed
 change after the learner's pending work is closed. The agent writes there
 only, never in `.jj`, and reads the vault; the app adds no other way in or
-out. Its instructions are a constant; the learner's words are the request;
-what it reads in the files is material. One request is one entry in the
+out. Its instructions are a constant (`agent/prompt.rs`); the learner's words
+are the request; where the learner is (the page, the note or concept open,
+the book with its chapter and page, the selection: `agent/here.rs`) and what
+it reads in the files are material. It ends with a reply in JSON: what it
+did or the answer, and the main file it made or changed, which the sheet
+offers to open. One request is one entry in the
 history, holding the agent's work alone: when the agent ends, its change
 is checked (`incipit_vault::checks`) and lands after whatever the learner
 wrote meanwhile (`Vault::land`), or not at all if it changes the app's own

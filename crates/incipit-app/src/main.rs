@@ -55,6 +55,22 @@ enum Page {
     Settings,
 }
 
+impl Page {
+    /// The page by the earlier app's name for it, for the agent (`agent::here`): none for the
+    /// reader, which says where in the book instead, and for pages the earlier app did not have.
+    fn agent_name(self) -> Option<&'static str> {
+        match self {
+            Page::Today => Some(""),
+            Page::Library => Some("library"),
+            Page::Notes => Some("notes"),
+            Page::Review => Some("review"),
+            Page::Brain => Some("brain"),
+            Page::Settings => Some("settings"),
+            Page::Reader | Page::Math | Page::Figure => None,
+        }
+    }
+}
+
 const PAGES: [(Page, &str, &str, IconName); 9] = [
     (Page::Today, "nav-today", "Today", IconName::Clock),
     (Page::Library, "nav-library", "Library", IconName::Display),
@@ -74,6 +90,7 @@ const PAGES: [(Page, &str, &str, IconName); 9] = [
 
 struct Root {
     page: Page,
+    workspace: Entity<workspace::Workspace>,
     glide: Glide,
     figure: Entity<figure::FigureView>,
     math: Entity<math::MathView>,
@@ -253,6 +270,11 @@ impl Root {
             cx.notify();
         })
         .detach();
+        cx.subscribe(&agent, |this: &mut Self, _, open: &agent::OpenFile, cx| {
+            this.open_file(&open.0, cx);
+            cx.notify();
+        })
+        .detach();
         // INCIPIT_AGENT=demo, review or refused shows a made-up run; other words are run for
         // real.
         let acting = match std::env::var("INCIPIT_AGENT") {
@@ -261,12 +283,17 @@ impl Root {
                     which @ ("demo" | "review" | "refused") => agent.show_demo(which, cx),
                     _ => agent.run_words(&words, cx),
                 });
-                agent.update(cx, |agent, cx| agent.start(window, cx));
+                let here = agent::here::Here {
+                    page: page.agent_name(),
+                    ..Default::default()
+                };
+                agent.update(cx, |agent, cx| agent.start(here, window, cx));
                 true
             }
             _ => false,
         };
         Root {
+            workspace: workspace.clone(),
             find,
             finding: false,
             agent,
@@ -352,12 +379,46 @@ impl Root {
         cx.notify();
     }
 
-    /// Open the agent's sheet: empty, or on the run that is going on or ended last.
+    /// Open the agent's sheet: empty, or on the run that is going on or ended last. It is told
+    /// where the learner is: the page, the note or concept open on it, the book and the place
+    /// in it, and the selection.
     fn act(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.finding = false;
         self.acting = true;
-        self.agent.update(cx, |agent, cx| agent.start(window, cx));
+        let mut here = agent::here::Here {
+            page: self.page.agent_name(),
+            ..Default::default()
+        };
+        match self.page {
+            Page::Notes => here.doc = self.notes.read(cx).open_note(),
+            Page::Brain => here.doc = self.brain.read(cx).concept_shown(),
+            Page::Reader => (here.book, here.selection) = self.reader.read(cx).here(),
+            _ => {}
+        }
+        self.agent
+            .update(cx, |agent, cx| agent.start(here, window, cx));
         cx.notify();
+    }
+
+    /// Shows the file a reply of the agent names: the document there, or for a file of a
+    /// book's folder that is not one, the book.
+    fn open_file(&mut self, path: &str, cx: &mut Context<Self>) {
+        let Some(vault) = self.workspace.read(cx).vault.clone() else {
+            return;
+        };
+        let at = |path: &str| {
+            incipit_vault::VaultPath::new(path)
+                .ok()
+                .and_then(|path| vault.at(&path))
+        };
+        let book = || match path.split('/').collect::<Vec<_>>().as_slice() {
+            ["library", folder, ..] => at(&format!("library/{folder}/book.md")),
+            _ => None,
+        };
+        if let Some(doc) = at(path).or_else(book) {
+            self.acting = false;
+            self.open(doc.kind(), doc.id(), cx);
+        }
     }
 
     fn sidebar(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {

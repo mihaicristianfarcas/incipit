@@ -298,6 +298,14 @@ impl BrainView {
         cx.notify();
     }
 
+    /// The concept whose page is shown, if one is.
+    pub fn concept_shown(&self) -> Option<DocId> {
+        match &self.shown {
+            Shown::Concept(id) => Some(id.clone()),
+            Shown::Graph | Shown::List => None,
+        }
+    }
+
     /// Opens a concept's page; its back button goes to what the page showed before.
     pub fn show_concept(&mut self, id: DocId, cx: &mut Context<Self>) {
         if !matches!(self.shown, Shown::Concept(_)) {

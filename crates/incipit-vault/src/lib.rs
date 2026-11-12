@@ -44,7 +44,7 @@ pub use history::{FileChange, FileStatus, History, Operation, Snapshot, Version,
 pub use kind::Kind;
 pub use known::{KnownVault, KnownVaults};
 pub use links::{Link, LinkStyle};
-pub use logs::{Log, Review, REVIEWS};
+pub use logs::{AgentRun, Log, Review, RunStatus, AGENTS, REVIEWS};
 pub use path::VaultPath;
 pub use search::{Hit, SearchIndex};
 pub use store::{AgentCopy, Problem, Vault, APP_FOLDER};

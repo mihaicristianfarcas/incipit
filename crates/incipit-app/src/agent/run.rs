@@ -46,25 +46,8 @@ pub struct Job {
     pub task: String,
 }
 
-/// How a run ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Status {
-    /// It changed nothing.
-    Done,
-    /// Its change is in the vault.
-    Merged,
-    /// Its change waits for the learner's OK: files it changed can no longer be read.
-    Review,
-    /// The learner turned down a change that waited for their OK.
-    Discarded,
-    /// Nothing of it reached the vault, with why.
-    Failed,
-    /// The learner stopped it before it ended, and nothing of it reached the vault. The earlier
-    /// app has no Stop: a run cut short there failed.
-    Stopped,
-    /// Its change was taken out again.
-    Undone,
-}
+/// How a run stands, as its log has it. An outcome is never `Running`.
+pub use incipit_vault::RunStatus as Status;
 
 /// What became of a run once the agent ended.
 #[derive(Clone, Debug, PartialEq)]
@@ -78,6 +61,8 @@ pub struct Outcome {
     pub files: Vec<FileChange>,
     /// Its change in the vault's history, by change id: what Undo takes out.
     pub change: Option<String>,
+    /// That change's commit, the exact state it was in (kept when it did not land, too).
+    pub commit: Option<String>,
     /// Why it failed, in words for the learner.
     pub error: Option<String>,
     /// What waits for the learner's OK, a line per file.
@@ -93,6 +78,7 @@ impl Outcome {
             open: None,
             files: Vec::new(),
             change: None,
+            commit: None,
             error: None,
             review: Vec::new(),
         }
@@ -105,6 +91,7 @@ impl Outcome {
             open: None,
             files,
             change: None,
+            commit: None,
             error: Some(error),
             review: Vec::new(),
         }
@@ -213,6 +200,7 @@ pub fn execute(
             open: existing,
             files: Vec::new(),
             change: None,
+            commit: None,
             error: None,
             review: Vec::new(),
         };
@@ -222,6 +210,7 @@ pub fn execute(
         let error = problems.iter().map(Problem::to_string).collect::<Vec<_>>();
         return Outcome {
             open,
+            commit: Some(change.commit),
             ..Outcome::failed(error.join("; "), answer, change.files)
         };
     }
@@ -232,6 +221,7 @@ pub fn execute(
             open,
             files: change.files,
             change: Some(change.change),
+            commit: Some(change.commit),
             error: None,
             review: needs_review(&problems),
         };
@@ -242,6 +232,7 @@ pub fn execute(
         open,
         files: change.files,
         change: Some(change.change),
+        commit: Some(change.commit),
         error: None,
         review: Vec::new(),
     };
@@ -255,6 +246,7 @@ fn bring_in(vault: &Vault, task: &str, waiting: Outcome, change: &str) -> Outcom
         answer,
         open,
         files,
+        commit,
         ..
     } = waiting;
     match vault.land(change) {
@@ -269,6 +261,7 @@ fn bring_in(vault: &Vault, task: &str, waiting: Outcome, change: &str) -> Outcom
                 open,
                 files: landed.files,
                 change: Some(landed.change),
+                commit: Some(landed.commit),
                 error: None,
                 review: Vec::new(),
             }
@@ -293,6 +286,7 @@ fn bring_in(vault: &Vault, task: &str, waiting: Outcome, change: &str) -> Outcom
             };
             Outcome {
                 open,
+                commit,
                 ..Outcome::failed(error, answer, files)
             }
         }

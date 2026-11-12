@@ -16,6 +16,8 @@ library/<book>/book.md       a book's record, beside the book's own file
 library/<book>/annotations/  highlights, notes and answers on passages
 library/<book>/sessions/     conversations with the tutor about the book
 log/reviews.jsonl            one line per flashcard review
+log/activity.jsonl           one line per thing the learner did
+log/quizzes.jsonl            one line per quiz finished
 .jj/                         the history
 .incipit/                    generated indexes and caches; safe to delete
 .trash/                      what was deleted
@@ -126,6 +128,33 @@ A line of `log/reviews.jsonl` is one review of a card:
 
 The earlier app wrote the time as `ts`, in milliseconds; its review logs
 are not read.
+
+A line of `log/activity.jsonl` is one thing the learner did, with the earlier
+app's fields:
+
+| Field | |
+|---|---|
+| `at` | when, as an RFC 3339 time |
+| `type` | `read`, `review`, `note`, `highlight`, `card`, `figure`, `quiz`, `explain`, `connect`, `ask`, `concept`, `book` or `pause` |
+| `bookId` | the book it was about; left out when none |
+| `concepts` | the ids of the concepts it was about; left out when none |
+| `text` | a short summary in plain words ("Read 24 min of Calculus Made Easy (Chapter III)") |
+| `data` | more, by type; left out when none |
+
+A `read` line is one sitting with a book: its `data` has `minutes`,
+`chapter`, `chapterId`, `position` and `pages`. A sitting is time spent
+with the book open and the reader active, at most a minute and a half
+for each thing the learner does (scrolling, turning a page, selecting);
+it ends after six quiet minutes, when the chapter changes, when the
+vault is closed or when the app quits, and is written only if it lasted
+a minute or more. `position` says where the sitting ended: a PDF's page
+(from 1) plus how far down it, any other book's block (from 0) plus how
+far into it. Progress and the finish estimate are worked out from these
+lines (`incipit-learn`'s `progress`). The earlier app's `ts` lines are
+not read.
+
+A line of `log/quizzes.jsonl` is one quiz finished: `at` (RFC 3339),
+`book`, `part` (the page or block the quiz was on), `right` and `of`.
 
 ## Changes
 

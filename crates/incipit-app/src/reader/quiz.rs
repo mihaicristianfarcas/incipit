@@ -202,7 +202,7 @@ impl ReaderView {
         picked.push(answer);
         if picked.len() == questions.len() {
             let line = json!({
-                "at": crate::study::now(),
+                "at": incipit_vault::rfc3339(crate::study::now()),
                 "book": self.book.as_ref().and_then(|b| b.id.as_ref()).map(|id| id.as_str()),
                 "part": self.quiz_on,
                 "right": right_among(questions, picked),

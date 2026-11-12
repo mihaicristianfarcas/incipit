@@ -7,13 +7,17 @@
 //! in review, rated Good or Easy at least a day after its last review, credits the cards on the
 //! concepts its own concepts build on directly (`concepts::ties::foundations`). This is the
 //! earlier app's rule, replayed the same way from the log and applied to a rating made now.
+//!
+//! A card known for weeks is now and then asked a new way (`incipit_learn::new_way`): the log
+//! says which reviews were, and the deck remembers for each card whether its last one was.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use incipit_learn::schedule::CREDIT_SHARE;
 use incipit_learn::{
-    build_queue, credit, new_today, preview, schedule, streaks, today_counts, Candidate, Params,
-    Preview, Queue, QueueOptions, Rating, State, Streaks, TodayCounts, Zone, DAY_MS,
+    asks_new_way, build_queue, credit, new_today, preview, schedule, streaks, today_counts,
+    Candidate, Params, Preview, Queue, QueueOptions, Rating, State, Streaks, TodayCounts, Zone,
+    DAY_MS,
 };
 use incipit_vault::{Card, Doc, DocId, Kind, Review, Vault, REVIEWS};
 
@@ -49,6 +53,8 @@ pub struct Deck {
     foundations: HashMap<DocId, Vec<DocId>>,
     /// When each card was last credited.
     credited: HashMap<DocId, i64>,
+    /// The cards whose last review asked them a new way.
+    new_way_last: HashSet<DocId>,
 }
 
 /// Milliseconds since the epoch of an RFC 3339 time; `None` when it is not one.
@@ -129,14 +135,37 @@ impl Deck {
             params,
             foundations: foundations(ties),
             credited: HashMap::new(),
+            new_way_last: HashSet::new(),
         };
         for (at, review) in reviews {
             let (Some(id), Some(rating)) = (by_id.get(&review.card), rating(review.rating)) else {
                 continue;
             };
             deck.apply(id, rating, at);
+            deck.asked(id, review.variant);
         }
         deck
+    }
+
+    /// Notes how a card's latest review asked it: a new way, or by its face.
+    fn asked(&mut self, id: &DocId, new_way: bool) {
+        if new_way {
+            self.new_way_last.insert(id.clone());
+        } else {
+            self.new_way_last.remove(id);
+        }
+    }
+
+    /// Whether the card's next review asks it a new way: known for weeks, with an answer, and
+    /// shown by its face the last time.
+    pub fn asks_new_way(&self, id: &DocId) -> bool {
+        self.cards.get(id).is_some_and(|entry| {
+            asks_new_way(
+                &entry.state,
+                !entry.card.back.trim().is_empty(),
+                self.new_way_last.contains(id),
+            )
+        })
     }
 
     /// One rating, replayed from the log or made now: the card's new schedule, and part of a
@@ -228,7 +257,7 @@ impl Deck {
         Some(preview(&self.cards.get(id)?.state, now, &self.params))
     }
 
-    /// Rate a card: one line in the vault's log, and its new schedule here.
+    /// Rate a card shown by its face: one line in the vault's log, and its new schedule here.
     pub fn rate(
         &mut self,
         vault: &Vault,
@@ -236,6 +265,31 @@ impl Deck {
         rating: Rating,
         now: i64,
         took: Option<f64>,
+    ) -> Result<(), String> {
+        self.record(vault, id, rating, now, took, false)
+    }
+
+    /// Rate a card that was asked a new way. The rating counts for the card as usual, and the
+    /// log's line says how it was asked.
+    pub fn rate_new_way(
+        &mut self,
+        vault: &Vault,
+        id: &DocId,
+        rating: Rating,
+        now: i64,
+        took: Option<f64>,
+    ) -> Result<(), String> {
+        self.record(vault, id, rating, now, took, true)
+    }
+
+    fn record(
+        &mut self,
+        vault: &Vault,
+        id: &DocId,
+        rating: Rating,
+        now: i64,
+        took: Option<f64>,
+        new_way: bool,
     ) -> Result<(), String> {
         if !self.cards.contains_key(id) {
             return Err("the card is gone".into());
@@ -249,12 +303,13 @@ impl Deck {
             at,
             rating: number,
             took,
-            variant: false,
+            variant: new_way,
         };
         vault
             .append_log(REVIEWS, &line)
             .map_err(|e| e.to_string())?;
         self.apply(id, rating, now);
+        self.asked(id, new_way);
         Ok(())
     }
 }
@@ -461,6 +516,58 @@ mod tests {
         deck.rate(&vault, &first, Rating::Good, start + 3_600_000, None)
             .unwrap();
         assert_eq!(deck.get(&limit).unwrap().state, known);
+    }
+
+    #[test]
+    fn a_card_known_for_weeks_is_asked_a_new_way_every_other_review() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let card = add_card(&vault, "2 + 2", "4").unwrap();
+        let id = card.id().clone();
+        let mut deck = Deck::load(&vault);
+        assert!(!deck.asks_new_way(&id));
+        // Easy, each time it is due, until it is known for weeks.
+        let mut at = now() - 400 * DAY;
+        for _ in 0..8 {
+            deck.rate(&vault, &id, Rating::Easy, at, None).unwrap();
+            at = deck.get(&id).unwrap().state().due.max(at + DAY);
+            if deck.asks_new_way(&id) {
+                break;
+            }
+        }
+        assert!(deck.get(&id).unwrap().state().stability >= incipit_learn::KNOWN_DAYS);
+        assert!(deck.asks_new_way(&id));
+        // Asked a new way, the rating counts for the card and the next review shows its face.
+        let reps = deck.get(&id).unwrap().state().reps;
+        deck.rate_new_way(&vault, &id, Rating::Good, at, None)
+            .unwrap();
+        assert_eq!(deck.get(&id).unwrap().state().reps, reps + 1);
+        assert!(!deck.asks_new_way(&id));
+        // It is in the log, so reading the vault again says the same.
+        assert!(!Deck::load(&vault).asks_new_way(&id));
+        let log = vault.read_log::<Review>(REVIEWS).unwrap().entries;
+        assert_eq!(log.iter().filter(|line| line.variant).count(), 1);
+        // Shown by its face, the review after asks a new way again.
+        let at = deck.get(&id).unwrap().state().due;
+        deck.rate(&vault, &id, Rating::Good, at, None).unwrap();
+        assert!(deck.asks_new_way(&id));
+        assert!(Deck::load(&vault).asks_new_way(&id));
+    }
+
+    #[test]
+    fn a_card_without_an_answer_is_never_asked_a_new_way() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let card = add_card(&vault, "Only a front", " ").unwrap();
+        let id = card.id().clone();
+        let mut deck = Deck::load(&vault);
+        let mut at = now() - 400 * DAY;
+        for _ in 0..8 {
+            deck.rate(&vault, &id, Rating::Easy, at, None).unwrap();
+            at = deck.get(&id).unwrap().state().due.max(at + DAY);
+        }
+        assert!(deck.get(&id).unwrap().state().stability >= incipit_learn::KNOWN_DAYS);
+        assert!(!deck.asks_new_way(&id));
     }
 
     #[test]

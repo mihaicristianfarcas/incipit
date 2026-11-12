@@ -16,6 +16,7 @@ mod find;
 mod library;
 mod math;
 mod models;
+mod new_way;
 mod notes;
 mod reader;
 mod review;
@@ -260,7 +261,7 @@ impl Root {
             figure,
             math: cx.new(math::MathView::new),
             notes,
-            review: cx.new(|cx| review::ReviewView::new(workspace.clone(), cx)),
+            review: cx.new(|cx| review::ReviewView::new(workspace.clone(), models.clone(), cx)),
             reader,
             settings,
             library,

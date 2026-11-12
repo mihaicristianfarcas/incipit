@@ -368,6 +368,7 @@ impl ReaderView {
             // A session comes back as the card that opens it; one without a turn has nothing to
             // open.
             let turns = session::turns_of(&doc);
+            let mode = session::mode_of(&doc);
             if doc.kind() == Kind::Session && turns.is_empty() {
                 continue;
             }
@@ -410,6 +411,7 @@ impl ReaderView {
                 asked,
                 figure,
                 turns,
+                mode,
                 ..Note::default()
             });
         }

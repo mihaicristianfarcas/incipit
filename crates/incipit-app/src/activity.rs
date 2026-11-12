@@ -176,7 +176,13 @@ pub fn concepts_mapped(at: i64, book: &str, chapter: &str, concepts: &[&str]) ->
 
 /// A note was written.
 pub fn note_written(at: i64, book: Option<&str>, title: &str) -> Activity {
-    let entry = Activity::new(ActivityType::Note, at, format!("Wrote: {title}"));
+    note_about(at, book, title, &[])
+}
+
+/// A note was written about concepts (their ids).
+pub fn note_about(at: i64, book: Option<&str>, title: &str, concepts: &[String]) -> Activity {
+    let entry = Activity::new(ActivityType::Note, at, format!("Wrote: {title}"))
+        .concepts(concepts.iter().cloned());
     match book {
         Some(book) => entry.book(book),
         None => entry,

@@ -12,6 +12,7 @@
 //! plain channels, so a window, a phone app or a command line can drive it the same way. The
 //! layout on disk and the decisions behind it are in `docs/vault.md`.
 
+pub mod activity;
 pub mod doc;
 pub mod error;
 pub mod events;
@@ -30,6 +31,7 @@ mod store;
 pub mod value;
 mod watch;
 
+pub use activity::{rfc3339, Activity, ActivityType, ACTIVITY};
 pub use doc::{Doc, DocId};
 pub use error::{Error, Result};
 pub use events::{Change, Event, Origin};

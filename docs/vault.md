@@ -51,6 +51,9 @@ updated: 2026-11-10T09:12:00Z
   `## Front` and `## Back`, a session's `## You` and `## Tutor` turns, a
   figure's fenced `figure` block, an annotation's passage as a
   `> [!quote]` callout above the answer.
+- In a card's text, `{{words in two braces}}` are a cloze: review shows a
+  blank in their place until the answer is shown. Braces in code, in
+  `$math$` and in a link's own words are left as written.
 
 ## A concept
 

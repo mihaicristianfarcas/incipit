@@ -38,7 +38,7 @@ pub use focus::{
     ringed, scroll_areas, scroll_into_view, scrollbar, scrolled,
 };
 pub use icon::{icon, Assets, Icon, IconName, IconSize};
-pub use markdown::markdown;
+pub use markdown::{markdown, markdown_cloze, Cloze};
 pub use motion::{ease, fade_in, Fade, Glide, Grow, FADE, RESIZE};
 pub use text_field::{field, Field, FieldEvent, TextField};
 pub use theme::{hex, rgba, Ink, Layer, Metrics, Radius, Theme, Type};

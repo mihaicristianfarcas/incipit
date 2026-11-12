@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use crate::card::{Card, Review, State};
+use crate::day::{day_number, day_start, Zone};
 use crate::{DAY_MS, MINUTE_MS};
 
 /// How far ahead a card in short steps is shown, so waiting for the next step is not idle time.
@@ -30,7 +31,7 @@ pub struct QueueOptions {
     pub now: i64,
     /// New cards allowed in a day.
     pub new_per_day: usize,
-    /// New cards already introduced today (see [`today_counts`]).
+    /// New cards already introduced today (see [`new_today`]).
     pub new_today: usize,
     /// The most cards to return.
     pub limit: usize,
@@ -127,34 +128,40 @@ pub struct TodayCounts {
     pub due_now: usize,
     /// New cards that can still be introduced today.
     pub new_available: usize,
-    /// Reviews logged today.
+    /// Reviews logged today: on the learner's day that `now` belongs to.
     pub done_today: usize,
-    /// Cards introduced today (first review today): the input for `QueueOptions::new_today`.
+    /// Cards introduced today (first review since the day began): the input for
+    /// `QueueOptions::new_today`.
     pub new_introduced_today: usize,
 }
 
-/// The day number (days since the epoch) at `time` in a timezone `tz_offset_minutes` east of UTC.
-pub fn day_number(time: i64, tz_offset_minutes: i32) -> i64 {
-    (time + i64::from(tz_offset_minutes) * MINUTE_MS).div_euclid(DAY_MS)
+/// How many cards were introduced today: reviews of a card that was new, made since the
+/// learner's day began ([`day_start`]). What [`QueueOptions::new_today`] takes.
+pub fn new_today(log: &[Review], now: i64, zone: &impl Zone) -> usize {
+    let began = day_start(now, zone);
+    log.iter()
+        .filter(|r| r.state_before == State::New && r.time >= began)
+        .count()
 }
 
-/// Counts for the Today page, from the queue built for it and the review log.
+/// Counts for the Today page, from the queue built for it and the review log. The day is the
+/// learner's ([`crate::day`]): it starts at 4 am on their clock, and each review is placed by
+/// the clock of its own time.
 pub fn today_counts<K>(
     queue: &Queue<K>,
     log: &[Review],
     now: i64,
-    tz_offset_minutes: i32,
+    zone: &impl Zone,
 ) -> TodayCounts {
-    let today = day_number(now, tz_offset_minutes);
-    let mine = || {
-        log.iter()
-            .filter(|r| day_number(r.time, tz_offset_minutes) == today)
-    };
+    let today = day_number(now, zone);
     TodayCounts {
         due_now: queue.learning + queue.due,
         new_available: queue.new,
-        done_today: mine().count(),
-        new_introduced_today: mine().filter(|r| r.state_before == State::New).count(),
+        done_today: log
+            .iter()
+            .filter(|r| day_number(r.time, zone) == today)
+            .count(),
+        new_introduced_today: new_today(log, now, zone),
     }
 }
 
@@ -300,25 +307,48 @@ mod tests {
         }
     }
 
-    #[test]
-    fn today_counts_use_the_learners_local_day() {
-        // 23:30 UTC on day 99 is 01:30 on day 100 in UTC+2, so it counts as today there only.
-        let late_last_night = 99 * DAY_MS + 23 * 60 * MINUTE_MS + 30 * MINUTE_MS;
-        let log = [
-            log_entry(late_last_night, State::New),
-            log_entry(NOW + 3_600_000, State::New),
-            log_entry(NOW + 7_200_000, State::Review),
-        ];
+    const HOUR: i64 = 60 * MINUTE_MS;
+
+    fn counted(log: &[Review], now: i64, zone: &impl Zone) -> (usize, usize) {
         let q: Queue<u8> = Queue {
             cards: vec![],
             learning: 2,
             due: 3,
             new: 4,
         };
-        let utc = today_counts(&q, &log, NOW + 8_000_000, 0);
-        assert_eq!((utc.done_today, utc.new_introduced_today), (2, 1));
-        let east = today_counts(&q, &log, NOW + 8_000_000, 120);
-        assert_eq!((east.done_today, east.new_introduced_today), (3, 2));
-        assert_eq!((east.due_now, east.new_available), (5, 4));
+        let counts = today_counts(&q, log, now, zone);
+        assert_eq!((counts.due_now, counts.new_available), (5, 4));
+        (counts.done_today, counts.new_introduced_today)
+    }
+
+    #[test]
+    fn today_counts_use_the_learners_local_day() {
+        use crate::day::Fixed;
+        // 03:30 UTC on day 100 is before the day starts in UTC, and 05:30, after it, two hours
+        // east: it counts as today there only.
+        let log = [
+            log_entry(NOW + 3 * HOUR + 30 * MINUTE_MS, State::New),
+            log_entry(NOW + 5 * HOUR, State::New),
+            log_entry(NOW + 7 * HOUR, State::Review),
+        ];
+        assert_eq!(counted(&log, NOW + 8 * HOUR, &Fixed(0)), (2, 1));
+        assert_eq!(counted(&log, NOW + 8 * HOUR, &Fixed(120)), (3, 2));
+    }
+
+    #[test]
+    fn a_session_after_midnight_counts_for_the_night_before() {
+        use crate::day::Fixed;
+        // A card introduced at 23:00, another at 01:00 and a review at 02:00: at 02:30 all three
+        // are today's, and at 05:00 the same morning none is.
+        let log = [
+            log_entry(NOW - HOUR, State::New),
+            log_entry(NOW + HOUR, State::New),
+            log_entry(NOW + 2 * HOUR, State::Review),
+        ];
+        assert_eq!(
+            counted(&log, NOW + 2 * HOUR + 30 * MINUTE_MS, &Fixed(0)),
+            (3, 2)
+        );
+        assert_eq!(counted(&log, NOW + 5 * HOUR, &Fixed(0)), (0, 0));
     }
 }

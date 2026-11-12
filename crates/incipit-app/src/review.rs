@@ -14,7 +14,7 @@ use incipit_learn::{format_interval, Rating};
 use incipit_ui::{button, card, field, markdown, page, FieldEvent, TextField, Theme, Type};
 use incipit_vault::{DocId, Kind, Vault};
 
-use crate::study::{add_card, now, timezone, Deck};
+use crate::study::{add_card, now, Deck, Local};
 use crate::workspace::{Happened, Workspace};
 
 pub struct ReviewView {
@@ -88,7 +88,7 @@ impl ReviewView {
         self.queue = self
             .deck
             .as_ref()
-            .map(|deck| deck.queue(now(), timezone()).cards)
+            .map(|deck| deck.queue(now(), &Local).cards)
             .unwrap_or_default();
         if let Some(position) = on_screen.and_then(|id| self.queue.iter().position(|q| *q == id)) {
             self.queue.swap(0, position);
@@ -116,7 +116,7 @@ impl ReviewView {
                 self.problem = None;
                 self.done += 1;
                 // What is due is asked again: a card rated Again comes back in this sitting.
-                self.queue = deck.queue(now(), timezone()).cards;
+                self.queue = deck.queue(now(), &Local).cards;
                 self.revealed = false;
                 self.shown = Instant::now();
             }
@@ -168,8 +168,8 @@ impl ReviewView {
 
     /// What is left today and the streak, in one quiet line.
     fn summary(&self, deck: &Deck) -> String {
-        let counts = deck.counts(now(), timezone());
-        let streak = deck.streaks(now(), timezone()).current;
+        let counts = deck.counts(now(), &Local);
+        let streak = deck.streaks(now(), &Local).current;
         let mut parts = vec![match counts.due_now {
             0 => "Nothing due".to_string(),
             1 => "1 card due".to_string(),

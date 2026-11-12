@@ -9,7 +9,7 @@ use gpui::{
 use incipit_ui::{button, card, page, Theme, Type};
 use incipit_vault::{DocId, Kind};
 
-use crate::study::{now, timezone, Deck};
+use crate::study::{now, Deck, Local};
 use crate::workspace::{Happened, Workspace};
 
 /// Where the learner asked to go from Today.
@@ -59,10 +59,10 @@ impl TodayView {
             return;
         };
         let deck = Deck::load(&vault);
-        let counts = deck.counts(now(), timezone());
+        let counts = deck.counts(now(), &Local);
         (self.due, self.fresh, self.done) =
             (counts.due_now, counts.new_available, counts.done_today);
-        self.streak = deck.streaks(now(), timezone()).current;
+        self.streak = deck.streaks(now(), &Local).current;
         self.books = vault
             .list(Some(Kind::Book))
             .iter()

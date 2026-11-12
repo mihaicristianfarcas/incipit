@@ -12,8 +12,8 @@ use std::collections::HashMap;
 
 use incipit_learn::schedule::CREDIT_SHARE;
 use incipit_learn::{
-    build_queue, credit, preview, schedule, streaks, today_counts, Candidate, Params, Preview,
-    Queue, QueueOptions, Rating, State, Streaks, TodayCounts, DAY_MS,
+    build_queue, credit, new_today, preview, schedule, streaks, today_counts, Candidate, Params,
+    Preview, Queue, QueueOptions, Rating, State, Streaks, TodayCounts, Zone, DAY_MS,
 };
 use incipit_vault::{Card, Doc, DocId, Kind, Review, Vault, REVIEWS};
 
@@ -59,9 +59,19 @@ pub fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// Minutes this computer's clock is east of UTC.
-pub fn timezone() -> i32 {
-    chrono::Local::now().offset().local_minus_utc() / 60
+/// This computer's clock, for the learner's day (`incipit_learn::day`): how far east of UTC it
+/// stood at each moment asked about, so a review made before the clocks changed is placed by the
+/// clock of its own time.
+pub struct Local;
+
+impl Zone for Local {
+    fn offset_minutes(&self, time: i64) -> i32 {
+        use chrono::{Offset, TimeZone};
+        chrono::Local
+            .timestamp_millis_opt(time)
+            .single()
+            .map_or(0, |at| at.offset().fix().local_minus_utc() / 60)
+    }
 }
 
 fn rating(number: u8) -> Option<Rating> {
@@ -174,18 +184,9 @@ impl Deck {
         self.cards.get(id)
     }
 
-    fn introduced_today(&self, now: i64, timezone: i32) -> usize {
-        let empty = Queue::<DocId> {
-            cards: Vec::new(),
-            learning: 0,
-            due: 0,
-            new: 0,
-        };
-        today_counts(&empty, &self.log, now, timezone).new_introduced_today
-    }
-
-    /// The cards to review now, in order.
-    pub fn queue(&self, now: i64, timezone: i32) -> Queue<DocId> {
+    /// The cards to review now, in order. `zone` is the learner's clock, for the day's allowance
+    /// of new cards.
+    pub fn queue(&self, now: i64, zone: &impl Zone) -> Queue<DocId> {
         let candidates: Vec<Candidate<DocId>> = self
             .cards
             .iter()
@@ -200,19 +201,19 @@ impl Deck {
         let options = QueueOptions {
             now,
             new_per_day: NEW_PER_DAY,
-            new_today: self.introduced_today(now, timezone),
+            new_today: new_today(&self.log, now, zone),
             limit: SITTING,
         };
         build_queue(&candidates, options)
     }
 
-    pub fn counts(&self, now: i64, timezone: i32) -> TodayCounts {
-        today_counts(&self.queue(now, timezone), &self.log, now, timezone)
+    pub fn counts(&self, now: i64, zone: &impl Zone) -> TodayCounts {
+        today_counts(&self.queue(now, zone), &self.log, now, zone)
     }
 
-    pub fn streaks(&self, now: i64, timezone: i32) -> Streaks {
+    pub fn streaks(&self, now: i64, zone: &impl Zone) -> Streaks {
         let times: Vec<i64> = self.log.iter().map(|r| r.time).collect();
-        streaks(&times, now, timezone)
+        streaks(&times, now, zone)
     }
 
     /// How long each rating would wait before the card comes back.
@@ -282,8 +283,17 @@ pub fn add_card_about(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use incipit_learn::Fixed;
 
     const DAY: i64 = 86_400_000;
+    const UTC: Fixed = Fixed(0);
+
+    /// A clock that reads noon at `time`, so a test that starts now never straddles the hour
+    /// the day starts at.
+    fn noon_at(time: i64) -> Fixed {
+        let minutes_into_day = time.rem_euclid(DAY) / 60_000;
+        Fixed((12 * 60 - minutes_into_day) as i32)
+    }
 
     #[test]
     fn a_new_card_is_queued_and_a_card_rated_good_twice_is_not() {
@@ -292,20 +302,24 @@ mod tests {
         let first = add_card(&vault, "2 + 2", "4").unwrap();
         let second = add_card(&vault, "3 + 3", "6").unwrap();
         let start = now();
+        let zone = noon_at(start);
         let mut deck = Deck::load(&vault);
-        assert_eq!(deck.queue(start, 0).cards.len(), 2);
+        assert_eq!(deck.queue(start, &zone).cards.len(), 2);
         deck.rate(&vault, first.id(), Rating::Good, start, None)
             .unwrap();
         deck.rate(&vault, first.id(), Rating::Good, start + 11 * 60_000, None)
             .unwrap();
         let later = start + 12 * 60_000;
-        assert_eq!(deck.queue(later, 0).cards, vec![second.id().clone()]);
+        assert_eq!(deck.queue(later, &zone).cards, vec![second.id().clone()]);
         // The schedule is in the log, not in memory: reading the vault again gives the same.
         let again = Deck::load(&vault);
-        assert_eq!(again.queue(later, 0).cards, vec![second.id().clone()]);
-        assert_eq!(again.counts(later, 0).done_today, 2);
+        assert_eq!(again.queue(later, &zone).cards, vec![second.id().clone()]);
+        assert_eq!(again.counts(later, &zone).done_today, 2);
         // And the card comes back when it is due.
-        assert!(again.queue(later + 30 * DAY, 0).cards.contains(first.id()));
+        assert!(again
+            .queue(later + 30 * DAY, &zone)
+            .cards
+            .contains(first.id()));
     }
 
     /// A vault where a derivative builds on a limit, with a card on each (two on the derivative).
@@ -415,6 +429,6 @@ mod tests {
         vault.delete(card.id()).unwrap();
         let deck = Deck::load(&vault);
         assert!(deck.is_empty());
-        assert_eq!(deck.counts(now(), 0).done_today, 0);
+        assert_eq!(deck.counts(now(), &UTC).done_today, 0);
     }
 }

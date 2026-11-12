@@ -1,6 +1,10 @@
 //! Adding a concept, or adding to the one the vault already has under that name, as the earlier
 //! app's `upsertConcept` does. A concept is found by its title, one of its other names or its id,
-//! in any case. One that exists gains what it lacks: a summary when it has none, the new passage
+//! in any case, and by its title's slug, as the earlier app found one by its id, which was the
+//! slug of its name (`findConcept`): "Self-attention" and "Self attention", or "Bayes' theorem"
+//! and "Bayes theorem", are one concept. A name with no letter or digit a slug keeps (one written
+//! in Greek or Chinese, say) is not compared by slug, since every such name has the same empty
+//! one. One that exists gains what it lacks: a summary when it has none, the new passage
 //! when it does not have one at that place of that book, and links to what it builds on and is
 //! related to that it does not have yet. Names become `[[links]]` to the concept they mean, by
 //! its title when it exists and by the name as a file name when it does not yet, so the link
@@ -49,20 +53,37 @@ fn key(name: &str) -> String {
 /// The longest slug compared, enough for any concept's name.
 const SLUG: usize = 120;
 
+/// The length of the earlier app's ids, the slug of a name cut there: names alike up to it are
+/// one concept.
+const ID_SLUG: usize = 60;
+
+/// A name's slug as the earlier app's `slugify` makes it (lowercase ASCII letters and digits,
+/// accents taken off, every other run of characters one dash), or `None` when the name has no
+/// letter or digit a slug keeps.
+fn slug_of(name: &str) -> Option<String> {
+    use unicode_normalization::UnicodeNormalization;
+    name.nfkd()
+        .any(|c| c.is_ascii_alphanumeric())
+        .then(|| slug(name, ID_SLUG))
+}
+
 /// The concept `name` means: one whose id is the name, or whose title or other name is it, in
-/// any case. The name as a file name counts too (a concept made from "a/b" is the file "a b").
+/// any case, or whose title has the name's slug. The name as a file name counts too (a concept
+/// made from "a/b" is the file "a b").
 pub fn find(vault: &Vault, name: &str) -> Option<Doc> {
     let wanted = key(name);
     if wanted.is_empty() {
         return None;
     }
     let as_file = key(&file_name_of(name));
+    let slugged = slug_of(name);
     vault.list(Some(Kind::Concept)).into_iter().find(|c| {
         let title = key(&c.title());
         c.id().as_str() == name.trim()
             || title == wanted
             || title == as_file
             || c.aliases().iter().any(|a| key(a) == wanted)
+            || (slugged.is_some() && slug_of(&c.title()) == slugged)
     })
 }
 
@@ -304,5 +325,57 @@ mod tests {
         )
         .unwrap();
         assert_eq!(vault.get(&first.id).unwrap().to_text(), before);
+    }
+
+    #[test]
+    fn names_with_the_same_slug_are_one_concept() {
+        let (_folder, vault) = vault();
+        let made = |name: &str| {
+            upsert(
+                &vault,
+                &Upsert {
+                    name: name.into(),
+                    ..Upsert::default()
+                },
+            )
+            .unwrap()
+        };
+        let attention = made("Self-attention");
+        let again = made("Self attention");
+        assert!(!again.new);
+        assert_eq!(again.id, attention.id);
+        let bayes = made("Bayes' theorem");
+        assert_eq!(made("Bayes theorem").id, bayes.id);
+        assert_eq!(find(&vault, "Café au lait"), None);
+        let cafe = made("Cafe au lait");
+        assert_eq!(find(&vault, "Café au lait").unwrap().id(), &cafe.id);
+        assert_eq!(vault.count(Some(Kind::Concept)), 3);
+        // The earlier app's ids were cut at 60 characters, so names alike that far are one.
+        let long = "a".repeat(ID_SLUG);
+        let first = made(&format!("{long} one"));
+        assert_eq!(made(&format!("{long} two")).id, first.id);
+    }
+
+    #[test]
+    fn names_without_a_letter_a_slug_keeps_are_not_compared_by_slug() {
+        let (_folder, vault) = vault();
+        let made = |name: &str| {
+            upsert(
+                &vault,
+                &Upsert {
+                    name: name.into(),
+                    ..Upsert::default()
+                },
+            )
+            .unwrap()
+        };
+        let one = made("注意力");
+        let other = made("自注意力");
+        assert!(other.new);
+        assert_ne!(one.id, other.id);
+        assert_eq!(made("Σ").title, "Σ");
+        assert_eq!(vault.count(Some(Kind::Concept)), 3);
+        // By its title it is still found.
+        assert_eq!(made("注意力").id, one.id);
     }
 }

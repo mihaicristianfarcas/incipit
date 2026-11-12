@@ -186,7 +186,7 @@ of their own and report through a channel or a callback: the window's
 executor and a command line use them the same way, with no async runtime.
 
 **The agent is confined by the provider and undone by the history.** The
-agent's sheet (`agent.rs` in the app) hands the learner's words to
+agent's sheet (`agent/` in the app) hands the learner's words to
 `Models::act`, which runs the chosen command-line agent in the open
 vault's folder with the sandbox `incipit-llm` builds for it
 ([models.md](models.md)): it writes there only, never in `.jj`, and the

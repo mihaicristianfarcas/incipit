@@ -94,12 +94,13 @@ is, as soon as its piece comes back, and the margin and the Brain show it
 then.
 
 **Reading is counted from what the reader does.** While a book of the
-vault is open and shown and the window is the one in use, each thing the
-learner does with it (scrolling, a jump through the contents, selecting)
-counts the time since the one before it, at most a minute and a half
-(`sittings` in `incipit-learn`). A sitting ends after six quiet minutes,
-when the chapter changes, when another vault is opened or when the app
-quits, and one of a minute or more becomes a `read` line of
+vault is open and shown and the window is the one in use, time counts
+for up to three minutes after the learner last did something with it
+(scrolling, a jump through the contents, selecting, coming back to it),
+as the earlier app's reader pinged for three minutes after the last
+scroll (`sittings` in `incipit-learn`). A sitting ends six minutes after
+time stopped counting, when the chapter changes, when another vault is
+opened or when the app quits, and one of a minute or more becomes a `read` line of
 `log/activity.jsonl` with the place it ended at. The earlier app's reader
 reported on a timer from the browser; here the only timer is the one set
 for the moment the next sitting goes quiet. Progress and the finish

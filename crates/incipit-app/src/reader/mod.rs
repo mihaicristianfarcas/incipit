@@ -130,8 +130,9 @@ pub struct ReaderView {
     open: Option<u64>,
     /// The passage a note is being written for.
     composing: Option<Vec<Anchor>>,
-    /// What is being written is a question for the model, not a note.
-    asking: bool,
+    /// What the last thing done with a selection said, for the learner: where a passage was
+    /// added, or why not.
+    said: Option<String>,
     /// The answers being written, by their note, and what stops each.
     answers: HashMap<u64, Cancel>,
     /// The sheet of a quiz on the chapter on screen.
@@ -173,7 +174,11 @@ impl ReaderView {
         models: Entity<Models>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let draft = cx.new(|cx| TextField::new(cx).multiline().placeholder("Write a note"));
+        let draft = cx.new(|cx| {
+            TextField::new(cx)
+                .multiline()
+                .placeholder("Ask about this passage")
+        });
         let draft_events =
             cx.subscribe(
                 &draft,
@@ -250,7 +255,7 @@ impl ReaderView {
             next_id: 1,
             open: None,
             composing: None,
-            asking: false,
+            said: None,
             answers: HashMap::new(),
             quiz,
             quiz_on_open: std::env::var("INCIPIT_QUIZ")
@@ -431,28 +436,25 @@ impl ReaderView {
         }
     }
 
-    /// Keep a highlight, or a note when `words` is not empty, in the vault, beside its book, with
-    /// the passage as its source. A passage that runs over several pages is kept by its first.
-    fn keep(&self, anchors: &[Anchor], words: &str, cx: &mut Context<Self>) -> Option<DocId> {
+    /// Keep a highlight in the vault, beside its book, with the passage as its source. A passage
+    /// that runs over several pages is kept by its first.
+    fn keep(&self, anchors: &[Anchor], cx: &mut Context<Self>) -> Option<DocId> {
         let vault = self.workspace.read(cx).vault.clone()?;
         let book = self.book.as_ref()?.id.clone()?;
         let first = anchors.first()?;
         let mut doc = incipit_vault::Doc::new(Kind::Annotation);
-        let (kind, what) = if words.is_empty() {
-            ("highlight", crate::activity::Passage::Highlighted)
-        } else {
-            ("comment", crate::activity::Passage::Commented)
-        };
-        doc.set_doc_type(kind);
+        doc.set_doc_type("highlight");
         doc.set_source(Some(&self.source(&book, first)));
-        doc.set_fields(&Annotation {
-            answer: words.to_owned(),
-            ..Annotation::default()
-        });
+        doc.set_fields(&Annotation::default());
         let added = vault.add(doc).ok()?;
         crate::activity::log(
             &vault,
-            &crate::activity::passage(crate::study::now(), book.as_str(), what, &first.quote),
+            &crate::activity::passage(
+                crate::study::now(),
+                book.as_str(),
+                crate::activity::Passage::Highlighted,
+                &first.quote,
+            ),
         );
         Some(added.id().clone())
     }
@@ -530,6 +532,7 @@ impl ReaderView {
         self.selection = None;
         self.menu = None;
         self.notes.clear();
+        self.said = None;
         // Answers being written for the book that was open stay pending in the vault; they are
         // written again when it is opened.
         for (_, cancel) in self.answers.drain() {
@@ -611,7 +614,7 @@ impl ReaderView {
         .detach();
     }
 
-    /// INCIPIT_ASK=explain|cards|quiz|figure puts the demonstration's selection to the model, to
+    /// INCIPIT_ASK=explain|define|note|cards|quiz|figure puts the demonstration's selection to the model, to
     /// see a real answer arrive without a mouse; INCIPIT_EXPLAIN=write opens the selection to
     /// explain back. INCIPIT_NOTE=session opens the demonstration's
     /// note as a tutor session, which asks no model.
@@ -625,6 +628,7 @@ impl ReaderView {
         match std::env::var("INCIPIT_ASK").as_deref() {
             Ok("explain") => self.explain(cx),
             Ok("define") => self.define(cx),
+            Ok("note") => self.note_passage(cx),
             Ok("cards") => self.make_cards(cx),
             Ok("quiz") => self.offer_quiz(Some(Mode::Check), cx),
             Ok("figure") => self.make_figure(cx),
@@ -747,9 +751,10 @@ impl ReaderView {
 
     fn highlight(&mut self, cx: &mut Context<Self>) {
         let anchors = self.anchors();
+        self.said = None;
         if !anchors.is_empty() {
             let id = self.id();
-            let doc = self.keep(&anchors, "", cx);
+            let doc = self.keep(&anchors, cx);
             self.notes.push(Note {
                 id,
                 doc,
@@ -762,17 +767,17 @@ impl ReaderView {
         cx.notify();
     }
 
-    /// Open the card to write in: a note on the selection, or (`asking`) a question about it.
-    fn start_note(&mut self, asking: bool, window: &mut Window, cx: &mut Context<Self>) {
+    /// Open the card to write a question about the selection in.
+    fn start_ask(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let anchors = self.anchors();
         if anchors.is_empty() {
             return;
         }
-        self.asking = asking;
         self.composing = Some(anchors);
         self.selection = None;
         self.menu = None;
         self.margin = true;
+        self.said = None;
         self.draft.update(cx, |draft, cx| draft.set_text("", cx));
         TextField::focus(&self.draft, window, cx);
         cx.notify();
@@ -781,22 +786,53 @@ impl ReaderView {
     fn keep_note(&mut self, cx: &mut Context<Self>) {
         let words = self.draft.read(cx).text().trim().to_string();
         if let Some(anchors) = self.composing.take() {
-            if words.is_empty() {
-            } else if self.asking {
+            if !words.is_empty() {
                 self.ask(anchors, Way::Ask, Some(words), cx);
-            } else {
-                let id = self.id();
-                let doc = self.keep(&anchors, &words, cx);
-                self.notes.push(Note {
-                    id,
-                    doc,
-                    anchors,
-                    words,
-                    ..Note::default()
-                });
-                self.open = Some(id);
             }
         }
+        cx.notify();
+    }
+
+    /// Add the selection to the book's reading note, as a quote that links back to its place in
+    /// the book, which is highlighted so the two point at each other.
+    fn note_passage(&mut self, cx: &mut Context<Self>) {
+        let anchors = self.anchors();
+        self.selection = None;
+        self.menu = None;
+        self.said = None;
+        if anchors.is_empty() {
+            return;
+        }
+        let id = self.id();
+        let doc = self.keep(&anchors, cx);
+        self.notes.push(Note {
+            id,
+            doc: doc.clone(),
+            anchors,
+            ..Note::default()
+        });
+        let vault = self.workspace.read(cx).vault.clone();
+        let title = self.book.as_ref().map(|b| b.title.clone());
+        let outcome = match (vault, doc, title) {
+            (None, _, _) => Err("Notes are kept in a vault: open one first.".to_owned()),
+            (Some(_), None, _) | (_, _, None) => {
+                Err("This book is not in the vault, so the passage was not noted.".to_owned())
+            }
+            (Some(vault), Some(doc), Some(title)) => vault
+                .get(&doc)
+                .ok_or_else(|| "The passage was not kept.".to_owned())
+                .and_then(|highlight| {
+                    crate::learning::reading_note::add_passage(
+                        &vault,
+                        &highlight,
+                        &title,
+                        self.epub,
+                        crate::study::now(),
+                    )
+                })
+                .map(|note| format!("Added to “{}”.", note.title())),
+        };
+        self.said = Some(outcome.unwrap_or_else(|problem| problem));
         cx.notify();
     }
 
@@ -1062,9 +1098,8 @@ impl ReaderView {
                 button("reader-note", "Note", t)
                     .ghost()
                     .icon(IconName::Pencil)
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.start_note(false, window, cx)),
-                    ),
+                    .tooltip("Add the passage to this book's reading note")
+                    .on_click(cx.listener(|this, _, _, cx| this.note_passage(cx))),
             )
             .child(
                 button("reader-explain", "Explain", t)
@@ -1083,7 +1118,7 @@ impl ReaderView {
                 button("reader-ask", "Ask", t)
                     .ghost()
                     .icon(IconName::Message)
-                    .on_click(cx.listener(|this, _, window, cx| this.start_note(true, window, cx))),
+                    .on_click(cx.listener(|this, _, window, cx| this.start_ask(window, cx))),
             )
             .child(
                 button("reader-figure", "Figure", t)
@@ -1262,7 +1297,7 @@ impl ReaderView {
                             })),
                     )
                     .child(
-                        button("note-keep", if self.asking { "Ask" } else { "Keep" }, t)
+                        button("note-keep", "Ask", t)
                             .accent()
                             .on_click(cx.listener(|this, _, _, cx| this.keep_note(cx))),
                     ),
@@ -1322,6 +1357,14 @@ impl Render for ReaderView {
             .flex()
             .flex_col()
             .child(self.bar(t, cx))
+            .children(self.said.clone().map(|said| {
+                div()
+                    .px(px(16.0))
+                    .py(px(6.0))
+                    .text_size(px(Type::META))
+                    .text_color(t.secondary)
+                    .child(said)
+            }))
             .child(div().flex_1().min_h_0().child(body))
             .children(self.selection_menu(t, cx))
             .child(self.quiz.clone())

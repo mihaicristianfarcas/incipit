@@ -253,17 +253,15 @@ impl Root {
             cx.notify();
         })
         .detach();
-        // INCIPIT_AGENT=demo shows a made-up run; other words are run for real.
+        // INCIPIT_AGENT=demo, review or refused shows a made-up run; other words are run for
+        // real.
         let acting = match std::env::var("INCIPIT_AGENT") {
             Ok(words) if !words.trim().is_empty() => {
-                agent.update(cx, |agent, cx| {
-                    if words.trim() == "demo" {
-                        agent.show_demo(cx);
-                    } else {
-                        agent.run_words(&words, cx);
-                    }
-                    agent.start(window, cx);
+                agent.update(cx, |agent, cx| match words.trim() {
+                    which @ ("demo" | "review" | "refused") => agent.show_demo(which, cx),
+                    _ => agent.run_words(&words, cx),
                 });
+                agent.update(cx, |agent, cx| agent.start(window, cx));
                 true
             }
             _ => false,

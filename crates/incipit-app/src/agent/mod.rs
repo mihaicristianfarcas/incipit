@@ -1,7 +1,8 @@
 //! The vault agent: a sheet over the window, opened from any page with a key, where the learner
 //! says what should be done in their vault and the model they chose does it, as an agent with a
 //! shell. While it works the sheet shows what it is doing; when it ends, its closing words, the
-//! files it changed, and Undo.
+//! files it changed, and Undo, or, when a file it changed can no longer be read, why, with Apply
+//! anyway and Discard.
 //!
 //! The run itself has no window in it (`run.rs`): the agent works in a working copy of the vault
 //! of its own, under the provider crate's OS sandbox, which lets it write there and nowhere else
@@ -10,16 +11,18 @@
 //!
 //! One request is one change in the vault's history, made of the agent's work alone. When the
 //! agent ends, its change lands after whatever the learner wrote meanwhile, is read into the
-//! index and announced, so open pages follow; one that clashes with the learner's edits, or an
-//! agent that failed or was stopped, lands nothing. Undo takes that change out and keeps what
+//! index and announced, so open pages follow; one that changes the app's own files or clashes
+//! with the learner's edits, or an agent that failed or was stopped, lands nothing. Undo takes that change out and keeps what
 //! was written before and after it; it is refused when later edits touched the same lines. The
 //! run and the history calls block, so they run off the window's thread and the sheet awaits
 //! them.
 //!
 //! Closing the sheet does not stop the agent: it goes on, and the key shows it again. Stop does.
 //!
-//! Without clicking: INCIPIT_AGENT=demo shows a made-up finished run and calls no model;
-//! INCIPIT_AGENT with other words runs them once the vault is open, with the learner's login.
+//! Without clicking: INCIPIT_AGENT=demo shows a made-up finished run, `review` one waiting for
+//! the learner's OK and `refused` one refused for changing the review log, and none calls a
+//! model; INCIPIT_AGENT with other words runs them once the vault is open, with the learner's
+//! login.
 
 use futures::StreamExt;
 use gpui::{
@@ -135,6 +138,10 @@ struct Run {
     files: Vec<Touched>,
     /// The run's change in the vault's history, by change id, which Undo takes out.
     change: Option<String>,
+    /// What waits for the learner's OK, a line per file that can no longer be read.
+    review: Vec<String>,
+    /// The run's end while its change waits for the learner's OK.
+    waiting: Option<Outcome>,
 }
 
 impl Run {
@@ -147,6 +154,8 @@ impl Run {
             problems: Vec::new(),
             files: Vec::new(),
             change: None,
+            review: Vec::new(),
+            waiting: None,
         }
     }
 
@@ -172,16 +181,18 @@ impl Run {
     /// vault has it now.
     fn finish(&mut self, outcome: Outcome, title: impl Fn(&str) -> Option<String>) {
         if !outcome.answer.trim().is_empty() {
-            self.words = outcome.answer;
+            self.words = outcome.answer.clone();
         }
-        self.problems.extend(outcome.error);
+        self.problems.extend(outcome.error.clone());
         self.files = outcome
             .files
             .iter()
             .map(|change| touched(change, title(&change.path)))
             .collect();
-        self.change = outcome.change;
+        self.change = outcome.change.clone();
+        self.review = outcome.review.clone();
         self.status = Some(outcome.status);
+        self.waiting = (outcome.status == Status::Review).then_some(outcome);
     }
 
     fn working(&self) -> bool {
@@ -190,6 +201,10 @@ impl Run {
 
     fn can_undo(&self) -> bool {
         self.status == Some(Status::Merged)
+    }
+
+    fn waits(&self) -> bool {
+        self.status == Some(Status::Review)
     }
 
     /// Undo ended.
@@ -212,6 +227,13 @@ impl Run {
             Some(Status::Undone) => Some("Undone: what this request changed was taken back."),
             Some(Status::Stopped) => Some("Stopped. No file was changed."),
             Some(Status::Done) => Some("No file was changed."),
+            Some(Status::Review) => Some(
+                "Waiting for your OK: some files it changed can no longer be read. Apply them \
+                 anyway, or discard them.",
+            ),
+            Some(Status::Discarded) => {
+                Some("Discarded: nothing of this request reached your vault.")
+            }
             Some(Status::Failed) if !self.files.is_empty() => {
                 Some("Nothing reached your vault. It would have changed these files:")
             }
@@ -219,7 +241,54 @@ impl Run {
         }
     }
 
-    /// A finished run that never happened, to look at the sheet without a model.
+    /// A finished run that never happened, to look at the sheet without a model: landed
+    /// (`demo`), waiting for the learner's OK (`review`) or refused for changing the app's own
+    /// file (`refused`).
+    fn made_up_as(which: &str) -> Run {
+        let mut run = Run::made_up();
+        let change = |path: &str, status| FileChange {
+            path: path.to_owned(),
+            status,
+        };
+        match which {
+            "review" => {
+                let files = vec![change("cards/What attention weighs.md", FileStatus::Added)];
+                run.finish(
+                    Outcome {
+                        status: Status::Review,
+                        answer: run.words.clone(),
+                        files,
+                        change: None,
+                        error: None,
+                        review: vec!["Can't be read: cards/What attention weighs.md: the \
+                                      properties at the top are not closed with a line of ---"
+                            .to_owned()],
+                    },
+                    |_| Some("What attention weighs".to_owned()),
+                );
+            }
+            "refused" => {
+                let files = vec![change("log/reviews.jsonl", FileStatus::Modified)];
+                run.finish(
+                    Outcome {
+                        status: Status::Failed,
+                        answer: run.words.clone(),
+                        files,
+                        change: None,
+                        error: Some(
+                            "log/reviews.jsonl: the app keeps this file; agents may not change it"
+                                .to_owned(),
+                        ),
+                        review: Vec::new(),
+                    },
+                    |_| None,
+                );
+            }
+            _ => {}
+        }
+        run
+    }
+
     fn made_up() -> Run {
         let mut run = Run::new("Make flashcards from my note on attention");
         for step in [
@@ -261,7 +330,7 @@ pub struct AgentView {
     /// The vault the run works in, which Undo goes back to even if another was opened since.
     ran_in: Option<Vault>,
     stop: Option<Cancel>,
-    undoing: bool,
+    busy: bool,
     /// Why nothing was started, in words for the learner.
     problem: Option<String>,
     /// Words to run as soon as a vault is open.
@@ -300,7 +369,7 @@ impl AgentView {
             run: None,
             ran_in: None,
             stop: None,
-            undoing: false,
+            busy: false,
             problem: None,
             waiting: None,
             scroll: ScrollHandle::new(),
@@ -315,10 +384,10 @@ impl AgentView {
         cx.notify();
     }
 
-    /// INCIPIT_AGENT=demo: a made-up finished run, with no model called. Its Undo changes
-    /// nothing in the vault.
-    pub fn show_demo(&mut self, cx: &mut Context<Self>) {
-        self.run = Some(Run::made_up());
+    /// INCIPIT_AGENT=demo, review or refused: a made-up finished run, with no model called.
+    /// Its Undo, Apply anyway and Discard change nothing in the vault.
+    pub fn show_demo(&mut self, which: &str, cx: &mut Context<Self>) {
+        self.run = Some(Run::made_up_as(which));
         cx.notify();
     }
 
@@ -340,7 +409,7 @@ impl AgentView {
     fn run(&mut self, cx: &mut Context<Self>) {
         self.waiting = None;
         let request = self.words.read(cx).text().trim().to_string();
-        if request.is_empty() || self.working() || self.undoing {
+        if request.is_empty() || self.working() || self.busy {
             return;
         }
         let Some(vault) = self.workspace.read(cx).vault.clone() else {
@@ -436,7 +505,7 @@ impl AgentView {
         let Some(run) = self.run.as_mut().filter(|run| run.can_undo()) else {
             return;
         };
-        if self.undoing {
+        if self.busy {
             return;
         }
         let (Some(change), Some(vault)) = (run.change.clone(), self.ran_in.clone()) else {
@@ -445,7 +514,7 @@ impl AgentView {
             cx.notify();
             return;
         };
-        self.undoing = true;
+        self.busy = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -453,9 +522,76 @@ impl AgentView {
                 .spawn(async move { vault.drop_change(&change) })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.undoing = false;
+                this.busy = false;
                 if let Some(run) = &mut this.run {
                     run.undone(result.map_err(|e| undo_problem(&e)));
+                }
+                this.scroll.scroll_to_bottom();
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The learner's OK for a change that waited for it: it lands as any other.
+    fn apply(&mut self, cx: &mut Context<Self>) {
+        self.settle(true, cx);
+    }
+
+    /// The learner turned down a change that waited for their OK: it is left out.
+    fn discard(&mut self, cx: &mut Context<Self>) {
+        self.settle(false, cx);
+    }
+
+    fn settle(&mut self, apply: bool, cx: &mut Context<Self>) {
+        let Some(run) = self.run.as_mut().filter(|run| run.waits()) else {
+            return;
+        };
+        if self.busy {
+            return;
+        }
+        let (Some(waiting), Some(vault)) = (run.waiting.clone(), self.ran_in.clone()) else {
+            // The made-up run has no change in any vault.
+            let mut ended = run.waiting.clone().unwrap_or_else(Outcome::stopped);
+            ended.status = if apply {
+                Status::Merged
+            } else {
+                Status::Discarded
+            };
+            run.finish(ended, |_| None);
+            cx.notify();
+            return;
+        };
+        let task = run.request.clone();
+        self.busy = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let into = vault.clone();
+            let ended = cx
+                .background_executor()
+                .spawn(async move {
+                    if apply {
+                        Ok(run::approve(&into, &task, waiting))
+                    } else {
+                        run::discard(&into, waiting)
+                    }
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = false;
+                if let Some(run) = &mut this.run {
+                    match ended {
+                        Ok(ended) => {
+                            let title = |path: &str| {
+                                let path = VaultPath::new(path).ok()?;
+                                vault.at(&path).map(|doc| doc.title())
+                            };
+                            run.finish(ended, title);
+                        }
+                        Err(e) => run
+                            .problems
+                            .push(format!("The changes could not be discarded: {e}.")),
+                    }
                 }
                 this.scroll.scroll_to_bottom();
                 cx.notify();
@@ -533,6 +669,7 @@ impl AgentView {
             .children(
                 run.problems
                     .iter()
+                    .chain(&run.review)
                     .map(|problem| div().text_color(t.danger).child(problem.clone())),
             )
             .children(standing)
@@ -558,6 +695,7 @@ impl Render for AgentView {
         let t = crate::theme(window);
         let working = self.working();
         let can_undo = self.run.as_ref().is_some_and(Run::can_undo);
+        let waits = self.run.as_ref().is_some_and(Run::waits);
         let buttons = div()
             .flex()
             .items_center()
@@ -566,8 +704,20 @@ impl Render for AgentView {
                 row.child(
                     button("agent-undo", "Undo", t)
                         .icon(IconName::Refresh)
-                        .disabled(self.undoing)
+                        .disabled(self.busy)
                         .on_click(cx.listener(|this, _, _, cx| this.undo(cx))),
+                )
+            })
+            .when(waits, |row| {
+                row.child(
+                    button("agent-apply", "Apply anyway", t)
+                        .disabled(self.busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.apply(cx))),
+                )
+                .child(
+                    button("agent-discard", "Discard", t)
+                        .disabled(self.busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.discard(cx))),
                 )
             })
             .child(div().flex_1())
@@ -584,7 +734,7 @@ impl Render for AgentView {
             .child(
                 button("agent-run-it", "Run", t)
                     .accent()
-                    .disabled(working || self.undoing)
+                    .disabled(working || self.busy)
                     .on_click(cx.listener(|this, _, _, cx| this.run(cx))),
             );
         let content = div()
@@ -621,6 +771,7 @@ mod tests {
                 .collect(),
             change: (status == Status::Merged).then(|| "change".to_owned()),
             error: None,
+            review: Vec::new(),
         }
     }
 
@@ -763,6 +914,40 @@ mod tests {
             clashed.standing(),
             Some("Nothing reached your vault. It would have changed these files:")
         );
+    }
+
+    #[test]
+    fn a_change_waiting_for_the_learners_ok_says_why_and_offers_no_undo() {
+        let mut run = Run::new("x");
+        let files = [("notes/Waves.md", FileStatus::Added)];
+        let mut waiting = outcome(Status::Review, "I wrote a note.", &files);
+        waiting.change = Some("change".into());
+        waiting.review = vec!["Can't be read: notes/Waves.md: broken".into()];
+        run.finish(waiting.clone(), no_title);
+        assert!(run.waits());
+        assert!(!run.can_undo());
+        assert_eq!(run.review, waiting.review);
+        assert_eq!(run.waiting, Some(waiting));
+        assert!(run.standing().unwrap().starts_with("Waiting for your OK"));
+        // Applied, it is a landed run.
+        run.finish(outcome(Status::Merged, "", &files), no_title);
+        assert!(!run.waits());
+        assert!(run.can_undo());
+        assert!(run.review.is_empty());
+        assert_eq!(run.waiting, None);
+        assert_eq!(run.words, "I wrote a note.");
+    }
+
+    #[test]
+    fn the_made_up_runs_wait_and_are_refused_without_a_vault() {
+        let waits = Run::made_up_as("review");
+        assert!(waits.waits());
+        assert_eq!(waits.review.len(), 1);
+        let refused = Run::made_up_as("refused");
+        assert_eq!(refused.status, Some(Status::Failed));
+        assert!(refused.problems[0].contains("agents may not change it"));
+        assert_eq!(refused.files.len(), 1);
+        assert!(!refused.can_undo());
     }
 
     #[test]

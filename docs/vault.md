@@ -184,7 +184,12 @@ the agent to read, and taken out again before history looks. When the
 agent ends, its change is named `agent: ` and the first line of the
 learner's request, the workspace is forgotten, and the change lands after
 whatever the learner wrote meanwhile (`Vault::land`); one that touches lines
-changed meanwhile does not land. Undo takes that one entry out of the
+changed meanwhile does not land. Before it lands, the files it changed are
+checked (`checks`): a change to what the app keeps (`log/`, `.jj/`,
+`.git/`, `.incipit/`, `.obsidian/`, `AGENTS.md`, `CLAUDE.md`,
+`.gitignore`, a book's `book.md` and its PDF or EPUB file) fails the run,
+and nothing of it lands; a JSON or JSON Lines file, or a Markdown file's
+properties, that can no longer be read waits for the learner's OK. Undo takes that one entry out of the
 history and keeps what was written before and after it
 (`Vault::drop_change`); it is refused when later edits touched the same
 lines. Working copies of runs that were going when the app quit are

@@ -15,6 +15,7 @@
 //! - [`schedule`]: one review, the preview of the four buttons, recall probability.
 //! - [`progress`]: how far through a book the learner is, and a rough finish at the recent pace.
 //! - [`queue`]: which cards to show now and in what order, and the counts for the Today page.
+//! - [`sittings`]: reading sittings, counted from the reader's reports.
 //! - [`sitting`]: one sitting's list of cards, and where a rated card goes in it.
 //! - [`streak`]: the forgiving streak of study days.
 
@@ -26,6 +27,7 @@ pub mod progress;
 pub mod queue;
 pub mod schedule;
 pub mod sitting;
+pub mod sittings;
 pub mod streak;
 
 pub use card::{Card, Rating, Review, State};
@@ -38,6 +40,7 @@ pub use queue::{
 };
 pub use schedule::{credit, format_interval, preview, retrievability, schedule, Preview};
 pub use sitting::Sitting;
+pub use sittings::{Beat, Ended, Sittings};
 pub use streak::{streaks, Streaks};
 
 /// Milliseconds in a day.

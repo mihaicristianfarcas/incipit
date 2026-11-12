@@ -11,10 +11,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use incipit_learn::Params;
+use incipit_learn::{Evidence, Params};
 use incipit_vault::{Concept, Doc, DocId, Kind, Note, Source, Vault};
 
-use super::known::mastery;
+use super::known::{answers_of, mastery};
 use super::ties::Ties;
 use crate::study::Deck;
 
@@ -96,6 +96,8 @@ pub struct Concepts {
     deck: Deck,
     /// Each concept's cards, in the order of the vault's cards.
     cards_on: HashMap<DocId, Vec<DocId>>,
+    /// What the quizzes say of each concept, by its id.
+    answered: HashMap<String, Evidence>,
     now: i64,
 }
 
@@ -114,12 +116,19 @@ impl Concepts {
                     .push(card.clone());
             }
         }
+        let quizzes: Vec<_> = vault
+            .activity()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(answers_of)
+            .collect();
         Concepts {
             concepts: vault.list(Some(Kind::Concept)),
             notes: vault.list(Some(Kind::Note)),
             ties,
             deck,
             cards_on,
+            answered: incipit_learn::evidence(&quizzes, &Params::default()),
             now,
         }
     }
@@ -147,7 +156,12 @@ impl Concepts {
             })
             .filter_map(|note| note.fields::<Note>()?.score)
             .collect();
-        mastery(&cards, &scores, self.now, &Params::default())
+        let params = Params::default();
+        let answered = self
+            .answered
+            .get(id.as_str())
+            .map(|found| found.recall(self.now, &params));
+        mastery(&cards, answered, &scores, self.now, &params)
     }
 
     /// Every concept, best known first, those not practised last; by title within each.
@@ -419,6 +433,26 @@ mod tests {
         note.set_fields(&Note { score: Some(70.0) });
         vault.add(note).unwrap();
         assert_eq!(Concepts::read(&vault, start).mastery(limit.id()), Some(0.7));
+    }
+
+    #[test]
+    fn a_quiz_in_the_activity_log_is_evidence_of_its_concepts_and_a_pretest_is_not() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let limit = concept(&vault, "Limit", &[], &[]);
+        let start = crate::study::now();
+        let line = |mode: &str, score: f64| {
+            incipit_vault::Activity::new(incipit_vault::ActivityType::Quiz, start, "Quiz").data(
+                serde_json::json!({
+                    "mode": mode,
+                    "answers": [{ "concept": limit.id().as_str(), "score": score }],
+                }),
+            )
+        };
+        vault.log_activity(&line("pretest", 1.0)).unwrap();
+        assert_eq!(Concepts::read(&vault, start).mastery(limit.id()), None);
+        vault.log_activity(&line("check", 0.0)).unwrap();
+        assert_eq!(Concepts::read(&vault, start).mastery(limit.id()), Some(0.0));
     }
 
     #[test]

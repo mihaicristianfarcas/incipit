@@ -8,6 +8,7 @@
 //! needed, and `rs-fsrs` schedules the learning steps and same-day reviews differently, which would
 //! change the intervals a learner already knows. Intervals are not fuzzed, as in the original.
 //!
+//! - [`answers`]: quiz answers as evidence of how well a concept is known.
 //! - [`card`]: [`Card`], [`Rating`], [`State`] and the [`Review`] log record.
 //! - [`day`]: the learner's day, which starts at 4 am on their own clock.
 //! - [`new_way`]: which reviews ask a card known for weeks a new way.
@@ -19,6 +20,7 @@
 //! - [`sitting`]: one sitting's list of cards, and where a rated card goes in it.
 //! - [`streak`]: the forgiving streak of study days.
 
+pub mod answers;
 pub mod card;
 pub mod day;
 pub mod new_way;
@@ -30,6 +32,7 @@ pub mod sitting;
 pub mod sittings;
 pub mod streak;
 
+pub use answers::{evidence, rating_for, Evidence, Quizzed};
 pub use card::{Card, Rating, Review, State};
 pub use day::{day_number, day_start, Fixed, Zone};
 pub use new_way::{asks_new_way, KNOWN_DAYS};

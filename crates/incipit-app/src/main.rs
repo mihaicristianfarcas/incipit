@@ -275,14 +275,15 @@ impl Root {
             cx.notify();
         })
         .detach();
-        // INCIPIT_AGENT=demo, review, refused, thread or recent shows made-up runs; other words
-        // are run for real.
+        // INCIPIT_AGENT=demo, review, refused, thread or recent shows made-up runs, `open` opens
+        // the sheet as the key does; other words are run for real.
         let acting = match std::env::var("INCIPIT_AGENT") {
             Ok(words) if !words.trim().is_empty() => {
                 agent.update(cx, |agent, cx| match words.trim() {
                     which @ ("demo" | "review" | "refused" | "thread" | "recent") => {
                         agent.show_demo(which, cx)
                     }
+                    "open" => {}
                     _ => agent.run_words(&words, cx),
                 });
                 let here = agent::here::Here {

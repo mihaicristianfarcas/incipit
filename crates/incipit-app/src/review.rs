@@ -3,6 +3,12 @@
 //! back; 1 to 4 on the keyboard rate it. Above, what is left today and the streak. Cards are made
 //! here too, from a front and a back. INCIPIT_PAGE=review opens the page; INCIPIT_BACK=1 shows the
 //! first card's back.
+//!
+//! A visit to the page is a sitting (`incipit_learn::sitting`), as in the earlier app: the queue
+//! is built when the page opens (`begin`) and not again after a rating, so a card that is due
+//! again within the sitting comes back a few cards later, and the sitting is over when its list
+//! runs out. A card made or changed meanwhile, here or by another program, is read again without
+//! disturbing the order of what waits (`refresh`).
 
 use std::time::Instant;
 
@@ -10,7 +16,7 @@ use gpui::{
     div, prelude::*, px, Context, Entity, FocusHandle, IntoElement, KeyDownEvent, Render,
     ScrollHandle, Subscription, Window,
 };
-use incipit_learn::{format_interval, Rating};
+use incipit_learn::{format_interval, Rating, Sitting};
 use incipit_ui::{button, card, field, markdown, page, FieldEvent, TextField, Theme, Type};
 use incipit_vault::{DocId, Kind, Vault};
 
@@ -21,11 +27,12 @@ pub struct ReviewView {
     workspace: Entity<Workspace>,
     deck: Option<Deck>,
     /// The cards of this sitting still to do; the first is on screen.
-    queue: Vec<DocId>,
+    sitting: Sitting<DocId>,
     revealed: bool,
+    /// INCIPIT_BACK: the first card of the first sitting of an open vault shows its back.
+    reveal_first: bool,
     /// When the card on screen was shown, for how long the answer took.
     shown: Instant,
-    done: usize,
     adding: bool,
     front: Entity<TextField>,
     back: Entity<TextField>,
@@ -40,17 +47,18 @@ impl ReviewView {
         let front = cx.new(|cx| TextField::new(cx).markdown().placeholder("The question"));
         let back = cx.new(|cx| TextField::new(cx).markdown().placeholder("The answer"));
         let subscriptions = vec![
-            cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
-                // Cards made or changed elsewhere join the sitting; ratings made here are
-                // already counted.
-                let cards = match happened {
-                    Happened::Opened => true,
-                    Happened::Changed(event) => event.path.as_str().starts_with("cards/"),
-                };
-                if cards {
-                    this.load(cx);
-                }
-            }),
+            cx.subscribe(
+                &workspace,
+                |this: &mut Self, _, happened: &Happened, cx| match happened {
+                    Happened::Opened => this.begin(cx),
+                    // Cards made or changed elsewhere join the sitting; ratings made here are
+                    // already counted.
+                    Happened::Changed(event) if event.path.as_str().starts_with("cards/") => {
+                        this.refresh(cx)
+                    }
+                    Happened::Changed(_) => {}
+                },
+            ),
             cx.subscribe(&back, |this: &mut Self, _, event: &FieldEvent, cx| {
                 if *event == FieldEvent::Cancel {
                     this.adding = false;
@@ -61,10 +69,10 @@ impl ReviewView {
         let mut view = ReviewView {
             workspace,
             deck: None,
-            queue: Vec::new(),
-            revealed: std::env::var_os("INCIPIT_BACK").is_some(),
+            sitting: Sitting::default(),
+            revealed: false,
+            reveal_first: std::env::var_os("INCIPIT_BACK").is_some(),
             shown: Instant::now(),
-            done: 0,
             adding: false,
             front,
             back,
@@ -73,7 +81,7 @@ impl ReviewView {
             scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
-        view.load(cx);
+        view.begin(cx);
         view
     }
 
@@ -81,42 +89,65 @@ impl ReviewView {
         self.workspace.read(cx).vault.clone()
     }
 
-    /// Read the cards and the log again, keeping the card on screen where it is.
-    fn load(&mut self, cx: &mut Context<Self>) {
-        let on_screen = self.queue.first().cloned();
+    /// Start a sitting: read the cards and the log, and queue what is due now. The page does
+    /// this when it opens and when a vault does; the queue is not built again until the next
+    /// sitting.
+    pub fn begin(&mut self, cx: &mut Context<Self>) {
         self.deck = self.vault(cx).map(|vault| Deck::load(&vault));
-        self.queue = self
+        let queue = self
             .deck
             .as_ref()
             .map(|deck| deck.queue(now(), &Local).cards)
             .unwrap_or_default();
-        if let Some(position) = on_screen.and_then(|id| self.queue.iter().position(|q| *q == id)) {
-            self.queue.swap(0, position);
-        } else {
+        self.sitting = Sitting::new(queue);
+        // The switch is for the first card there is, so it waits for a vault to be open.
+        self.revealed = self.deck.is_some() && std::mem::take(&mut self.reveal_first);
+        self.shown = Instant::now();
+        cx.notify();
+    }
+
+    /// Cards were made or changed while the learner sits: read them and the log again. What
+    /// waits keeps its order; a card that is gone or set aside leaves, and one a queue built now
+    /// would hold joins the end.
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        let on_screen = self.sitting.current().cloned();
+        self.deck = self.vault(cx).map(|vault| Deck::load(&vault));
+        let Some(deck) = &self.deck else {
+            self.sitting = Sitting::default();
+            cx.notify();
+            return;
+        };
+        self.sitting
+            .keep(|id| deck.get(id).is_some_and(|entry| !entry.card.suspended));
+        self.sitting.join(deck.queue(now(), &Local).cards);
+        if self.sitting.current() != on_screen.as_ref() {
+            self.revealed = false;
             self.shown = Instant::now();
         }
         cx.notify();
     }
 
     fn reveal(&mut self, cx: &mut Context<Self>) {
-        if !self.queue.is_empty() && !self.revealed {
+        if self.sitting.current().is_some() && !self.revealed {
             self.revealed = true;
             cx.notify();
         }
     }
 
     fn rate(&mut self, rating: Rating, cx: &mut Context<Self>) {
-        let (Some(vault), Some(id)) = (self.vault(cx), self.queue.first().cloned()) else {
+        let (Some(vault), Some(id)) = (self.vault(cx), self.sitting.current().cloned()) else {
             return;
         };
         let Some(deck) = &mut self.deck else { return };
         let took = self.shown.elapsed().as_secs_f64();
-        match deck.rate(&vault, &id, rating, now(), Some(took)) {
+        let at = now();
+        match deck.rate(&vault, &id, rating, at, Some(took)) {
             Ok(()) => {
                 self.problem = None;
-                self.done += 1;
-                // What is due is asked again: a card rated Again comes back in this sitting.
-                self.queue = deck.queue(now(), &Local).cards;
+                // The queue is not built again: the card goes a few cards later when it is due
+                // again in this sitting, and leaves it otherwise.
+                let due = deck.get(&id).map_or(i64::MAX, |entry| entry.state().due);
+                self.sitting.rated(due, at, id);
                 self.revealed = false;
                 self.shown = Instant::now();
             }
@@ -142,7 +173,7 @@ impl ReviewView {
                 self.front.update(cx, |f, cx| f.set_text("", cx));
                 self.back.update(cx, |f, cx| f.set_text("", cx));
                 TextField::focus(&self.front, window, cx);
-                self.load(cx);
+                self.refresh(cx);
             }
             Err(e) => self.problem = Some(format!("The card was not made: {e}")),
         }
@@ -230,10 +261,11 @@ impl ReviewView {
     }
 
     fn sitting(&self, deck: &Deck, t: Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let Some((id, entry)) = self.queue.first().and_then(|id| Some((id, deck.get(id)?))) else {
+        let asked = self.sitting.current();
+        let Some((id, entry)) = asked.and_then(|id| Some((id, deck.get(id)?))) else {
             let words = if deck.is_empty() {
                 "No cards yet. Add one, or make them from what you read."
-            } else if self.done > 0 {
+            } else if self.sitting.done() > 0 {
                 "Done for now. What you reviewed comes back when it is about to fade."
             } else {
                 "Nothing is due. Cards come back when they are about to fade."

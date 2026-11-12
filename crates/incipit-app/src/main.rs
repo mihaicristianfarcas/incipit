@@ -194,7 +194,7 @@ impl Root {
         let today = cx.new(|cx| today::TodayView::new(workspace.clone(), cx));
         cx.subscribe(&today, |this: &mut Self, _, go: &today::Go, cx| {
             match go {
-                today::Go::Review => this.page = Page::Review,
+                today::Go::Review => this.go(Page::Review, cx),
                 today::Go::Library => this.page = Page::Library,
                 today::Go::Note(id) => {
                     let id = id.clone();
@@ -269,6 +269,15 @@ impl Root {
         }
     }
 
+    /// Goes to a page. Opening Review starts a sitting: its queue is built then, as the earlier
+    /// app builds it when its page opens, and not while the learner reviews.
+    fn go(&mut self, page: Page, cx: &mut Context<Self>) {
+        if page == Page::Review && self.page != Page::Review {
+            self.review.update(cx, |review, cx| review.begin(cx));
+        }
+        self.page = page;
+    }
+
     /// Shows a document on the page that shows it: notes on Notes, a concept on its page on the
     /// Brain, cards on Review, a book in the reader (in the Library when its file is not there),
     /// and what belongs to a book in the Library.
@@ -291,7 +300,7 @@ impl Root {
                     self.page = Page::Library;
                 }
             }
-            Kind::Card => self.page = Page::Review,
+            Kind::Card => self.go(Page::Review, cx),
             Kind::Annotation | Kind::Session | Kind::Figure => self.page = Page::Library,
         }
     }
@@ -345,7 +354,7 @@ impl Root {
                     !on,
                     |row| {
                         row.on_click(cx.listener(move |this, _, _, cx| {
-                            this.page = page;
+                            this.go(page, cx);
                             cx.notify();
                         }))
                     },

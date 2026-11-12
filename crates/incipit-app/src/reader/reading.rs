@@ -69,6 +69,7 @@ impl Reading {
 impl ReaderView {
     /// Learn when the window is, and is no longer, the one in use.
     pub fn watch_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.reading.window_active = window.is_window_active();
         self.reading._activation =
             Some(cx.observe_window_activation(window, |this, window, cx| {
                 this.in_use(window.is_window_active(), cx)
@@ -162,6 +163,10 @@ impl ReaderView {
             return;
         };
         let Some(beat) = self.beat() else { return };
+        // A book of another vault (one was opened since) is not read in this one.
+        if vault.get(&DocId::from(beat.book.as_str())).is_none() {
+            return;
+        }
         self.reading.vault.get_or_insert(vault);
         let ended = self.reading.sittings.record(beat, now());
         self.write(ended.into_iter().collect());

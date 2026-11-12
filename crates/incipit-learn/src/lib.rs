@@ -13,6 +13,7 @@
 //! - [`params`]: the 21 FSRS-6 weights, desired retention and the learning steps.
 //! - [`schedule`]: one review, the preview of the four buttons, recall probability.
 //! - [`queue`]: which cards to show now and in what order, and the counts for the Today page.
+//! - [`sitting`]: one sitting's list of cards, and where a rated card goes in it.
 //! - [`streak`]: the forgiving streak of study days.
 
 pub mod card;
@@ -20,6 +21,7 @@ pub mod day;
 pub mod params;
 pub mod queue;
 pub mod schedule;
+pub mod sitting;
 pub mod streak;
 
 pub use card::{Card, Rating, Review, State};
@@ -29,6 +31,7 @@ pub use queue::{
     build_queue, new_today, today_counts, Candidate, Queue, QueueOptions, TodayCounts,
 };
 pub use schedule::{credit, format_interval, preview, retrievability, schedule, Preview};
+pub use sitting::Sitting;
 pub use streak::{streaks, Streaks};
 
 /// Milliseconds in a day.

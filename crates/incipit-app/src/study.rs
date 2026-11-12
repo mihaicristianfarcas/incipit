@@ -345,6 +345,28 @@ mod tests {
         assert_eq!(Deck::load(&vault).queue(at, &UTC).cards, expected);
     }
 
+    #[test]
+    fn a_card_rated_in_a_sitting_comes_back_three_cards_later_and_not_at_once() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        for n in 0..5 {
+            add_card(&vault, &format!("card {n}"), "back").unwrap();
+        }
+        let start = now();
+        let zone = noon_at(start);
+        let mut deck = Deck::load(&vault);
+        let mut sitting = incipit_learn::Sitting::new(deck.queue(start, &zone).cards);
+        let first = sitting.current().unwrap().clone();
+        // Good on a new card: due in ten minutes, so it is asked again in this sitting.
+        deck.rate(&vault, &first, Rating::Good, start, None)
+            .unwrap();
+        sitting.rated(deck.get(&first).unwrap().state().due, start, first.clone());
+        assert_eq!(sitting.left().len(), 5);
+        assert_eq!(sitting.left()[3], first);
+        // A queue built now would ask it first: the page does not build one after a rating.
+        assert_eq!(deck.queue(start, &zone).cards[0], first);
+    }
+
     /// A vault where a derivative builds on a limit, with a card on each (two on the derivative).
     fn calculus() -> (tempfile::TempDir, Vault, [DocId; 3]) {
         use crate::concepts::testing::{card_on, concept};

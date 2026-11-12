@@ -12,6 +12,7 @@ mod copies;
 mod reconcile;
 mod sitting;
 mod timing;
+mod unreadable;
 
 pub use copies::AgentCopy;
 mod write;

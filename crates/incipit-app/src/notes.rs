@@ -4,7 +4,11 @@
 //! vault does that). An edit made by another program shows here unless this window has changes
 //! of its own waiting. The concepts the open note links to, as its file has them, are buttons
 //! under its title that open each concept's page (the page emits `OpenConcept`).
-//! INCIPIT_PAGE=notes opens the page.
+//! A file whose properties cannot be read is kept out of the vault's index, so it is listed
+//! apart at the top of the list, marked as one that cannot be read; opening it shows the reason
+//! in plain words and the file's text as it is, to mend and save, after which it is a note.
+//! INCIPIT_PAGE=notes opens the page; with INCIPIT_BROKEN set it opens on the first file that
+//! cannot be read.
 
 use std::time::Duration;
 
@@ -13,7 +17,7 @@ use gpui::{
     Subscription, Task, Window,
 };
 use incipit_ui::{button, field, icon_button, FieldEvent, IconName, TextField, Theme, Type};
-use incipit_vault::{Doc, DocId, Kind, Origin, Vault};
+use incipit_vault::{Doc, DocId, Kind, Origin, Vault, VaultPath};
 
 use crate::workspace::{Happened, Workspace};
 
@@ -25,6 +29,12 @@ struct Listed {
     id: DocId,
     title: String,
     updated: String,
+}
+
+/// A file that cannot be read, and why.
+struct Broken {
+    path: VaultPath,
+    reason: String,
 }
 
 /// A concept the learner asked to open from a note.
@@ -39,6 +49,12 @@ pub struct NotesView {
     title: Entity<TextField>,
     body: Entity<TextField>,
     find: Entity<TextField>,
+    /// The files that cannot be read (the ones the words in Find match, when there are any).
+    broken: Vec<Broken>,
+    /// The unreadable file that is open, and whether its text could be shown in `raw` (it
+    /// cannot when it is not text).
+    mending: Option<(VaultPath, bool)>,
+    raw: Entity<TextField>,
     /// Typed and not yet in the file.
     dirty: bool,
     /// The save that waits for the typing to stop; a new keystroke replaces it.
@@ -54,6 +70,7 @@ impl NotesView {
         let title = cx.new(|cx| TextField::new(cx).placeholder("Title"));
         let body = cx.new(|cx| TextField::new(cx).markdown().placeholder("Write"));
         let find = cx.new(|cx| TextField::new(cx).placeholder("Find a note"));
+        let raw = cx.new(|cx| TextField::new(cx).placeholder("The file's text"));
         let typed =
             |this: &mut Self, _: Entity<TextField>, event: &FieldEvent, cx: &mut Context<Self>| {
                 if *event == FieldEvent::Changed {
@@ -79,6 +96,9 @@ impl NotesView {
             title,
             body,
             find,
+            broken: Vec::new(),
+            mending: None,
+            raw,
             dirty: false,
             saving: None,
             problem: None,
@@ -89,7 +109,18 @@ impl NotesView {
         view.list(cx);
         let first = view.notes.first().map(|n| n.id.clone());
         view.show(first, cx);
+        view.open_first_broken(cx);
         view
+    }
+
+    /// For a look without clicking: INCIPIT_BROKEN opens the first file that cannot be read.
+    fn open_first_broken(&mut self, cx: &mut Context<Self>) {
+        if std::env::var_os("INCIPIT_BROKEN").is_none() {
+            return;
+        }
+        if let Some(path) = self.broken.first().map(|b| b.path.clone()) {
+            self.open_broken(path, cx);
+        }
     }
 
     fn vault(&self, cx: &Context<Self>) -> Option<Vault> {
@@ -119,8 +150,19 @@ impl NotesView {
     fn list(&mut self, cx: &mut Context<Self>) {
         let Some(vault) = self.vault(cx) else {
             self.notes.clear();
+            self.broken.clear();
             return;
         };
+        let words = self.find.read(cx).text().trim().to_lowercase();
+        self.broken = vault
+            .problems()
+            .into_iter()
+            .filter(|p| words.is_empty() || p.path.stem().to_lowercase().contains(&words))
+            .map(|p| Broken {
+                path: p.path,
+                reason: p.message,
+            })
+            .collect();
         let listed = |doc: &Doc| Listed {
             id: doc.id().clone(),
             title: doc.title(),
@@ -149,6 +191,7 @@ impl NotesView {
                 self.list(cx);
                 let first = self.notes.first().map(|n| n.id.clone());
                 self.show(first, cx);
+                self.open_first_broken(cx);
             }
             Happened::Changed(event) => {
                 self.list(cx);
@@ -177,6 +220,7 @@ impl NotesView {
     /// Put a note (or none) in the fields.
     fn show(&mut self, id: Option<DocId>, cx: &mut Context<Self>) {
         let doc = id.and_then(|id| self.vault(cx)?.get(&id));
+        self.mending = None;
         self.open = doc.as_ref().map(|d| d.id().clone());
         let (title, body) = doc
             .map(|d| (d.title(), d.body().to_string()))
@@ -197,6 +241,45 @@ impl NotesView {
     pub fn select(&mut self, id: DocId, cx: &mut Context<Self>) {
         self.save(cx);
         self.show(Some(id), cx);
+    }
+
+    /// Open a file that cannot be read: its text as it is in the file, to mend.
+    fn open_broken(&mut self, path: VaultPath, cx: &mut Context<Self>) {
+        self.save(cx);
+        self.show(None, cx);
+        let text = self
+            .vault(cx)
+            .and_then(|vault| vault.unreadable_text(&path).ok());
+        self.raw.update(cx, |field, cx| {
+            field.set_text(text.clone().unwrap_or_default(), cx)
+        });
+        self.mending = Some((path, text.is_some()));
+        self.problem = None;
+        cx.notify();
+    }
+
+    /// Write the mended text; if the file now reads, it is a note and opens as one.
+    fn mend(&mut self, cx: &mut Context<Self>) {
+        let (Some(vault), Some((path, true))) = (self.vault(cx), self.mending.clone()) else {
+            return;
+        };
+        let text = self.raw.read(cx).text().to_string();
+        if let Err(e) = vault.mend(&path, &text) {
+            self.problem = Some(format!("The file was not saved: {e}"));
+            cx.notify();
+            return;
+        }
+        self.list(cx);
+        match vault.at(&path) {
+            Some(doc) => {
+                self.problem = None;
+                self.show(Some(doc.id().clone()), cx);
+            }
+            None => {
+                self.problem = Some("Saved, but the file still cannot be read.".to_owned());
+                cx.notify();
+            }
+        }
     }
 
     fn typed(&mut self, cx: &mut Context<Self>) {
@@ -321,6 +404,23 @@ impl NotesView {
                 .child(note.title.clone())
                 .on_click(cx.listener(move |this, _, _, cx| this.select(id.clone(), cx)))
         });
+        let broken = self.broken.iter().enumerate().map(|(index, file)| {
+            let path = file.path.clone();
+            let on = self.mending.as_ref().is_some_and(|(p, _)| *p == file.path);
+            let mut row = button(
+                ("note-broken", index),
+                format!("{} (cannot be read)", file.path.stem()),
+                t,
+            )
+            .icon(IconName::Warning)
+            .full_width()
+            .tooltip(format!("{}: {}", file.path, plain(&file.reason)))
+            .on_click(cx.listener(move |this, _, _, cx| this.open_broken(path.clone(), cx)));
+            if on {
+                row = row.accent();
+            }
+            row
+        });
         div()
             .flex_none()
             .w(px(LIST))
@@ -351,8 +451,9 @@ impl NotesView {
                     .flex()
                     .flex_col()
                     .gap(px(1.0))
+                    .children(broken)
                     .children(rows)
-                    .when(self.notes.is_empty(), |list| {
+                    .when(self.notes.is_empty() && self.broken.is_empty(), |list| {
                         list.child(
                             div()
                                 .p(px(10.0))
@@ -361,6 +462,15 @@ impl NotesView {
                         )
                     }),
             )
+    }
+}
+
+/// What is wrong with a file, as a sentence that begins with a capital.
+fn plain(message: &str) -> String {
+    let mut chars = message.trim().chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
     }
 }
 
@@ -375,7 +485,83 @@ impl Render for NotesView {
                 .child(crate::welcome::welcome(&self.workspace, t, cx))
                 .into_any_element();
         }
-        let note = if self.open.is_some() {
+        let note = if let Some((path, shown)) = self.mending.clone() {
+            let reason = self
+                .broken
+                .iter()
+                .find(|b| b.path == path)
+                .map(|b| plain(&b.reason))
+                .or_else(|| {
+                    self.vault(cx)?
+                        .problems()
+                        .into_iter()
+                        .find(|p| p.path == path)
+                        .map(|p| plain(&p.message))
+                })
+                .unwrap_or_default();
+            div()
+                .id("note-pane")
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .overflow_y_scroll()
+                .track_scroll(&self.scroll)
+                .child(
+                    div()
+                        .w_full()
+                        .flex()
+                        .justify_center()
+                        .px(px(28.0))
+                        .pb(px(40.0))
+                        .child(
+                            div()
+                                .w_full()
+                                .max_w(px(680.0))
+                                .flex()
+                                .flex_col()
+                                .gap(px(10.0))
+                                .child(
+                                    div()
+                                        .text_size(px(Type::DISPLAY))
+                                        .text_color(t.primary)
+                                        .child(format!("{} cannot be read", path.stem())),
+                                )
+                                .child(div().text_color(t.secondary).child(reason))
+                                .child(div().text_size(px(Type::META)).text_color(t.tertiary).child(
+                                    if shown {
+                                        format!(
+                                            "This is the file {path} as it is. Mend the lines at \
+                                             the top, between the two lines of dashes, and save: it \
+                                             becomes a note again."
+                                        )
+                                    } else {
+                                        format!(
+                                            "The file {path} is not text, so it cannot be shown \
+                                             here. Open it in another program to mend it."
+                                        )
+                                    },
+                                ))
+                                .children(self.problem.clone().map(|p| {
+                                    div()
+                                        .text_size(px(Type::META))
+                                        .text_color(t.danger)
+                                        .child(p)
+                                }))
+                                .when(shown, |pane| {
+                                    pane.child(field(&self.raw, t).min_rows(14)).child(
+                                        div().flex().child(
+                                            button("note-mend", "Save and check", t)
+                                                .accent()
+                                                .on_click(
+                                                    cx.listener(|this, _, _, cx| this.mend(cx)),
+                                                ),
+                                        ),
+                                    )
+                                }),
+                        ),
+                )
+                .into_any_element()
+        } else if self.open.is_some() {
             div()
                 .id("note-pane")
                 .flex_1()

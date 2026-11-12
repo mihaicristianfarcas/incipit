@@ -383,7 +383,20 @@ impl ReaderView {
             model: asked.map(|(_, model)| model.to_owned()),
             ..Annotation::default()
         });
-        vault.add(doc).ok().map(|doc| doc.id().clone())
+        let added = vault.add(doc).ok()?;
+        let what = match asked {
+            Some((question, _)) if question == asking::EXPLAIN => {
+                crate::activity::Passage::Explained
+            }
+            Some(_) => crate::activity::Passage::Asked,
+            None if words.is_empty() => crate::activity::Passage::Highlighted,
+            None => crate::activity::Passage::Commented,
+        };
+        crate::activity::log(
+            &vault,
+            &crate::activity::passage(crate::study::now(), book.as_str(), what, &first.quote),
+        );
+        Some(added.id().clone())
     }
 
     /// Pages arrive from the PDF's thread for as long as the view lives.

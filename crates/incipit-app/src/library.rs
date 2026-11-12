@@ -88,7 +88,12 @@ pub fn add_book(vault: &Vault, file: &Path) -> Result<Doc, String> {
         format: Some(format.to_owned()),
         ..Book::default()
     });
-    vault.add(doc).map_err(|e| e.to_string())
+    let added = vault.add(doc).map_err(|e| e.to_string())?;
+    crate::activity::log(
+        vault,
+        &crate::activity::book_added(crate::study::now(), added.id().as_str(), &title),
+    );
+    Ok(added)
 }
 
 impl LibraryView {
@@ -321,6 +326,11 @@ mod tests {
             .join("library/some-paper/Some_Paper.pdf")
             .exists());
         assert_eq!(doc.fields::<Book>().unwrap().format.as_deref(), Some("pdf"));
+        // It is in the activity log, as the earlier app's journey had it.
+        let log = vault.activity().unwrap();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].text, "Added Some Paper");
+        assert_eq!(log[0].book.as_deref(), Some(doc.id().as_str()));
         // The same file again gets a folder of its own.
         let again = add_book(&vault, &file).unwrap();
         assert_eq!(again.path().as_str(), "library/some-paper-2/book.md");

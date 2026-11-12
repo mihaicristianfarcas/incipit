@@ -369,7 +369,14 @@ impl ReaderView {
                             session.stop = None;
                             session.turns.push(turn(Speaker::Tutor, &answer.text));
                             session.scroll.scroll_to_bottom();
+                            let said = session
+                                .turns
+                                .iter()
+                                .rev()
+                                .find(|t| t.speaker == Speaker::Learner)
+                                .map(|t| t.text.clone());
                             this.keep_session(cx);
+                            this.log_tutor_ask(said, cx);
                             cx.notify();
                             false
                         }
@@ -393,6 +400,18 @@ impl ReaderView {
         if self.session.as_ref().is_some_and(|s| s.writing.is_some()) {
             self.take_back(None, cx);
         }
+    }
+
+    /// The tutor answered `said`: one line in the activity log.
+    fn log_tutor_ask(&self, said: Option<String>, cx: &mut Context<Self>) {
+        let (Some(vault), Some(said)) = (self.workspace.read(cx).vault.clone(), said) else {
+            return;
+        };
+        let book = self.book.as_ref().and_then(|b| b.id.as_ref());
+        crate::activity::log(
+            &vault,
+            &crate::activity::tutor_asked(crate::study::now(), book.map(|id| id.as_str()), &said),
+        );
     }
 
     /// Undo a turn that got no answer: stop what is being written, and give the learner's words
@@ -472,13 +491,24 @@ impl ReaderView {
         doc.set_title(&note_title(&quoted));
         doc.set_body(as_note(&quoted, &session.turns));
         let book = self.book.as_ref().and_then(|b| b.id.clone());
+        let book_id = book.as_ref().map(|b| b.as_str().to_owned());
         if let (Some(book), Some(first)) = (book, card.anchors.first()) {
             doc.set_source(Some(&self.source(&book, first)));
         }
         let outcome = match self.workspace.read(cx).vault.clone() {
             Some(vault) => vault
                 .add(doc)
-                .map(|doc| format!("Kept in Notes as “{}”.", doc.title()))
+                .map(|doc| {
+                    crate::activity::log(
+                        &vault,
+                        &crate::activity::note_written(
+                            crate::study::now(),
+                            book_id.as_deref(),
+                            &doc.title(),
+                        ),
+                    );
+                    format!("Kept in Notes as “{}”.", doc.title())
+                })
                 .map_err(|e| format!("The note was not made: {e}")),
             None => Err("Notes are kept in a vault: open one first.".to_owned()),
         };

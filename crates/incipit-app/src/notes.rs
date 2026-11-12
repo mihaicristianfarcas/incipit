@@ -221,6 +221,9 @@ impl NotesView {
         if !title.is_empty() && title != doc.title() {
             doc.set_title(&title);
         }
+        // A note is made empty and titled "Untitled", so it counts as written once it first has
+        // words in it.
+        let first_words = doc.body().trim().is_empty() && !body.trim().is_empty();
         if body != doc.body() {
             doc.set_body(body);
         }
@@ -228,6 +231,13 @@ impl NotesView {
             .update(&doc)
             .err()
             .map(|e| format!("The note was not saved: {e}"));
+        if first_words && self.problem.is_none() {
+            let book = doc.source().map(|s| s.book);
+            crate::activity::log(
+                &vault,
+                &crate::activity::note_written(crate::study::now(), book.as_deref(), &doc.title()),
+            );
+        }
         cx.notify();
     }
 

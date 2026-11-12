@@ -1,8 +1,14 @@
 //! The study tools from the reader: flashcards drafted from a selected passage or from a tutor
-//! session (`crate::drafter`). The reader gathers what the earlier app sent with each (the
-//! book's title, its author when the vault's record names one, the chapter, and the text around
-//! the passage: `learning::context`), an EPUB's from the blocks it holds and a PDF's from the
-//! PDF's thread, without drawing the pages, and hands it to the tool's sheet.
+//! session (`crate::drafter`), and a pretest or a quiz on the chapter on screen
+//! (`crate::quiz`). The reader gathers what the earlier app sent with each (the book's title,
+//! its author when the vault's record names one, the chapter, and the text around the passage
+//! or the chapter's text: `learning::context`), an EPUB's from the blocks it holds and a PDF's
+//! from the PDF's thread, without drawing the pages, and hands it to the tool's sheet.
+//!
+//! The chapter on screen is the line of the contents the top of the screen falls under, and runs
+//! as when it is mapped into concepts (`concepts::chapter::span`). A book that lists no contents
+//! is quizzed on the text around the place on screen, as the earlier app's quiz was when it had
+//! no chapter.
 
 use std::ops::Range;
 
@@ -12,9 +18,12 @@ use incipit_book::{Anchor, Cut};
 
 use super::model::Doc;
 use super::{ReaderView, State};
+use crate::concepts::chapter::span;
 use crate::drafter::From;
-use crate::learning::context::{around, BookContext};
+use crate::learning::context::{around, cut, BookContext};
 use crate::learning::drafts::{Asked, Meta};
+use crate::learning::quiz::{Mode, AROUND, CHAPTER};
+use crate::quiz::Offer;
 
 /// What the earlier app asked for when cards were made from a tutor session.
 const FROM_SESSION: &str =
@@ -166,6 +175,63 @@ impl ReaderView {
                 focus,
             };
             drafter.update(cx, |drafter, cx| drafter.start(asked, meta, from, cx));
+        })
+        .detach();
+    }
+
+    /// Offers a pretest or a quiz on the chapter on screen, once its text is gathered; `start`
+    /// starts one at once.
+    pub(super) fn offer_quiz(&mut self, start: Option<Mode>, cx: &mut Context<Self>) {
+        let State::Open(opened) = &self.state else {
+            return;
+        };
+        let top = self.list.logical_scroll_top().item_ix;
+        let pdf = matches!(opened.doc, Doc::Pdf(_));
+        let here = opened.contents.iter().rposition(|e| e.page <= top);
+        let mut context = self.book_context(None, cx);
+        let (text, spanned, most) = match here {
+            Some(entry) => {
+                let spanned = span(&opened.contents, entry, opened.parts(), pdf);
+                context.chapter = Some(opened.contents[entry].title.clone());
+                let text = self.gather(spanned.parts.clone(), spanned.cut);
+                (text, Some(spanned), CHAPTER)
+            }
+            None => (self.text_around(top), None, AROUND),
+        };
+        let offer = Offer {
+            context,
+            book: self.book.as_ref().and_then(|b| b.id.clone()),
+            deck: self
+                .book
+                .as_ref()
+                .map(|b| b.title.clone())
+                .unwrap_or_default(),
+        };
+        let quiz = self.quiz.clone();
+        cx.spawn(async move |_, cx| {
+            let gathered = text
+                .await
+                .unwrap_or_else(|_| Err("The book was closed.".into()));
+            quiz.update(cx, |quiz, cx| {
+                let texts = match gathered {
+                    Ok(texts) => texts,
+                    Err(problem) => return quiz.fail(problem, cx),
+                };
+                let parts: Vec<String> = match spanned.filter(|_| pdf) {
+                    Some(spanned) => spanned
+                        .of_pages(texts)
+                        .into_iter()
+                        .map(|part| part.text)
+                        .collect(),
+                    None => texts,
+                };
+                let mut offer = offer;
+                offer.context.text = cut(&parts.join("\n\n"), most);
+                quiz.offer(offer, cx);
+                if let Some(mode) = start {
+                    quiz.start(mode, cx);
+                }
+            });
         })
         .detach();
     }

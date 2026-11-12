@@ -1,5 +1,7 @@
 //! The study tools apart from the window, each the earlier app's: flashcards drafted from a
-//! passage, edited and saved into the book's deck, each tied to its concept (`drafts`). Each
+//! passage, edited and saved into the book's deck, each tied to its concept (`drafts`), and
+//! quizzes on a chapter, before one or across the concepts known least, with short answers
+//! graded by the model and every answer kept as evidence (`quiz`). Each
 //! tool has the earlier app's instructions and form, sends the book's text as material
 //! (`context`) and writes to the vault only through `incipit-vault`. The model work blocks, so
 //! it runs on a call's own thread (`Models::work`). Nothing here draws.
@@ -9,6 +11,7 @@
 
 pub mod context;
 pub mod drafts;
+pub mod quiz;
 
 /// A model that answers from a script, for the tests of the study tools.
 #[cfg(test)]

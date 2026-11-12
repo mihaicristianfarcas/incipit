@@ -10,8 +10,9 @@
 //! A passage can also be put to the model the learner chose: the answer is written into a card in
 //! the margin as it arrives, and kept like a note once it is whole. The passage and the text
 //! around it go to the model as material, never as instructions. An answer can be talked over
-//! with the tutor in a sheet (`session`), a page turned into a quiz (`quiz`), and a passage or
-//! a session made into flashcards to look over before they are kept (`studying`).
+//! with the tutor in a sheet (`session`), and a passage or a session made into flashcards to
+//! look over before they are kept; the chapter on screen can be quizzed on, before reading it or
+//! after (`studying`).
 //!
 //! A chapter can be mapped into concepts from the contents, and the concepts that came from the
 //! book's passages have cards in the margin beside them (`concepts`).
@@ -19,7 +20,9 @@
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =session for a tutor session with a made-up conversation),
 //! INCIPIT_ASK=explain|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
-//! INCIPIT_DRAFTS=demo (the drafter's sheet on made-up flashcards),
+//! INCIPIT_DRAFTS=demo (the drafter's sheet on made-up flashcards), INCIPIT_QUIZ=choose|check|pretest
+//! (the quiz sheet on the chapter on screen once the book is open: the choice, or a quiz or a
+//! pretest written by the model) or demo|done (a made-up quiz, at its start or finished),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block),
 //! INCIPIT_MAP=n (map line n of the contents, from 0, into concepts once the book is open).
 
@@ -27,7 +30,6 @@ mod asking;
 mod concepts;
 mod model;
 mod place;
-mod quiz;
 mod reading;
 mod rows;
 mod session;
@@ -52,6 +54,7 @@ use incipit_ui::{
 
 use incipit_vault::{Annotation, DocId, Kind, Source};
 
+use crate::learning::quiz::Mode;
 use crate::models::Models;
 use crate::workspace::{Happened, Workspace};
 use model::{byte_of, find, rich, Doc, EpubDoc, Held, Note, Opened, PdfDoc, Place, Selection};
@@ -127,10 +130,10 @@ pub struct ReaderView {
     asking: bool,
     /// The answers being written, by their note, and what stops each.
     answers: HashMap<u64, Cancel>,
-    /// The quiz that is open, the part of the book it is on, and what stops its writing.
-    quiz: Option<quiz::Quiz>,
-    quiz_on: usize,
-    quiz_stop: Option<Cancel>,
+    /// The sheet of a quiz on the chapter on screen.
+    quiz: Entity<crate::quiz::QuizView>,
+    /// A quiz to offer once the book is open (INCIPIT_QUIZ=choose|check|pretest).
+    quiz_on_open: Option<String>,
     /// The tutor session that is open, and the field its next turn is written in.
     session: Option<session::Session>,
     reply: Entity<TextField>,
@@ -215,6 +218,12 @@ impl ReaderView {
         if std::env::var("INCIPIT_DRAFTS").as_deref() == Ok("demo") {
             drafter.update(cx, |drafter, cx| drafter.show_demo(cx));
         }
+        let quiz = cx.new(|cx| crate::quiz::QuizView::new(workspace.clone(), models.clone(), cx));
+        match std::env::var("INCIPIT_QUIZ").as_deref() {
+            Ok("demo") => quiz.update(cx, |quiz, cx| quiz.show_demo(false, cx)),
+            Ok("done") => quiz.update(cx, |quiz, cx| quiz.show_demo(true, cx)),
+            _ => {}
+        }
         let mut view = ReaderView {
             workspace,
             models,
@@ -232,9 +241,10 @@ impl ReaderView {
             composing: None,
             asking: false,
             answers: HashMap::new(),
-            quiz: None,
-            quiz_on: 0,
-            quiz_stop: None,
+            quiz,
+            quiz_on_open: std::env::var("INCIPIT_QUIZ")
+                .ok()
+                .filter(|q| matches!(q.as_str(), "choose" | "check" | "pretest")),
             session: None,
             reply,
             draft,
@@ -531,6 +541,12 @@ impl ReaderView {
                             this.contents = true;
                             this.map_chapter(entry, cx);
                         }
+                        match this.quiz_on_open.take().as_deref() {
+                            Some("check") => this.offer_quiz(Some(Mode::Check), cx),
+                            Some("pretest") => this.offer_quiz(Some(Mode::Pretest), cx),
+                            Some(_) => this.offer_quiz(None, cx),
+                            None => {}
+                        }
                         if this.demo && epub {
                             this.demo = false;
                             this.show_demo();
@@ -555,7 +571,7 @@ impl ReaderView {
         match std::env::var("INCIPIT_ASK").as_deref() {
             Ok("explain") => self.explain(cx),
             Ok("cards") => self.make_cards(cx),
-            Ok("quiz") => self.start_quiz(cx),
+            Ok("quiz") => self.offer_quiz(Some(Mode::Check), cx),
             Ok("figure") => self.make_figure(cx),
             // With INCIPIT_NOTE=session: the learner's next turn, sent to the model.
             Ok("session") => {
@@ -854,8 +870,8 @@ impl ReaderView {
                     button("reader-quiz", "Quiz", t)
                         .ghost()
                         .icon(IconName::CheckCircle)
-                        .tooltip("A short quiz on what is on screen")
-                        .on_click(cx.listener(|this, _, _, cx| this.start_quiz(cx))),
+                        .tooltip("A pretest or a quiz on the chapter on screen")
+                        .on_click(cx.listener(|this, _, _, cx| this.offer_quiz(None, cx))),
                 )
             })
             .child(
@@ -1228,7 +1244,7 @@ impl Render for ReaderView {
             .child(self.bar(t, cx))
             .child(div().flex_1().min_h_0().child(body))
             .children(self.selection_menu(t, cx))
-            .children(self.quiz_sheet(t, cx))
+            .child(self.quiz.clone())
             .children(self.session_sheet(t, cx))
             .child(self.drafter.clone())
     }

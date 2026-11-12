@@ -100,15 +100,40 @@ pub fn cards_made(at: i64, book: Option<&str>, count: usize, concepts: &[String]
     }
 }
 
-/// A quiz was finished.
-pub fn quiz_finished(at: i64, book: &str, title: &str, right: usize, of: usize) -> Activity {
-    Activity::new(
+/// A quiz was finished, in `mode` (`check`, `pretest` or `review`), with `score` points of
+/// `total` answers scored, on `concepts` (their ids), and each answer scored with its concept's
+/// id and its score.
+#[allow(clippy::too_many_arguments)] // each is a field of the earlier app's line
+pub fn quiz_finished(
+    at: i64,
+    book: Option<&str>,
+    mode: &str,
+    title: &str,
+    score: f64,
+    total: usize,
+    concepts: &[String],
+    answers: &[(String, f64)],
+) -> Activity {
+    let label = match mode {
+        "pretest" => "Pretest",
+        "practice" => "Practice",
+        _ => "Quiz",
+    };
+    let answers: Vec<serde_json::Value> = answers
+        .iter()
+        .map(|(concept, score)| json!({ "concept": concept, "score": score }))
+        .collect();
+    let entry = Activity::new(
         ActivityType::Quiz,
         at,
-        format!("Quiz: {title} · {right}/{of}"),
+        format!("{label}: {title} · {score}/{total}"),
     )
-    .book(book)
-    .data(json!({ "score": right, "total": of, "mode": "quiz", "answers": [] }))
+    .concepts(concepts.iter().cloned())
+    .data(json!({ "score": score, "total": total, "mode": mode, "answers": answers }));
+    match book {
+        Some(book) => entry.book(book),
+        None => entry,
+    }
 }
 
 /// The tutor was asked something about a passage; `said` is the learner's turn.
@@ -172,8 +197,16 @@ mod tests {
         assert_eq!(cards_made(0, None, 1, &[]).text, "Made 1 card");
         assert_eq!(cards_made(0, Some("b"), 3, &[]).text, "Made 3 cards");
         assert_eq!(
-            quiz_finished(0, "b", "Optics", 2, 3).text,
+            quiz_finished(0, Some("b"), "check", "Optics", 2.0, 3, &[], &[]).text,
             "Quiz: Optics · 2/3"
+        );
+        assert_eq!(
+            quiz_finished(0, None, "pretest", "Optics", 1.5, 4, &[], &[]).text,
+            "Pretest: Optics · 1.5/4"
+        );
+        assert_eq!(
+            quiz_finished(0, None, "review", "Mixed", 0.0, 6, &[], &[]).text,
+            "Quiz: Mixed · 0/6"
         );
         assert_eq!(
             concepts_mapped(0, "b", "Chapter 2", &["c1", "c2"]).text,
@@ -203,7 +236,10 @@ mod tests {
             ActivityType::Figure
         );
         assert_eq!(kind(cards_made(0, None, 2, &[])), ActivityType::Card);
-        assert_eq!(kind(quiz_finished(0, "b", "t", 1, 2)), ActivityType::Quiz);
+        assert_eq!(
+            kind(quiz_finished(0, None, "check", "t", 1.0, 2, &[], &[])),
+            ActivityType::Quiz
+        );
         assert_eq!(kind(tutor_asked(0, None, "why")), ActivityType::Ask);
         assert_eq!(
             kind(concepts_mapped(0, "b", "c", &[])),
@@ -234,10 +270,25 @@ mod tests {
         let figure = figure_made(0, "b", "f1", "A ray", "flow");
         assert_eq!(figure.text_of("figureId"), Some("f1"));
         assert_eq!(figure.text_of("kind"), Some("flow"));
-        let quiz = quiz_finished(0, "b", "Optics", 2, 3);
-        assert_eq!(quiz.number("score"), Some(2.0));
-        assert_eq!(quiz.number("total"), Some(3.0));
-        assert_eq!(quiz.text_of("mode"), Some("quiz"));
+        let answers = [("c1".to_owned(), 1.0), ("c2".to_owned(), 0.5)];
+        let quiz = quiz_finished(
+            0,
+            Some("b"),
+            "check",
+            "Optics",
+            1.5,
+            2,
+            &["c1".to_owned(), "c2".to_owned()],
+            &answers,
+        );
+        assert_eq!(quiz.number("score"), Some(1.5));
+        assert_eq!(quiz.number("total"), Some(2.0));
+        assert_eq!(quiz.text_of("mode"), Some("check"));
+        assert_eq!(quiz.concepts, ["c1", "c2"]);
+        assert_eq!(
+            quiz.data.unwrap()["answers"],
+            json!([{ "concept": "c1", "score": 1.0 }, { "concept": "c2", "score": 0.5 }])
+        );
     }
 
     #[test]

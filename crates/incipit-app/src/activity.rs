@@ -58,8 +58,6 @@ pub fn book_added(at: i64, book: &str, title: &str) -> Activity {
 pub enum Passage {
     /// Marked, with nothing written.
     Highlighted,
-    /// A note written on it.
-    Commented,
     /// The model was asked to explain it.
     Explained,
     /// The model was asked to define it.
@@ -68,12 +66,11 @@ pub enum Passage {
     Asked,
 }
 
-/// A passage was highlighted, commented on, explained or asked about. The quote is the passage's
+/// A passage was highlighted, explained, defined or asked about. The quote is the passage's
 /// first words.
 pub fn passage(at: i64, book: &str, what: Passage, quote: &str) -> Activity {
     let (kind, label) = match what {
         Passage::Highlighted => (ActivityType::Highlight, "Highlighted"),
-        Passage::Commented => (ActivityType::Note, "Commented"),
         Passage::Explained => (ActivityType::Note, "Explained"),
         Passage::Defined => (ActivityType::Note, "Defined"),
         Passage::Asked => (ActivityType::Note, "Asked"),
@@ -209,10 +206,7 @@ mod tests {
             passage(0, "b", Passage::Highlighted, "Light bends").text,
             "Highlighted: “Light bends”"
         );
-        assert_eq!(
-            passage(0, "b", Passage::Commented, "x").text,
-            "Commented: “x”"
-        );
+        assert_eq!(passage(0, "b", Passage::Defined, "x").text, "Defined: “x”");
         assert_eq!(
             passage(0, "b", Passage::Explained, "x").text,
             "Explained: “x”"

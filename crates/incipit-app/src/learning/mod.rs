@@ -16,6 +16,7 @@ pub mod context;
 pub mod drafts;
 pub mod explain;
 pub mod quiz;
+pub mod reading_note;
 pub mod tutor;
 
 /// A model that answers from a script, for the tests of the study tools.

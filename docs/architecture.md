@@ -60,6 +60,14 @@ passage is read from the open book, so this waits for the book, not for the
 app). Incipit keeps no profile of the learner, so the earlier app's
 paragraph about them is left out of every request.
 
+**The reader's Note goes to the book's reading note.** The selection
+menu's Note (`learning/reading_note.rs`) highlights the passage and adds it,
+as a quote whose heading links back to the highlight, to one note of the
+learner's, `<book title> — notes` in `notes/`, tagged `reading` and made on
+first use, so what is noted while reading is found in Notes. The earlier
+app let the learner pick another note to add to; here it is always the
+book's.
+
 **A tutor session sends the whole conversation each turn.** The reader's
 session sheet (`reader/session.rs` in the app) keeps the turns itself and
 no provider keeps any: each turn is one request with the earlier app's

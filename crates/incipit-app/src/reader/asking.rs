@@ -44,6 +44,7 @@ impl ReaderView {
         let anchors = self.anchors();
         self.selection = None;
         self.menu = None;
+        self.said = None;
         if !anchors.is_empty() {
             self.margin = true;
             self.ask(anchors, way, None, cx);

@@ -8,13 +8,14 @@
 //! (`context`) and writes to the vault only through `incipit-vault`. The model work blocks, so
 //! it runs on a call's own thread (`Models::work`). Nothing here draws.
 //!
-//! The earlier app also told the model about the learner (`learnerSummary`); Incipit keeps no
-//! profile of them, so that paragraph is left out of every request here.
+//! Like the earlier app's, each of them also tells the model about the learner (`learnerSummary`,
+//! here `learner`), as material apart from the instructions.
 
 pub mod answers;
 pub mod context;
 pub mod drafts;
 pub mod explain;
+pub mod learner;
 pub mod quiz;
 pub mod reading_note;
 pub mod tutor;

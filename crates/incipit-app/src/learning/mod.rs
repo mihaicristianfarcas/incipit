@@ -1,4 +1,5 @@
-//! The study tools apart from the window, each the earlier app's: flashcards drafted from a
+//! The study tools apart from the window, each the earlier app's: the explanations, definitions
+//! and answers the model writes in the margin (`answers`), flashcards drafted from a
 //! passage, edited and saved into the book's deck, each tied to its concept (`drafts`), and
 //! quizzes on a chapter, before one or across the concepts known least, with short answers
 //! graded by the model and every answer kept as evidence (`quiz`), and a concept explained back
@@ -10,6 +11,7 @@
 //! The earlier app also told the model about the learner (`learnerSummary`); Incipit keeps no
 //! profile of them, so that paragraph is left out of every request here.
 
+pub mod answers;
 pub mod context;
 pub mod drafts;
 pub mod explain;

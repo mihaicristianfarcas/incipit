@@ -22,7 +22,6 @@ use incipit_ui::{button, field, sheet, IconName, TextField, Theme, Type};
 use incipit_vault::fields::{Session as Kept, Speaker, Turn};
 use incipit_vault::{Doc, Kind, Source};
 
-use super::asking::made_something;
 use super::model::Note;
 use super::ReaderView;
 
@@ -225,9 +224,18 @@ fn made_up(epub: bool) -> Vec<Turn> {
 }
 
 impl ReaderView {
+    /// What a model is given about a passage, each piece with its label.
+    fn material(&self, anchors: &[Anchor]) -> Vec<(String, String)> {
+        let mut material = vec![("passage".to_owned(), passage(anchors))];
+        if let Some(book) = &self.book {
+            material.push(("title of the book".to_owned(), book.title.clone()));
+        }
+        material
+    }
+
     /// Whether a card in the margin can be talked over: a session, or a whole answer.
     fn talks(note: &Note) -> bool {
-        let answered = note.asked.as_deref().is_some_and(|a| !made_something(a))
+        let answered = note.asked.is_some()
             && !note.words.is_empty()
             && !note.waiting
             && note.problem.is_none()

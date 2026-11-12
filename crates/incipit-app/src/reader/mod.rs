@@ -54,8 +54,10 @@ use incipit_ui::{
     Theme, Type,
 };
 
+use incipit_vault::fields::Status;
 use incipit_vault::{Annotation, DocId, Kind, Source};
 
+use crate::learning::answers::{self, Way};
 use crate::learning::quiz::Mode;
 use crate::models::Models;
 use crate::workspace::{Happened, Workspace};
@@ -338,6 +340,7 @@ impl ReaderView {
             .into_iter()
             .chain(vault.list(Some(Kind::Figure)))
             .chain(vault.list(Some(Kind::Session)));
+        let mut resume = Vec::new();
         for doc in docs {
             let Some(source) = doc.source().filter(|s| s.book == id.as_str()) else {
                 continue;
@@ -368,17 +371,34 @@ impl ReaderView {
             if doc.kind() == Kind::Session && turns.is_empty() {
                 continue;
             }
-            let (words, asked) = match &figure {
-                Some(figure) => (asking::about_figure(figure), None),
-                None if !turns.is_empty() => session::card_of(&turns),
-                None => doc
-                    .fields::<Annotation>()
-                    .map(|a| (a.answer, a.request))
-                    .unwrap_or_default(),
+            // An answer comes back as it was kept: written, failed with its reason, or still
+            // pending, which is written again once every card is back.
+            let way = (doc.kind() == Kind::Annotation)
+                .then(|| doc.doc_type().and_then(Way::of_type))
+                .flatten();
+            let kept = doc.fields::<Annotation>().unwrap_or_default();
+            let (words, asked) = match (&figure, way) {
+                (Some(figure), _) => (asking::about_figure(figure), None),
+                (None, _) if !turns.is_empty() => session::card_of(&turns),
+                (None, Some(Way::Ask)) => (kept.answer.clone(), kept.request.clone()),
+                (None, Some(way)) => (kept.answer.clone(), Some(way.said().to_owned())),
+                (None, None) => (kept.answer.clone(), kept.request.clone()),
             };
+            let pending = way.is_some() && kept.status == Status::Pending;
+            let problem = (way.is_some() && kept.status == Status::Failed).then(|| {
+                kept.error
+                    .clone()
+                    .unwrap_or_else(|| "The answer was not written.".to_owned())
+            });
             let number = self.id();
+            if pending {
+                resume.push(number);
+            }
             self.notes.push(Note {
                 id: number,
+                way,
+                waiting: pending,
+                problem,
                 doc: Some(doc.id().clone()),
                 anchors: vec![Anchor {
                     part,
@@ -393,6 +413,9 @@ impl ReaderView {
                 ..Note::default()
             });
         }
+        for id in resume {
+            self.write_answer(id, cx);
+        }
     }
 
     /// Where a passage is, as the vault writes it.
@@ -406,44 +429,54 @@ impl ReaderView {
         }
     }
 
-    /// Keep a note in the vault, beside its book: the passage as its source, the words as its
-    /// text, and for an answer what was asked and which model wrote it. A passage that runs over
-    /// several pages is kept by its first.
-    fn keep(
-        &self,
-        anchors: &[Anchor],
-        words: &str,
-        asked: Option<(&str, &str)>,
-        cx: &mut Context<Self>,
-    ) -> Option<DocId> {
+    /// Keep a highlight, or a note when `words` is not empty, in the vault, beside its book, with
+    /// the passage as its source. A passage that runs over several pages is kept by its first.
+    fn keep(&self, anchors: &[Anchor], words: &str, cx: &mut Context<Self>) -> Option<DocId> {
         let vault = self.workspace.read(cx).vault.clone()?;
         let book = self.book.as_ref()?.id.clone()?;
         let first = anchors.first()?;
         let mut doc = incipit_vault::Doc::new(Kind::Annotation);
-        doc.set_doc_type(match (asked, words.is_empty()) {
-            (Some(_), _) => "answer",
-            (None, true) => "highlight",
-            (None, false) => "comment",
-        });
+        let (kind, what) = if words.is_empty() {
+            ("highlight", crate::activity::Passage::Highlighted)
+        } else {
+            ("comment", crate::activity::Passage::Commented)
+        };
+        doc.set_doc_type(kind);
         doc.set_source(Some(&self.source(&book, first)));
         doc.set_fields(&Annotation {
             answer: words.to_owned(),
-            request: asked.map(|(question, _)| question.to_owned()),
-            model: asked.map(|(_, model)| model.to_owned()),
             ..Annotation::default()
         });
         let added = vault.add(doc).ok()?;
-        let what = match asked {
-            Some((question, _)) if question == asking::EXPLAIN => {
-                crate::activity::Passage::Explained
-            }
-            Some(_) => crate::activity::Passage::Asked,
-            None if words.is_empty() => crate::activity::Passage::Highlighted,
-            None => crate::activity::Passage::Commented,
-        };
         crate::activity::log(
             &vault,
             &crate::activity::passage(crate::study::now(), book.as_str(), what, &first.quote),
+        );
+        Some(added.id().clone())
+    }
+
+    /// Keep what is about to be asked of the model as a pending annotation, beside its book,
+    /// with the passage (and its chapter) as its source. A passage that runs over several pages
+    /// is kept by its first.
+    fn keep_pending(
+        &self,
+        anchors: &[Anchor],
+        way: Way,
+        question: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Option<DocId> {
+        let vault = self.workspace.read(cx).vault.clone()?;
+        let first = anchors.first()?;
+        let source = self.passage_source(first)?;
+        let added = vault.add(answers::pending(&source, way, question)).ok()?;
+        let what = match way {
+            Way::Explain => crate::activity::Passage::Explained,
+            Way::Define => crate::activity::Passage::Defined,
+            Way::Ask => crate::activity::Passage::Asked,
+        };
+        crate::activity::log(
+            &vault,
+            &crate::activity::passage(crate::study::now(), &source.book, what, &first.quote),
         );
         Some(added.id().clone())
     }
@@ -495,6 +528,11 @@ impl ReaderView {
         self.selection = None;
         self.menu = None;
         self.notes.clear();
+        // Answers being written for the book that was open stay pending in the vault; they are
+        // written again when it is opened.
+        for (_, cancel) in self.answers.drain() {
+            cancel.cancel();
+        }
         self.composing = None;
         self.close_session(cx);
         self.scale = if self.epub { TEXT.2 } else { PAGE.2 };
@@ -584,6 +622,7 @@ impl ReaderView {
         }
         match std::env::var("INCIPIT_ASK").as_deref() {
             Ok("explain") => self.explain(cx),
+            Ok("define") => self.define(cx),
             Ok("cards") => self.make_cards(cx),
             Ok("quiz") => self.offer_quiz(Some(Mode::Check), cx),
             Ok("figure") => self.make_figure(cx),
@@ -708,7 +747,7 @@ impl ReaderView {
         let anchors = self.anchors();
         if !anchors.is_empty() {
             let id = self.id();
-            let doc = self.keep(&anchors, "", None, cx);
+            let doc = self.keep(&anchors, "", cx);
             self.notes.push(Note {
                 id,
                 doc,
@@ -742,10 +781,10 @@ impl ReaderView {
         if let Some(anchors) = self.composing.take() {
             if words.is_empty() {
             } else if self.asking {
-                self.ask(anchors, words, cx);
+                self.ask(anchors, Way::Ask, Some(words), cx);
             } else {
                 let id = self.id();
-                let doc = self.keep(&anchors, &words, None, cx);
+                let doc = self.keep(&anchors, &words, cx);
                 self.notes.push(Note {
                     id,
                     doc,
@@ -1032,6 +1071,13 @@ impl ReaderView {
                     .on_click(cx.listener(|this, _, _, cx| this.explain(cx))),
             )
             .child(
+                button("reader-define", "Define", t)
+                    .ghost()
+                    .icon(IconName::Search)
+                    .tooltip("Say what the selected word or phrase means here")
+                    .on_click(cx.listener(|this, _, _, cx| this.define(cx))),
+            )
+            .child(
                 button("reader-ask", "Ask", t)
                     .ghost()
                     .icon(IconName::Message)
@@ -1153,6 +1199,17 @@ impl ReaderView {
                 .flex()
                 .items_center()
                 .children(self.session_button(note, t, cx))
+                .children(
+                    (note.way.is_some() && note.problem.is_some() && !note.waiting).then(|| {
+                        button(("note-again", id as usize), "Try again", t)
+                            .icon(IconName::Refresh)
+                            .tooltip("Ask the model again")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.try_again(id, cx);
+                            }))
+                    }),
+                )
                 .child(div().flex_1())
                 .child(
                     icon_button(

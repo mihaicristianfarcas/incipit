@@ -17,7 +17,7 @@ use std::sync::LazyLock;
 
 use incipit_llm::schema::{ask_for_json, parse_loose};
 use incipit_llm::Request;
-use incipit_vault::{FileChange, FileStatus};
+use incipit_vault::FileChange;
 use serde_json::{json, Value};
 
 use super::run::Status;
@@ -100,15 +100,6 @@ pub struct Earlier<'a> {
     pub error: Option<&'a str>,
 }
 
-/// The letter the earlier app wrote for what a change did to a file.
-pub fn letter(status: FileStatus) -> &'static str {
-    match status {
-        FileStatus::Added => "A",
-        FileStatus::Modified => "M",
-        FileStatus::Removed => "D",
-    }
-}
-
 /// Earlier turns of the conversation, oldest first, clipped to the latest few.
 pub fn history(turns: &[Earlier]) -> String {
     let from = turns.len().saturating_sub(TURNS);
@@ -122,7 +113,7 @@ pub fn history(turns: &[Earlier]) -> String {
                 let each = t
                     .files
                     .iter()
-                    .map(|f| format!("{} {}", letter(f.status), f.path))
+                    .map(|f| format!("{} {}", f.status.letter(), f.path))
                     .collect::<Vec<_>>();
                 format!("\n   Files changed: {}", each.join(", "))
             };
@@ -199,6 +190,7 @@ pub fn open_path(open: &str) -> Option<String> {
 mod tests {
     use super::*;
     use incipit_llm::Speaker;
+    use incipit_vault::FileStatus;
 
     fn changed(path: &str, status: FileStatus) -> FileChange {
         FileChange {

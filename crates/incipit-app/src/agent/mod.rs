@@ -1,336 +1,155 @@
 //! The vault agent: a sheet over the window, opened from any page with a key, where the learner
-//! says what should be done in their vault and the model they chose does it, as an agent with a
-//! shell. The sheet says what the agent will know of where the learner is (the note or concept
-//! open, the book and the place in it, the selection; `here.rs`), which the learner can leave
-//! out. While it works the sheet shows what it is doing; when it ends, its reply, the files it
-//! changed, Open for the main one, and Undo, or, when a file it changed can no longer be read,
-//! why, with Apply anyway and Discard.
+//! says what should be done in their vault, or asks about it, and the model they chose does it,
+//! as an agent with a shell. The sheet says what the agent will know of where the learner is
+//! (the note or concept open, the book and the place in it, the selection; `here.rs`), which the
+//! learner can leave out.
+//!
+//! Up to four requests are worked on at once (`runs.rs`). The sheet shows one conversation: its
+//! requests, newest first, each with what the agent is doing while it works and, once it ends,
+//! its reply, the files it changed and what can be done with it (`turn.rs`). The next request
+//! follows up in that conversation, and the agent is told its earlier turns; New starts
+//! another. With no conversation on show, the recent ones are listed (or, in a vault with none,
+//! a few requests to start from). A conversation is shown again when the sheet opens soon after
+//! it, as the earlier app's panel did. Every run is logged in the vault (`log/agents.jsonl`), so
+//! the list, Undo and the rest are there after a restart.
 //!
 //! The run itself has no window in it (`run.rs`): the agent works in a working copy of the vault
 //! of its own, under the provider crate's OS sandbox, which lets it write there and nowhere else
-//! and read the vault. The learner's words are the request. Where they are, and what the agent
-//! reads in the files, is material, and the instructions (`prompt.rs`), which hold no text from
-//! any file, say so. The words it writes on the way are not shown: it ends with a reply in JSON.
+//! and read the vault. The learner's words are the request. Where they are, the conversation so
+//! far, and what the agent reads in the files are material, and the instructions (`prompt.rs`),
+//! which hold no text from any file, say so. The words it writes on the way are not shown: it
+//! ends with a reply in JSON.
 //!
 //! One request is one change in the vault's history, made of the agent's work alone. When the
 //! agent ends, its change lands after whatever the learner wrote meanwhile, is read into the
 //! index and announced, so open pages follow; one that changes the app's own files or clashes
-//! with the learner's edits, or an agent that failed or was stopped, lands nothing. Undo takes that change out and keeps what
-//! was written before and after it; it is refused when later edits touched the same lines. The
-//! run and the history calls block, so they run off the window's thread and the sheet awaits
-//! them.
+//! with the learner's edits, or an agent that failed or was stopped, lands nothing. Undo takes
+//! that change out and keeps what was written before and after it; it is refused when later
+//! edits touched the same lines. The runs and the history calls block, so they run off the
+//! window's thread and the sheet awaits them.
 //!
-//! Closing the sheet does not stop the agent: it goes on, and the key shows it again. Stop does.
+//! Closing the sheet does not stop the agent: it goes on, and the key shows it again. Stop does,
+//! and so does opening another vault.
 //!
-//! Without clicking: INCIPIT_AGENT=demo shows a made-up finished run, `review` one waiting for
-//! the learner's OK and `refused` one refused for changing the review log, and none calls a
-//! model; INCIPIT_AGENT with other words runs them once the vault is open, with the learner's
-//! login.
+//! Without clicking: INCIPIT_AGENT=demo shows a made-up run that landed, `review` one waiting for
+//! the learner's OK, `refused` one refused for changing the review log, `thread` a conversation
+//! of an answer and a follow-up, and `recent` the list of recent conversations with one
+//! working; none calls a model, and what is done with them changes nothing. INCIPIT_AGENT with
+//! other words runs them once the vault is open, with the learner's login.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use futures::StreamExt;
 use gpui::{
     div, prelude::*, px, AnyElement, Context, Entity, EventEmitter, FontWeight, IntoElement,
-    KeyDownEvent, Render, ScrollHandle, Subscription, Window,
+    KeyDownEvent, Render, ScrollHandle, SharedString, Subscription, Window,
 };
-use incipit_llm::{Cancel, Event, Update};
+use incipit_llm::Update;
 use incipit_ui::{button, field, sheet, spinner, FieldEvent, IconName, TextField, Theme, Type};
-use incipit_vault::{FileChange, FileStatus, Vault, VaultPath};
+use incipit_vault::{rfc3339, AgentRun, Vault, VaultPath};
 
 use crate::models::Models;
+use crate::study::now;
 use crate::workspace::{Happened, Workspace};
 use here::Here;
-use run::{Job, Outcome, Status};
+use run::{Job, Status};
+use turn::{status_word, undo_problem, Turn};
 
 pub mod here;
 pub mod prompt;
 pub mod run;
+pub mod runs;
+pub mod turn;
 
 /// What the learner is told when no vault is open.
 const NO_VAULT: &str = "No vault is open. Choose its folder in Settings first.";
-/// The sheet's width, and the most height a run takes before it scrolls: with the field and the
-/// buttons, the sheet fits the smallest window.
+/// The sheet's width, and the most height the runs take before they scroll: with the field and
+/// the buttons, the sheet fits the smallest window.
 const WIDTH: f32 = 560.0;
-const RUN: f32 = 300.0;
-/// How many of the agent's latest steps are shown: enough to see it move, few enough to leave
-/// the room to its closing words.
-const STEPS_SHOWN: usize = 6;
-/// The most steps kept of a run that goes on for long.
-const STEPS_KEPT: usize = 200;
-/// Whether a file a reply names can be opened, as the earlier app's `vaultLink` decided: a
-/// note, concept, card or figure, what belongs to a book, or the book itself.
-fn openable(path: &str) -> bool {
-    let parts: Vec<&str> = path.split('/').collect();
-    let markdown = path.ends_with(".md");
-    match parts.as_slice() {
-        ["notes" | "concepts" | "cards" | "figures", _, ..] => markdown,
-        ["library", book, _, ..] => !book.is_empty(),
-        _ => false,
-    }
-}
-
-/// Why a change could not be undone, in words for the learner.
-fn undo_problem(error: &incipit_vault::Error) -> String {
-    match error {
-        incipit_vault::Error::WouldConflict(files) => format!(
-            "Undo would lose what was written since in {files}, so nothing was undone. Change \
-             those lines back by hand."
-        ),
-        other => format!("This could not be undone: {other}."),
-    }
-}
-
-/// A file a run changed, as the sheet lists it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Touched {
-    /// The document's title, or the file's name when it is not (or no longer) a document.
-    title: String,
-    path: String,
-    what: &'static str,
-}
-
-fn touched(change: &FileChange, title: Option<String>) -> Touched {
-    let name = change.path.rsplit('/').next().unwrap_or(&change.path);
-    Touched {
-        title: title
-            .filter(|title| !title.trim().is_empty())
-            .unwrap_or_else(|| name.trim_end_matches(".md").to_owned()),
-        path: change.path.clone(),
-        what: match change.status {
-            FileStatus::Added => "New",
-            FileStatus::Modified => "Changed",
-            FileStatus::Removed => "Removed",
-        },
-    }
-}
-
-/// One request and what became of it.
-#[derive(Debug)]
-struct Run {
-    request: String,
-    /// What the agent did, a line per step, oldest first.
-    steps: Vec<String>,
-    /// Its words as far as they have come, and its closing words once it ended.
-    words: String,
-    /// How it ended; `None` while it works.
-    status: Option<Status>,
-    /// What went wrong, in words for the learner.
-    problems: Vec<String>,
-    files: Vec<Touched>,
-    /// The main file it made or changed, to open from its reply.
-    open: Option<String>,
-    /// The run's change in the vault's history, by change id, which Undo takes out.
-    change: Option<String>,
-    /// What waits for the learner's OK, a line per file that can no longer be read.
-    review: Vec<String>,
-    /// The run's end while its change waits for the learner's OK.
-    waiting: Option<Outcome>,
-}
-
-impl Run {
-    fn new(request: &str) -> Run {
-        Run {
-            request: request.to_owned(),
-            steps: Vec::new(),
-            words: String::new(),
-            status: None,
-            problems: Vec::new(),
-            files: Vec::new(),
-            open: None,
-            change: None,
-            review: Vec::new(),
-            waiting: None,
-        }
-    }
-
-    /// Something the agent reported while working. Its words on the way are left: it ends with
-    /// its reply as JSON, which is read once it ends.
-    fn hear(&mut self, event: Event) {
-        match event {
-            Event::Text(_) | Event::Link(_) => {}
-            Event::Activity(step) => {
-                let step = step.trim();
-                if step.is_empty() || self.steps.last().is_some_and(|last| last == step) {
-                    return;
-                }
-                if self.steps.len() == STEPS_KEPT {
-                    self.steps.remove(0);
-                }
-                self.steps.push(step.to_owned());
-            }
-        }
-    }
-
-    /// The run ended with `outcome`. `title` gives the title of the document at a path, as the
-    /// vault has it now.
-    fn finish(&mut self, outcome: Outcome, title: impl Fn(&str) -> Option<String>) {
-        if !outcome.answer.trim().is_empty() {
-            self.words = outcome.answer.clone();
-        }
-        self.problems.extend(outcome.error.clone());
-        self.files = outcome
-            .files
-            .iter()
-            .map(|change| touched(change, title(&change.path)))
-            .collect();
-        self.open = outcome.open.clone().filter(|path| openable(path));
-        self.change = outcome.change.clone();
-        self.review = outcome.review.clone();
-        self.status = Some(outcome.status);
-        self.waiting = (outcome.status == Status::Review).then_some(outcome);
-    }
-
-    fn working(&self) -> bool {
-        self.status.is_none()
-    }
-
-    fn can_undo(&self) -> bool {
-        self.status == Some(Status::Merged)
-    }
-
-    fn waits(&self) -> bool {
-        self.status == Some(Status::Review)
-    }
-
-    /// The file its reply names, when it is in the vault: once the change landed, or for an
-    /// answer.
-    fn to_open(&self) -> Option<&str> {
-        matches!(self.status, Some(Status::Merged | Status::Done))
-            .then_some(self.open.as_deref())
-            .flatten()
-    }
-
-    /// Undo ended.
-    fn undone(&mut self, result: Result<(), String>) {
-        match result {
-            Ok(()) => self.status = Some(Status::Undone),
-            Err(problem) => self.problems.push(problem),
-        }
-    }
-
-    /// The steps the sheet shows: the latest few.
-    fn shown_steps(&self) -> &[String] {
-        &self.steps[self.steps.len().saturating_sub(STEPS_SHOWN)..]
-    }
-
-    /// Where the run stands, in a line, when there is something to say beyond its words.
-    fn standing(&self) -> Option<&'static str> {
-        match self.status {
-            None => Some("Working…"),
-            Some(Status::Undone) => Some("Undone: what this request changed was taken back."),
-            Some(Status::Stopped) => Some("Stopped. No file was changed."),
-            Some(Status::Done) => Some("No file was changed."),
-            Some(Status::Review) => Some(
-                "Waiting for your OK: some files it changed can no longer be read. Apply them \
-                 anyway, or discard them.",
-            ),
-            Some(Status::Discarded) => {
-                Some("Discarded: nothing of this request reached your vault.")
-            }
-            Some(Status::Failed) if !self.files.is_empty() => {
-                Some("Nothing reached your vault. It would have changed these files:")
-            }
-            Some(Status::Failed | Status::Merged) => None,
-        }
-    }
-
-    /// A finished run that never happened, to look at the sheet without a model: landed
-    /// (`demo`), waiting for the learner's OK (`review`) or refused for changing the app's own
-    /// file (`refused`).
-    fn made_up_as(which: &str) -> Run {
-        let mut run = Run::made_up();
-        let change = |path: &str, status| FileChange {
-            path: path.to_owned(),
-            status,
-        };
-        match which {
-            "review" => {
-                let files = vec![change("cards/What attention weighs.md", FileStatus::Added)];
-                run.finish(
-                    Outcome {
-                        status: Status::Review,
-                        answer: run.words.clone(),
-                        open: None,
-                        files,
-                        change: None,
-                        error: None,
-                        review: vec!["Can't be read: cards/What attention weighs.md: the \
-                                      properties at the top are not closed with a line of ---"
-                            .to_owned()],
-                    },
-                    |_| Some("What attention weighs".to_owned()),
-                );
-            }
-            "refused" => {
-                let files = vec![change("log/reviews.jsonl", FileStatus::Modified)];
-                run.finish(
-                    Outcome {
-                        status: Status::Failed,
-                        answer: run.words.clone(),
-                        open: None,
-                        files,
-                        change: None,
-                        error: Some(
-                            "log/reviews.jsonl: the app keeps this file; agents may not change it"
-                                .to_owned(),
-                        ),
-                        review: Vec::new(),
-                    },
-                    |_| None,
-                );
-            }
-            _ => {}
-        }
-        run
-    }
-
-    fn made_up() -> Run {
-        let mut run = Run::new("Make flashcards from my note on attention");
-        for step in [
-            "Reading notes/Attention.md",
-            "Writing cards/What attention weighs.md",
-            "Editing notes/Attention.md",
-        ] {
-            run.hear(Event::Activity(step.to_owned()));
-        }
-        run.status = Some(Status::Merged);
-        run.words = "I wrote **one flashcard** from the note and linked it there:\n\n\
-            - `cards/What attention weighs.md`: what the weights in attention say.\n\
-            - `notes/Attention.md`: a link to the new card under *Cards*."
-            .to_owned();
-        run.files = vec![
-            Touched {
-                title: "What attention weighs".to_owned(),
-                path: "cards/What attention weighs.md".to_owned(),
-                what: "New",
-            },
-            Touched {
-                title: "Attention".to_owned(),
-                path: "notes/Attention.md".to_owned(),
-                what: "Changed",
-            },
-        ];
-        run
-    }
-}
+const RUNS: f32 = 340.0;
+/// How many recent conversations are listed.
+const RECENT: usize = 6;
+/// The most characters of a recent conversation's first request on its button.
+const RECENT_TASK: usize = 64;
+/// Requests to start from, in a vault with none yet: the earlier app's.
+const EXAMPLES: [&str; 4] = [
+    "Summarise this chapter into a note in a folder for this book",
+    "Make a quiz on what I highlighted, with corrections",
+    "Turn this note into exercises with hidden solutions",
+    "What have I written about consensus?",
+];
+/// What the field says while it is empty.
+const ASK: &str = "What should be done in your vault?";
+const REPLY: &str = "Reply, or ask for a change…";
 
 /// The learner closed the sheet.
 pub struct Closed;
 
-/// The learner asked to open the file a reply names, by its path in the vault the run worked in.
+/// The learner asked to open a file of the vault the runs are in, by its path there.
 pub struct OpenFile(pub String);
+
+/// The title of the document at a path, as `vault` has it now.
+fn titles(vault: &Vault) -> impl Fn(&str) -> Option<String> {
+    let vault = vault.clone();
+    move |path| {
+        let path = VaultPath::new(path).ok()?;
+        vault.at(&path).map(|doc| doc.title())
+    }
+}
+
+/// Something done to a run, by its id.
+type Act = fn(&mut AgentView, &str, &mut Context<AgentView>);
+
+/// A click that does `act` to the run `id`.
+fn on_turn(
+    id: &str,
+    act: Act,
+    cx: &mut Context<AgentView>,
+) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static {
+    let id = id.to_owned();
+    let view = cx.entity().downgrade();
+    move |_, _, cx| {
+        let _ = view.update(cx, |this, cx| act(this, &id, cx));
+    }
+}
+
+/// A click that opens the file at `path`.
+fn opens(
+    path: &str,
+    cx: &mut Context<AgentView>,
+) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static {
+    let path = path.to_owned();
+    let view = cx.entity().downgrade();
+    move |_, _, cx| {
+        let _ = view.update(cx, |_, cx| cx.emit(OpenFile(path.clone())));
+    }
+}
+
+/// What is done to a run in the vault, off the window's thread: Undo, Apply anyway, Discard,
+/// Keep as a note. It gives the run as it then stands, or why not, in words for the learner.
+type Work = Box<dyn FnOnce(&Vault, AgentRun) -> Result<AgentRun, String> + Send>;
 
 pub struct AgentView {
     workspace: Entity<Workspace>,
     models: Entity<Models>,
     words: Entity<TextField>,
-    run: Option<Run>,
-    /// The vault the run works in, which Undo goes back to even if another was opened since.
-    ran_in: Option<Vault>,
-    stop: Option<Cancel>,
-    busy: bool,
+    /// The runs of the vault, newest first.
+    turns: Vec<Turn>,
+    /// The vault the runs are of: what is done with them goes there.
+    vault: Option<Vault>,
+    /// The runs have been read from the vault's log.
+    loaded: bool,
+    /// What tells each run going on that another vault opened, by its id.
+    closing: HashMap<String, Arc<AtomicBool>>,
+    /// The conversation on show, by its thread; none for a fresh request.
+    thread: Option<String>,
+    /// The runs are made up (INCIPIT_AGENT=demo and the like): no vault replaces them.
+    demo: bool,
     /// Why nothing was started, in words for the learner.
     problem: Option<String>,
-    /// Words to run as soon as a vault is open.
+    /// Words to run as soon as the vault is open and its runs are read.
     waiting: Option<String>,
     /// Where the learner was as the sheet opened, unless they left it out.
     here: Here,
@@ -347,8 +166,7 @@ impl AgentView {
         models: Entity<Models>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let words =
-            cx.new(|cx| TextField::new(cx).placeholder("What should be done in your vault?"));
+        let words = cx.new(|cx| TextField::new(cx).placeholder(ASK));
         let typed = cx.subscribe(
             &words,
             |this: &mut Self, _, event: &FieldEvent, cx| match event {
@@ -358,32 +176,130 @@ impl AgentView {
             },
         );
         let opened = cx.subscribe(&workspace, |this: &mut Self, _, happened, cx| {
-            if matches!(happened, Happened::Opened) && this.waiting.is_some() {
-                this.run(cx);
+            if matches!(happened, Happened::Opened) {
+                this.opened(cx);
             }
         });
-        AgentView {
+        let mut view = AgentView {
             workspace,
             models,
             words,
-            run: None,
-            ran_in: None,
-            stop: None,
-            busy: false,
+            turns: Vec::new(),
+            vault: None,
+            loaded: false,
+            closing: HashMap::new(),
+            thread: None,
+            demo: false,
             problem: None,
             waiting: None,
             here: Here::default(),
             scroll: ScrollHandle::new(),
             _heard: [typed, opened],
+        };
+        if view.workspace.read(cx).vault.is_some() {
+            view.opened(cx);
+        }
+        view
+    }
+
+    /// Take the keyboard: the sheet was opened where the learner is, `here`. The conversation
+    /// on show stays while it goes on or was asked lately.
+    pub fn start(&mut self, here: Here, window: &mut Window, cx: &mut Context<Self>) {
+        self.here = here;
+        let records: Vec<AgentRun> = self.turns.iter().map(|t| t.run.clone()).collect();
+        if let Some(thread) = &self.thread {
+            if !runs::fresh(&records, thread, now()) {
+                self.show_thread(None, cx);
+            }
+        }
+        TextField::focus(&self.words, window, cx);
+        cx.notify();
+    }
+
+    /// INCIPIT_AGENT=demo, review, refused, thread or recent: made-up runs, with no model
+    /// called. What is done with them changes no vault.
+    pub fn show_demo(&mut self, which: &str, cx: &mut Context<Self>) {
+        self.demo = true;
+        self.turns = turn::made_up(which, now());
+        let thread = (which != "recent")
+            .then(|| {
+                self.turns
+                    .first()
+                    .map(|t| runs::thread_of(&t.run).to_owned())
+            })
+            .flatten();
+        self.show_thread(thread, cx);
+        cx.notify();
+    }
+
+    /// INCIPIT_AGENT=words: run them, now or as soon as the vault is open and its runs are
+    /// read.
+    pub fn run_words(&mut self, words: &str, cx: &mut Context<Self>) {
+        self.words.update(cx, |field, cx| field.set_text(words, cx));
+        if self.loaded {
+            self.run(cx);
+        } else {
+            self.waiting = Some(words.to_owned());
         }
     }
 
-    /// Take the keyboard: the sheet was opened where the learner is, `here`. A run that is
-    /// going on, or the last one, is still there.
-    pub fn start(&mut self, here: Here, window: &mut Window, cx: &mut Context<Self>) {
-        self.here = here;
-        TextField::focus(&self.words, window, cx);
+    /// Another vault is open (or none): the runs going in the one that was are stopped, as the
+    /// earlier app's `stopRuns`, and the new vault's runs are read from its log.
+    fn opened(&mut self, cx: &mut Context<Self>) {
+        self.vault = self.workspace.read(cx).vault.clone();
+        if self.demo {
+            self.loaded = true;
+            return;
+        }
+        for turn in self.turns.iter().filter(|t| t.working()) {
+            if let Some(closing) = self.closing.get(&turn.run.id) {
+                closing.store(true, Ordering::SeqCst);
+            }
+            if let Some(stop) = &turn.stop {
+                stop.cancel();
+            }
+        }
+        self.closing.clear();
+        self.turns.clear();
+        self.loaded = false;
+        self.show_thread(None, cx);
         cx.notify();
+        let Some(vault) = self.vault.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let reading = vault.clone();
+            let read = cx
+                .background_executor()
+                .spawn(async move { runs::load(&reading) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                // Another vault opened while this one's log was read.
+                if this.vault.as_ref().map(Vault::root) != Some(vault.root()) {
+                    return;
+                }
+                let title = titles(&vault);
+                this.turns = read.into_iter().map(|run| Turn::new(run, &title)).collect();
+                this.loaded = true;
+                if this.waiting.is_some() {
+                    this.run(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Shows a conversation (none: a fresh request).
+    fn show_thread(&mut self, thread: Option<String>, cx: &mut Context<Self>) {
+        let placeholder = if thread.is_some() { REPLY } else { ASK };
+        self.thread = thread;
+        self.words
+            .update(cx, |field, cx| field.set_placeholder(placeholder, cx));
+    }
+
+    fn turn_mut(&mut self, id: &str) -> Option<&mut Turn> {
+        self.turns.iter_mut().find(|t| t.run.id == id)
     }
 
     /// The learner leaves out where they are: the agent works on the whole vault.
@@ -392,76 +308,96 @@ impl AgentView {
         cx.notify();
     }
 
-    /// INCIPIT_AGENT=demo, review or refused: a made-up finished run, with no model called.
-    /// Its Undo, Apply anyway and Discard change nothing in the vault.
-    pub fn show_demo(&mut self, which: &str, cx: &mut Context<Self>) {
-        self.run = Some(Run::made_up_as(which));
-        cx.notify();
-    }
-
-    /// INCIPIT_AGENT=words: run them, now or as soon as the vault is open.
-    pub fn run_words(&mut self, words: &str, cx: &mut Context<Self>) {
-        self.words.update(cx, |field, cx| field.set_text(words, cx));
-        if self.workspace.read(cx).vault.is_some() {
-            self.run(cx);
-        } else {
-            self.waiting = Some(words.to_owned());
-        }
-    }
-
-    fn working(&self) -> bool {
-        self.run.as_ref().is_some_and(Run::working)
-    }
-
-    /// Have the agent do what is in the field.
+    /// Have the agent do what is in the field: a follow-up in the conversation on show, else a
+    /// new one.
     fn run(&mut self, cx: &mut Context<Self>) {
+        let words = self.words.read(cx).text().trim().to_string();
         self.waiting = None;
-        let request = self.words.read(cx).text().trim().to_string();
-        if request.is_empty() || self.working() || self.busy {
+        if words.is_empty() {
             return;
         }
         let Some(vault) = self.workspace.read(cx).vault.clone() else {
+            if self.demo {
+                return;
+            }
             self.problem = Some(NO_VAULT.to_owned());
             cx.notify();
             return;
         };
+        if !self.loaded || self.vault.as_ref().map(Vault::root) != Some(vault.root()) {
+            // The runs are read first, so a follow-up knows its conversation and the run is not
+            // taken for one cut short.
+            self.waiting = Some(words);
+            return;
+        }
+        let running = self.turns.iter().filter(|t| t.working()).count();
+        let after = self.thread.as_deref().and_then(|thread| {
+            self.turns
+                .iter()
+                .find(|t| runs::thread_of(&t.run) == thread)
+                .map(|t| t.run.clone())
+        });
+        let described = here::describe(&vault, &self.here);
+        let record = match runs::begin(
+            &words,
+            after.as_ref(),
+            &described.label,
+            running,
+            rfc3339(now()),
+        ) {
+            Ok(record) => record,
+            Err(problem) => {
+                self.problem = Some(problem);
+                cx.notify();
+                return;
+            }
+        };
+        let records: Vec<AgentRun> = self.turns.iter().map(|t| t.run.clone()).collect();
+        let earlier = runs::earlier(&runs::turns_before(&records, &record));
+        let request = prompt::request_for(&record.task, &described.lines, &earlier)
+            .with_timeout(runs::TIME_LIMIT);
         let job = Job {
             runs: run::runs_folder(&crate::workspace::home(), &vault),
-            id: run::new_id(),
-            task: request.clone(),
+            id: record.id.clone(),
+            task: record.task.clone(),
             vault: vault.clone(),
         };
-        let described = here::describe(&vault, &self.here);
-        let asking = self.models.read(cx).act(
-            prompt::request_for(&request, &described.lines, &[]),
-            move |provider, request, cancel, on| {
-                Ok(run::execute(provider, request, &job, cancel, on))
-            },
-        );
+        let closing = Arc::new(AtomicBool::new(false));
+        let (going, closed) = (record.clone(), closing.clone());
+        let asking = self
+            .models
+            .read(cx)
+            .act(request, move |provider, request, cancel, on| {
+                Ok(runs::go(
+                    provider, request, &job, going, cancel, &closed, on,
+                ))
+            });
         let mut asking = match asking {
             Ok(asking) => asking,
             Err(problem) => {
-                self.refuse(&request, problem, cx);
+                self.problem = Some(problem);
+                cx.notify();
                 return;
             }
         };
         self.problem = None;
         self.words.update(cx, |field, cx| field.set_text("", cx));
-        self.run = Some(Run::new(&request));
-        self.ran_in = Some(vault.clone());
-        self.stop = Some(asking.cancel.clone());
+        self.show_thread(Some(runs::thread_of(&record).to_owned()), cx);
+        let id = record.id.clone();
+        let mut turn = Turn::new(record, |_| None);
+        turn.stop = Some(asking.cancel.clone());
+        self.turns.insert(0, turn);
+        self.closing.insert(id.clone(), closing);
         cx.notify();
         cx.spawn(async move |this, cx| {
-            // A channel that closes without an end is a run that was dropped: as if stopped.
-            let mut outcome = Outcome::stopped();
+            let mut ended = None;
             while let Some(update) = asking.updates.next().await {
                 match update {
                     Update::Event(event) => {
                         let heard = this.update(cx, |this, cx| {
-                            if let Some(run) = &mut this.run {
-                                run.hear(event);
+                            if let Some(turn) = this.turn_mut(&id) {
+                                turn.hear(event);
                             }
-                            this.scroll.scroll_to_bottom();
                             cx.notify();
                         });
                         if heard.is_err() {
@@ -469,144 +405,179 @@ impl AgentView {
                         }
                     }
                     Update::Done(result) => {
-                        if let Ok(ended) = result {
-                            outcome = ended;
-                        }
+                        ended = result.ok();
                         break;
                     }
                 }
             }
             let _ = this.update(cx, |this, cx| {
-                this.stop = None;
-                if let Some(run) = &mut this.run {
-                    let title = |path: &str| {
-                        let path = VaultPath::new(path).ok()?;
-                        vault.at(&path).map(|doc| doc.title())
+                this.closing.remove(&id);
+                let title = titles(&vault);
+                let Some(turn) = this.turn_mut(&id) else {
+                    return;
+                };
+                let run = ended.unwrap_or_else(|| {
+                    // A channel that closes without an end is a run that was dropped: as if
+                    // stopped, and logged so.
+                    let stopped = AgentRun {
+                        status: Status::Stopped,
+                        ..turn.run.clone()
                     };
-                    run.finish(outcome, title);
-                }
-                this.scroll.scroll_to_bottom();
+                    let (into, line) = (vault.clone(), stopped.clone());
+                    cx.background_executor()
+                        .spawn(async move { runs::save(&into, &line) })
+                        .detach();
+                    stopped
+                });
+                turn.finish(run, title);
                 cx.notify();
             });
         })
         .detach();
     }
 
-    /// Nothing was started: the learner's words go back to the field, with why.
-    fn refuse(&mut self, request: &str, problem: String, cx: &mut Context<Self>) {
-        self.run = None;
-        self.problem = Some(problem);
-        self.words
-            .update(cx, |field, cx| field.set_text(request, cx));
-        cx.notify();
-    }
-
-    /// Stop the agent. Nothing it changed reaches the vault.
-    fn stop(&mut self, cx: &mut Context<Self>) {
-        if let Some(stop) = &self.stop {
+    /// Stop a run. Nothing it changed reaches the vault.
+    fn stop(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(stop) = self.turn_mut(id).and_then(|t| t.stop.as_ref()) {
             stop.cancel();
         }
         cx.notify();
     }
 
-    /// Take the run's change out of the vault, and nothing else.
-    fn undo(&mut self, cx: &mut Context<Self>) {
-        let Some(run) = self.run.as_mut().filter(|run| run.can_undo()) else {
+    /// Ask a failed request again, with where the learner is now, in the conversation on show.
+    fn try_again(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(task) = self.turn_mut(id).map(|t| t.run.task.clone()) else {
             return;
         };
-        if self.busy {
+        self.words.update(cx, |field, cx| field.set_text(task, cx));
+        self.run(cx);
+    }
+
+    /// Does `work` to run `id` in its vault, off the window's thread; a made-up run becomes what
+    /// `pretend` makes of it, and no vault is touched.
+    fn act_on(
+        &mut self,
+        id: &str,
+        pretend: fn(AgentRun) -> AgentRun,
+        work: Work,
+        cx: &mut Context<Self>,
+    ) {
+        let vault = self.vault.clone();
+        let Some(turn) = self.turn_mut(id) else {
+            return;
+        };
+        if turn.busy {
             return;
         }
-        let (Some(change), Some(vault)) = (run.change.clone(), self.ran_in.clone()) else {
-            // The made-up run changed nothing.
-            run.undone(Ok(()));
+        if turn.made_up {
+            let run = pretend(turn.run.clone());
+            turn.finish(run, turn::made_up_title);
             cx.notify();
-            return;
-        };
-        self.busy = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { vault.drop_change(&change) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.busy = false;
-                if let Some(run) = &mut this.run {
-                    run.undone(result.map_err(|e| undo_problem(&e)));
-                }
-                this.scroll.scroll_to_bottom();
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// The learner's OK for a change that waited for it: it lands as any other.
-    fn apply(&mut self, cx: &mut Context<Self>) {
-        self.settle(true, cx);
-    }
-
-    /// The learner turned down a change that waited for their OK: it is left out.
-    fn discard(&mut self, cx: &mut Context<Self>) {
-        self.settle(false, cx);
-    }
-
-    fn settle(&mut self, apply: bool, cx: &mut Context<Self>) {
-        let Some(run) = self.run.as_mut().filter(|run| run.waits()) else {
-            return;
-        };
-        if self.busy {
             return;
         }
-        let (Some(waiting), Some(vault)) = (run.waiting.clone(), self.ran_in.clone()) else {
-            // The made-up run has no change in any vault.
-            let mut ended = run.waiting.clone().unwrap_or_else(Outcome::stopped);
-            ended.status = if apply {
-                Status::Merged
-            } else {
-                Status::Discarded
-            };
-            run.finish(ended, |_| None);
-            cx.notify();
+        let Some(vault) = vault else {
             return;
         };
-        let task = run.request.clone();
-        self.busy = true;
+        turn.busy = true;
+        let run = turn.run.clone();
+        let id = id.to_owned();
         cx.notify();
         cx.spawn(async move |this, cx| {
             let into = vault.clone();
-            let ended = cx
+            let result = cx
                 .background_executor()
-                .spawn(async move {
-                    if apply {
-                        Ok(run::approve(&into, &task, waiting))
-                    } else {
-                        run::discard(&into, waiting)
-                    }
-                })
+                .spawn(async move { work(&into, run) })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.busy = false;
-                if let Some(run) = &mut this.run {
-                    match ended {
-                        Ok(ended) => {
-                            let title = |path: &str| {
-                                let path = VaultPath::new(path).ok()?;
-                                vault.at(&path).map(|doc| doc.title())
-                            };
-                            run.finish(ended, title);
-                        }
-                        Err(e) => run
-                            .problems
-                            .push(format!("The changes could not be discarded: {e}.")),
+                let title = titles(&vault);
+                if let Some(turn) = this.turn_mut(&id) {
+                    turn.busy = false;
+                    match result {
+                        Ok(run) => turn.finish(run, title),
+                        Err(problem) => turn.problems.push(problem),
                     }
                 }
-                this.scroll.scroll_to_bottom();
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Take a run's change out of the vault, and nothing else.
+    fn undo(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.act_on(
+            id,
+            |run| AgentRun {
+                status: Status::Undone,
+                ..run
+            },
+            Box::new(|vault, run| {
+                let change = run
+                    .change
+                    .clone()
+                    .ok_or("Only a request that changed your vault can be undone.")?;
+                vault.drop_change(&change).map_err(|e| undo_problem(&e))?;
+                let undone = AgentRun {
+                    status: Status::Undone,
+                    ..run
+                };
+                runs::save(vault, &undone);
+                Ok(undone)
+            }),
+            cx,
+        );
+    }
+
+    /// The learner's OK for a change that waited for it: it lands as any other.
+    fn apply(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.act_on(
+            id,
+            |run| AgentRun {
+                status: Status::Merged,
+                review: Vec::new(),
+                ..run
+            },
+            Box::new(|vault, run| {
+                let landed = run::approve(vault, &run.task, runs::outcome_of(&run));
+                let ended = runs::with_outcome(&run, landed);
+                runs::save(vault, &ended);
+                Ok(ended)
+            }),
+            cx,
+        );
+    }
+
+    /// The learner turned down a change that waited for their OK: it is left out.
+    fn discard(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.act_on(
+            id,
+            |run| AgentRun {
+                status: Status::Discarded,
+                review: Vec::new(),
+                ..run
+            },
+            Box::new(|vault, run| {
+                let discarded = run::discard(vault, runs::outcome_of(&run))
+                    .map_err(|e| format!("The changes could not be discarded: {e}."))?;
+                let ended = runs::with_outcome(&run, discarded);
+                runs::save(vault, &ended);
+                Ok(ended)
+            }),
+            cx,
+        );
+    }
+
+    /// Keep an answer as a note.
+    fn keep(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.act_on(
+            id,
+            |run| AgentRun {
+                kept: Some(format!("notes/{}.md", run.task.trim_end_matches('?'))),
+                ..run
+            },
+            Box::new(|vault, run| runs::keep(vault, &run, now())),
+            cx,
+        );
     }
 
     fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
@@ -645,29 +616,100 @@ impl AgentView {
             .into_any_element()
     }
 
-    /// A run: the request, the agent's latest steps, its words, and what it changed.
-    fn run_part(&self, run: &Run, t: Theme) -> AnyElement {
-        let steps = run.shown_steps().iter().map(|step| {
+    /// What can be done with a run, as buttons.
+    fn actions(&self, ix: usize, turn: &Turn, t: Theme, cx: &mut Context<Self>) -> AnyElement {
+        let id = turn.run.id.as_str();
+        let on = |f: Act, cx: &mut Context<Self>| on_turn(id, f, cx);
+        let mut row = div().flex().flex_wrap().items_center().gap(px(6.0));
+        if let Some(path) = turn.to_open() {
+            row = row.child(
+                button(("agent-open", ix), "Open", t)
+                    .accent()
+                    .tooltip(SharedString::from(path.to_owned()))
+                    .on_click(opens(path, cx)),
+            );
+        }
+        if turn.can_undo() {
+            row = row.child(
+                button(("agent-undo", ix), "Undo", t)
+                    .icon(IconName::Refresh)
+                    .disabled(turn.busy)
+                    .on_click(on(Self::undo, cx)),
+            );
+        }
+        if turn.waits() {
+            row = row
+                .child(
+                    button(("agent-apply", ix), "Apply anyway", t)
+                        .disabled(turn.busy)
+                        .on_click(on(Self::apply, cx)),
+                )
+                .child(
+                    button(("agent-discard", ix), "Discard", t)
+                        .disabled(turn.busy)
+                        .on_click(on(Self::discard, cx)),
+                );
+        }
+        if turn.can_keep() {
+            row = row.child(
+                button(("agent-keep", ix), "Keep as a note", t)
+                    .disabled(turn.busy)
+                    .on_click(on(Self::keep, cx)),
+            );
+        }
+        if let Some(path) = turn.kept() {
+            row = row.child(
+                button(("agent-kept", ix), "Kept · open the note", t)
+                    .ghost()
+                    .on_click(opens(path, cx)),
+            );
+        }
+        if turn.run.status == Status::Failed {
+            row = row.child(
+                button(("agent-again", ix), "Try again", t).on_click(on(Self::try_again, cx)),
+            );
+        }
+        if turn.working() {
+            row = row.child(
+                button(("agent-stop", ix), "Stop", t)
+                    .icon(IconName::Stop)
+                    .on_click(on(Self::stop, cx)),
+            );
+        }
+        row.into_any_element()
+    }
+
+    /// One run: the request, how it stands, the agent's latest steps while it works, its reply,
+    /// what went wrong, the files it changed, and what can be done with it.
+    fn turn_part(
+        &self,
+        ix: usize,
+        turn: &Turn,
+        t: Theme,
+        now: i64,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let steps = turn.shown_steps().iter().map(|step| {
             div()
                 .truncate()
                 .text_size(px(Type::META))
                 .text_color(t.tertiary)
                 .child(step.clone())
         });
-        let standing = run.standing().map(|line| {
+        let standing = turn.standing().map(|line| {
             div()
                 .flex()
                 .items_center()
                 .gap(px(8.0))
                 .text_color(t.secondary)
-                .when(run.working(), |row| {
-                    row.child(spinner("agent-working", 12.0, t.secondary))
+                .when(turn.working(), |row| {
+                    row.child(spinner(("agent-working", ix), 12.0, t.secondary))
                 })
                 .child(line)
         });
-        let files = run.files.iter().enumerate().map(|(index, file)| {
+        let files = turn.files.iter().enumerate().map(|(index, file)| {
             div()
-                .id(("agent-file", index))
+                .id(SharedString::from(format!("agent-file-{ix}-{index}")))
                 .py(px(3.0))
                 .flex()
                 .items_baseline()
@@ -690,40 +732,128 @@ impl AgentView {
                         .child(file.what),
                 )
         });
-        let body = div()
-            .id("agent-run")
-            .max_h(px(RUN))
-            .overflow_y_scroll()
-            .track_scroll(&self.scroll)
-            .flex()
-            .flex_col()
-            .gap(px(10.0))
-            .when(!run.steps.is_empty(), |body| {
-                body.child(div().flex().flex_col().gap(px(3.0)).children(steps))
-            })
-            .when(!run.words.trim().is_empty(), |body| {
-                body.child(incipit_ui::markdown("agent-words", &run.words, t))
-            })
-            .children(
-                run.problems
-                    .iter()
-                    .chain(&run.review)
-                    .map(|problem| div().text_color(t.danger).child(problem.clone())),
-            )
-            .children(standing)
-            .when(!run.files.is_empty(), |body| {
-                body.child(div().flex().flex_col().children(files))
-            });
+        let problems = turn
+            .run
+            .error
+            .iter()
+            .chain(&turn.run.review)
+            .chain(&turn.problems)
+            .map(|problem| div().text_color(t.danger).child(problem.clone()));
         div()
             .flex()
             .flex_col()
-            .gap(px(10.0))
+            .gap(px(8.0))
             .child(
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(run.request.clone()),
+                    .child(turn.run.task.clone()),
             )
-            .child(body)
+            .child(
+                div()
+                    .text_size(px(Type::META))
+                    .text_color(t.tertiary)
+                    .child(turn.meta(now)),
+            )
+            .when(turn.working() && !turn.steps.is_empty(), |body| {
+                body.child(div().flex().flex_col().gap(px(3.0)).children(steps))
+            })
+            .when(!turn.run.answer.trim().is_empty(), |body| {
+                body.child(incipit_ui::markdown(
+                    SharedString::from(format!("agent-reply-{ix}")),
+                    &turn.run.answer,
+                    t,
+                ))
+            })
+            .children(problems)
+            .children(standing)
+            .when(!turn.files.is_empty(), |body| {
+                body.child(div().flex().flex_col().children(files))
+            })
+            .child(self.actions(ix, turn, t, cx))
+            .into_any_element()
+    }
+
+    /// The recent conversations, each a button that shows it.
+    fn recent_part(&self, t: Theme, now: i64, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let records: Vec<AgentRun> = self.turns.iter().map(|t| t.run.clone()).collect();
+        let conversations = runs::conversations(&records);
+        if conversations.is_empty() {
+            return None;
+        }
+        let rows = conversations
+            .into_iter()
+            .take(RECENT)
+            .enumerate()
+            .map(|(ix, c)| {
+                let mut task: String = c.task.lines().next().unwrap_or_default().to_owned();
+                if task.chars().count() > RECENT_TASK {
+                    task = task.chars().take(RECENT_TASK).collect::<String>() + "…";
+                }
+                let turns = if c.turns > 1 {
+                    format!(" · {} turns", c.turns)
+                } else {
+                    String::new()
+                };
+                let detail = format!(
+                    "{} · {}{turns}",
+                    status_word(c.status),
+                    runs::ago(&c.at, now)
+                );
+                let thread = c.thread.clone();
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.0))
+                    .child(
+                        button(("agent-recent", ix), task, t)
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.show_thread(Some(thread.clone()), cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(Type::META))
+                            .text_color(t.tertiary)
+                            .child(detail),
+                    )
+            });
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.0))
+                .child(
+                    div()
+                        .text_size(px(Type::META))
+                        .text_color(t.secondary)
+                        .child("Recent"),
+                )
+                .children(rows)
+                .into_any_element(),
+        )
+    }
+
+    /// Requests to start from, each a button that puts it in the field.
+    fn examples_part(&self, t: Theme, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .items_start()
+            .gap(px(4.0))
+            .children(EXAMPLES.iter().enumerate().map(|(ix, example)| {
+                button(("agent-example", ix), *example, t)
+                    .ghost()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.words
+                            .update(cx, |field, cx| field.set_text(*example, cx));
+                        TextField::focus(&this.words, window, cx);
+                    }))
+            }))
             .into_any_element()
     }
 }
@@ -731,50 +861,44 @@ impl AgentView {
 impl Render for AgentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme(window);
-        let working = self.working();
-        let can_undo = self.run.as_ref().is_some_and(Run::can_undo);
-        let waits = self.run.as_ref().is_some_and(Run::waits);
-        let to_open = self.run.as_ref().and_then(Run::to_open).map(str::to_owned);
+        let now = now();
+        let shown: Vec<AnyElement> = match &self.thread {
+            Some(thread) => self
+                .turns
+                .iter()
+                .enumerate()
+                .filter(|(_, turn)| runs::thread_of(&turn.run) == thread)
+                .map(|(ix, turn)| self.turn_part(ix, turn, t, now, cx))
+                .collect(),
+            None => vec![self
+                .recent_part(t, now, cx)
+                .unwrap_or_else(|| self.examples_part(t, cx))],
+        };
+        let body = div()
+            .id("agent-runs")
+            .max_h(px(RUNS))
+            .overflow_y_scroll()
+            .track_scroll(&self.scroll)
+            .flex()
+            .flex_col()
+            .gap(px(20.0))
+            .children(shown);
         let buttons = div()
             .flex()
             .items_center()
             .gap(px(6.0))
-            .when_some(to_open, |row, path| {
+            .when(self.thread.is_some(), |row| {
                 row.child(
-                    button("agent-open", "Open", t)
-                        .tooltip(path.clone())
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.emit(OpenFile(path.clone()));
+                    button("agent-new", "New", t)
+                        .icon(IconName::Plus)
+                        .tooltip("Start another conversation")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_thread(None, cx);
+                            cx.notify();
                         })),
                 )
             })
-            .when(can_undo, |row| {
-                row.child(
-                    button("agent-undo", "Undo", t)
-                        .icon(IconName::Refresh)
-                        .disabled(self.busy)
-                        .on_click(cx.listener(|this, _, _, cx| this.undo(cx))),
-                )
-            })
-            .when(waits, |row| {
-                row.child(
-                    button("agent-apply", "Apply anyway", t)
-                        .disabled(self.busy)
-                        .on_click(cx.listener(|this, _, _, cx| this.apply(cx))),
-                )
-                .child(
-                    button("agent-discard", "Discard", t)
-                        .disabled(self.busy)
-                        .on_click(cx.listener(|this, _, _, cx| this.discard(cx))),
-                )
-            })
             .child(div().flex_1())
-            .when(working, |row| {
-                row.child(
-                    button("agent-stop", "Stop", t)
-                        .on_click(cx.listener(|this, _, _, cx| this.stop(cx))),
-                )
-            })
             .child(
                 button("agent-close", "Close", t)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(Closed))),
@@ -782,7 +906,6 @@ impl Render for AgentView {
             .child(
                 button("agent-run-it", "Run", t)
                     .accent()
-                    .disabled(working || self.busy)
                     .on_click(cx.listener(|this, _, _, cx| this.run(cx))),
             );
         let content = div()
@@ -797,247 +920,8 @@ impl Render for AgentView {
                     .clone()
                     .map(|problem| div().text_color(t.danger).child(problem)),
             )
-            .children(self.run.as_ref().map(|run| self.run_part(run, t)))
+            .child(body)
             .child(buttons);
         sheet("agent", WIDTH, t, content)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn outcome(status: Status, answer: &str, files: &[(&str, FileStatus)]) -> Outcome {
-        Outcome {
-            status,
-            answer: answer.to_owned(),
-            open: None,
-            files: files
-                .iter()
-                .map(|(path, status)| FileChange {
-                    path: (*path).to_owned(),
-                    status: *status,
-                })
-                .collect(),
-            change: (status == Status::Merged).then(|| "change".to_owned()),
-            error: None,
-            review: Vec::new(),
-        }
-    }
-
-    fn no_title(_: &str) -> Option<String> {
-        None
-    }
-
-    #[test]
-    fn steps_are_kept_in_order_without_repeats_and_the_latest_are_shown() {
-        let mut run = Run::new("x");
-        run.hear(Event::Activity("  Reading a.md ".into()));
-        run.hear(Event::Activity("Reading a.md".into()));
-        run.hear(Event::Activity(" ".into()));
-        run.hear(Event::Link("https://example.com".into()));
-        assert_eq!(run.steps, ["Reading a.md"]);
-        for n in 0..STEPS_KEPT + 5 {
-            run.hear(Event::Activity(format!("Step {n}")));
-        }
-        assert_eq!(run.steps.len(), STEPS_KEPT);
-        let shown = run.shown_steps();
-        assert_eq!(shown.len(), STEPS_SHOWN);
-        assert_eq!(shown.last().unwrap(), &format!("Step {}", STEPS_KEPT + 4));
-    }
-
-    #[test]
-    fn the_reply_is_shown_once_the_run_ends_and_not_the_words_on_the_way() {
-        let mut run = Run::new("x");
-        run.hear(Event::Text("{\"reply\": \"I ad".into()));
-        assert_eq!(run.words, "");
-        assert_eq!(run.standing(), Some("Working…"));
-        let files = [("cards/New.md", FileStatus::Added)];
-        run.finish(
-            outcome(Status::Merged, "I added one card.", &files),
-            no_title,
-        );
-        assert_eq!(run.words, "I added one card.");
-        assert!(!run.working());
-        assert!(run.can_undo());
-        assert_eq!(run.change.as_deref(), Some("change"));
-        assert_eq!(run.standing(), None);
-        assert!(run.problems.is_empty());
-    }
-
-    #[test]
-    fn changed_files_are_listed_by_title_or_else_by_file_name() {
-        let mut run = Run::new("x");
-        let files = [
-            ("notes/Waves.md", FileStatus::Modified),
-            ("cards/old card.md", FileStatus::Removed),
-            ("notes/Tides.md", FileStatus::Added),
-        ];
-        run.finish(outcome(Status::Merged, "Done.", &files), |path| {
-            (path == "notes/Waves.md").then(|| "Waves and tides".to_owned())
-        });
-        let listed: Vec<(&str, &str, &str)> = run
-            .files
-            .iter()
-            .map(|f| (f.title.as_str(), f.path.as_str(), f.what))
-            .collect();
-        assert_eq!(
-            listed,
-            [
-                ("Waves and tides", "notes/Waves.md", "Changed"),
-                ("old card", "cards/old card.md", "Removed"),
-                ("Tides", "notes/Tides.md", "New"),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_file_a_reply_names_is_opened_where_the_earlier_app_opened_it() {
-        for path in [
-            "notes/Waves.md",
-            "notes/Physics/Waves.md",
-            "concepts/Wave.md",
-            "cards/What a wave is.md",
-            "figures/A wave.md",
-            "library/calculus/annotations/a1.md",
-            "library/calculus/book.md",
-            "library/calculus/calculus.pdf",
-        ] {
-            assert!(openable(path), "{path}");
-        }
-        for path in [
-            "notes/data.json",
-            "log/reviews.jsonl",
-            "README.md",
-            "notes/",
-            "library/x",
-        ] {
-            assert!(!openable(path), "{path}");
-        }
-
-        let mut run = Run::new("x");
-        assert_eq!(run.to_open(), None, "not while it works");
-        let mut answered = outcome(Status::Done, "It is in your note.", &[]);
-        answered.open = Some("notes/Waves.md".into());
-        run.finish(answered.clone(), no_title);
-        assert_eq!(run.to_open(), Some("notes/Waves.md"));
-        let mut waiting = Run::new("x");
-        answered.status = Status::Review;
-        waiting.finish(answered.clone(), no_title);
-        assert_eq!(waiting.to_open(), None, "not before it is in the vault");
-        answered.open = Some("log/reviews.jsonl".into());
-        answered.status = Status::Merged;
-        run.finish(answered, no_title);
-        assert_eq!(run.to_open(), None);
-    }
-
-    #[test]
-    fn a_run_that_changed_nothing_offers_no_undo() {
-        let mut run = Run::new("x");
-        run.finish(outcome(Status::Done, "Nothing to do.", &[]), no_title);
-        assert!(!run.can_undo());
-        assert_eq!(run.standing(), Some("No file was changed."));
-    }
-
-    #[test]
-    fn a_stopped_run_changed_nothing() {
-        let mut run = Run::new("x");
-        run.finish(Outcome::stopped(), no_title);
-        assert!(run.problems.is_empty());
-        assert!(!run.can_undo());
-        assert_eq!(run.standing(), Some("Stopped. No file was changed."));
-    }
-
-    #[test]
-    fn a_failed_run_says_why_and_what_it_would_have_changed() {
-        let mut run = Run::new("x");
-        let mut failed = outcome(Status::Failed, "Done.", &[]);
-        failed.error = Some("The agent could not finish: Codex: usage limit reached.".into());
-        run.finish(failed, no_title);
-        assert_eq!(
-            run.problems,
-            ["The agent could not finish: Codex: usage limit reached."]
-        );
-        assert!(!run.can_undo());
-        assert_eq!(run.standing(), None);
-
-        let mut clashed = Run::new("x");
-        let files = [("notes/A.md", FileStatus::Modified)];
-        let mut failed = outcome(Status::Failed, "Done.", &files);
-        failed.error = Some("It clashes with edits made while the agent worked.".into());
-        clashed.finish(failed, no_title);
-        assert!(!clashed.can_undo());
-        assert_eq!(
-            clashed.standing(),
-            Some("Nothing reached your vault. It would have changed these files:")
-        );
-    }
-
-    #[test]
-    fn a_change_waiting_for_the_learners_ok_says_why_and_offers_no_undo() {
-        let mut run = Run::new("x");
-        let files = [("notes/Waves.md", FileStatus::Added)];
-        let mut waiting = outcome(Status::Review, "I wrote a note.", &files);
-        waiting.change = Some("change".into());
-        waiting.review = vec!["Can't be read: notes/Waves.md: broken".into()];
-        run.finish(waiting.clone(), no_title);
-        assert!(run.waits());
-        assert!(!run.can_undo());
-        assert_eq!(run.review, waiting.review);
-        assert_eq!(run.waiting, Some(waiting));
-        assert!(run.standing().unwrap().starts_with("Waiting for your OK"));
-        // Applied, it is a landed run.
-        run.finish(outcome(Status::Merged, "", &files), no_title);
-        assert!(!run.waits());
-        assert!(run.can_undo());
-        assert!(run.review.is_empty());
-        assert_eq!(run.waiting, None);
-        assert_eq!(run.words, "I wrote a note.");
-    }
-
-    #[test]
-    fn the_made_up_runs_wait_and_are_refused_without_a_vault() {
-        let waits = Run::made_up_as("review");
-        assert!(waits.waits());
-        assert_eq!(waits.review.len(), 1);
-        let refused = Run::made_up_as("refused");
-        assert_eq!(refused.status, Some(Status::Failed));
-        assert!(refused.problems[0].contains("agents may not change it"));
-        assert_eq!(refused.files.len(), 1);
-        assert!(!refused.can_undo());
-    }
-
-    #[test]
-    fn after_undo_nothing_further_is_offered() {
-        let mut run = Run::new("x");
-        let files = [("notes/A.md", FileStatus::Modified)];
-        run.finish(outcome(Status::Merged, "Done.", &files), no_title);
-        run.undone(Err("it clashed".into()));
-        assert!(run.can_undo(), "a refused undo can be tried again");
-        assert_eq!(run.problems, ["it clashed"]);
-        run.undone(Ok(()));
-        assert!(!run.can_undo());
-        assert_eq!(
-            run.standing(),
-            Some("Undone: what this request changed was taken back.")
-        );
-    }
-
-    #[test]
-    fn an_undo_that_would_lose_later_edits_names_the_files() {
-        let clash = incipit_vault::Error::WouldConflict("notes/A.md".into());
-        let words = undo_problem(&clash);
-        assert!(words.contains("notes/A.md"), "{words}");
-        assert!(words.contains("nothing was undone"), "{words}");
-    }
-
-    #[test]
-    fn the_made_up_run_is_finished_with_three_steps_two_files_and_an_undo() {
-        let run = Run::made_up();
-        assert_eq!(run.steps.len(), 3);
-        assert_eq!(run.files.len(), 2);
-        assert!(run.can_undo());
-        assert!(run.change.is_none(), "its undo touches no vault");
-        assert!(!run.words.is_empty());
     }
 }

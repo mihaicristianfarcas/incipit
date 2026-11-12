@@ -96,6 +96,26 @@ pub enum FileStatus {
     Removed,
 }
 
+impl FileStatus {
+    /// The letter for it, as `git` and the earlier app's run log write it: A, M or D.
+    pub fn letter(self) -> &'static str {
+        match self {
+            FileStatus::Added => "A",
+            FileStatus::Modified => "M",
+            FileStatus::Removed => "D",
+        }
+    }
+
+    pub fn from_letter(letter: &str) -> Option<FileStatus> {
+        match letter {
+            "A" => Some(FileStatus::Added),
+            "M" => Some(FileStatus::Modified),
+            "D" => Some(FileStatus::Removed),
+            _ => None,
+        }
+    }
+}
+
 /// A file a change touched, by its path from the vault's root.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileChange {

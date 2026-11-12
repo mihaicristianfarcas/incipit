@@ -198,10 +198,12 @@ are the request; where the learner is (the page, the note or concept open,
 the book with its chapter and page, the selection: `agent/here.rs`) and what
 it reads in the files are material. It ends with a reply in JSON: what it
 did or the answer, and the main file it made or changed, which the sheet
-offers to open. One request is one entry in the
-history, holding the agent's work alone: when the agent ends, its change
-is checked (`incipit_vault::checks`) and lands after whatever the learner
-wrote meanwhile (`Vault::land`), or not at all if it changes the app's own
+offers to open. Up to four requests are worked on at once, each logged in
+the vault (`agent/runs.rs`, [vault.md](vault.md)); a follow-up continues a
+conversation, and the agent is told its earlier turns. One request is one
+entry in the history, holding the agent's work alone: when the agent ends,
+its change is checked (`incipit_vault::checks`) and lands after whatever the
+learner wrote meanwhile (`Vault::land`), or not at all if it changes the app's own
 files, clashes with the learner's, or the agent failed or was stopped; one
 with a file that can no longer be read waits for the learner's OK. Undo
 takes that entry out of the history (`Vault::drop_change`), keeping what

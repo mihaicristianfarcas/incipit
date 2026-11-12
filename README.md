@@ -26,9 +26,10 @@ Early. One window, with these pages, on a vault of plain files:
 | Settings | The vault's folder, and which model answers ([docs/models.md](docs/models.md)) |
 
 From any page, ⌘K (Ctrl+K) finds a document, and ⌘J (Ctrl+J) opens the
-agent: you say what should be done in the vault, the command-line agent
-chosen in Settings does it inside the vault's folder, and the sheet lists
-what it changed, with Undo. The agent's sheet has been looked at with a
+agent: you say what should be done in the vault, or ask about it, the
+command-line agent chosen in Settings does it in a copy of the vault,
+knowing where you are, and the sheet lists what it changed, with Undo; a
+follow-up continues the conversation. The agent's sheet has been looked at with a
 made-up run only; no agent has been run from it yet.
 
 It has been built and run on macOS (Apple silicon), Ubuntu (aarch64) and

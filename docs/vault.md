@@ -17,6 +17,7 @@ library/<book>/annotations/  highlights, notes and answers on passages
 library/<book>/sessions/     conversations with the tutor about the book
 log/reviews.jsonl            one line per flashcard review
 log/activity.jsonl           one line per thing the learner did
+log/agents.jsonl             the agent's runs: a line each time one starts or changes
 .jj/                         the history
 .incipit/                    generated indexes and caches; safe to delete
 .trash/                      what was deleted
@@ -158,6 +159,35 @@ a minute or more. `position` says where the sitting ended: a PDF's page
 far into it. Progress and the finish estimate are worked out from these
 lines (`incipit-learn`'s `progress`). The earlier app's `ts` lines are
 not read.
+
+A line of `log/agents.jsonl` is one request to the agent as it stood at
+that moment, with the earlier app's fields. A run is written when it
+starts and again whenever it changes (it ends, lands after the learner's
+OK, is discarded or undone, or its answer is kept as a note), so its last
+line is how it stands. A run the log still has as `running` when its
+vault opens was cut short by the app quitting, and is written down as
+`failed`.
+
+| Field | |
+|---|---|
+| `id` | the run's id |
+| `task` | what the learner asked, up to 4,000 characters |
+| `thread` | the conversation it follows up in: the first request's id; left out for a first request |
+| `where` | where the learner was, in a few words ("Calculus Made Easy · ch. 3 · p. 41"); left out when nowhere in particular |
+| `status` | `running`, `done` (it changed nothing), `merged` (its change is in the vault), `review` (waiting for the learner's OK), `discarded`, `failed`, `undone` or `stopped` |
+| `at` | when it was asked, as an RFC 3339 time |
+| `ms` | how long it took, in milliseconds |
+| `provider`, `model` | the provider it ran on, by its id, and the model when one was named |
+| `files` | the files it changed, each `path` and `change`: `A`, `M` or `D` |
+| `review` | why it waits for the learner's OK, a line per file |
+| `change`, `commit` | its change in the history (what Undo takes out) and that change's commit |
+| `answer` | its reply: what it did, or the answer |
+| `open` | the main file it made or changed, to open from the reply |
+| `kept` | the note its answer was kept in |
+| `error` | why it failed |
+
+Fields with nothing in them are left out. The earlier app's `started` is
+`at` here, and its `tier` and `activity` are not kept.
 
 ## Changes
 

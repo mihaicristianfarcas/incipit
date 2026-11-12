@@ -57,20 +57,24 @@ impl Workspace {
         workspace
     }
 
-    /// Open the vault in `folder`, making it one if it is not yet. Reading a vault's files and
+    /// Open the vault in `folder`, making it one if it is not yet, and clean up the working
+    /// copies its agent's runs left when the app quit during them. Reading a vault's files and
     /// starting its history take a moment, so it happens off the window's thread.
     pub fn open(&mut self, folder: &Path, cx: &mut Context<Self>) {
         let folder = folder.to_path_buf();
+        let home = self.home.clone();
         cx.spawn(async move |this, cx| {
             let at = folder.clone();
             let opened = cx
                 .background_executor()
                 .spawn(async move {
-                    if at.join(".jj").exists() {
+                    let vault = if at.join(".jj").exists() {
                         Vault::open(&at)
                     } else {
                         Vault::create(&at)
-                    }
+                    }?;
+                    crate::agent::run::clean_up(&home, &vault);
+                    Ok::<Vault, incipit_vault::Error>(vault)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {

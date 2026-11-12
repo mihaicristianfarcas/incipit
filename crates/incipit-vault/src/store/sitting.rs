@@ -1,6 +1,6 @@
 //! The history as the vault uses it: naming the change in progress after what happened in it,
-//! closing a sitting, taking in what another program (an agent) did as one change, and bringing
-//! documents or the whole vault back to an earlier state.
+//! closing a sitting, bringing in an agent's change made in a working copy of its own, and
+//! bringing documents or the whole vault back to an earlier state.
 //!
 //! When history rewrites files, the vault holds its lock for the whole call and reads the
 //! changed files again before letting go, so the index is right when the call returns, the
@@ -8,9 +8,10 @@
 //! nothing new. When to close a sitting (after some idle minutes, before an agent's work comes
 //! in) is the app's to decide: it knows when the learner stops.
 //!
-//! An agent's work is one change of its own: `close_sitting` before it starts sets the
-//! learner's pending work apart, `take_in` after it ends closes what the agent did under the
-//! learner's request, and `take_out` with that change's commit is its undo.
+//! An agent's work is one change of its own, made in its working copy (`copies.rs`) and never
+//! mixed with the learner's: `land` brings it in after whatever the learner wrote meanwhile,
+//! `abandon` leaves it out, and `drop_change` is its undo. Landing and undoing close the
+//! learner's pending work first, so the history reads in the order things happened.
 
 use std::collections::BTreeMap;
 
@@ -90,21 +91,27 @@ impl Vault {
         history.close_sitting(&description)
     }
 
-    /// Takes in what another program did to the files since the last sitting was closed (an
-    /// agent's work): closes it as one change named `description`, and reads the files it
-    /// touched into the index before returning, announced as coming from outside, without
-    /// waiting for the watcher to report them. `None` when no file had changed.
-    pub fn take_in(&self, description: &str) -> Result<Option<Version>> {
+    /// Brings an agent's change (by its change id) into the vault after everything written
+    /// meanwhile, the learner's pending work closed first, and reads the files it changed into
+    /// the index before returning, announced as coming from outside. Refused with
+    /// `Error::Clash`, nothing changed, when it touches lines changed meanwhile. Returns the
+    /// change as it now is in the history.
+    pub fn land(&self, change: &str) -> Result<Version> {
+        self.close_sitting(None)?;
         let inner = &self.inner;
         let mut state = inner.lock();
-        let closed = inner.history.close_sitting(description)?;
+        let (landed, changed) = inner.history.land(change)?;
         let mut events = Vec::new();
-        let touched = closed.iter().flat_map(|version| &version.files);
-        for path in touched.filter_map(|f| VaultPath::new(&f.path).ok()) {
+        for path in changed.iter().filter_map(|p| VaultPath::new(p).ok()) {
             reconcile::place(inner, &mut state, &path, Origin::Outside, &mut events);
         }
         inner.subscribers.send(events);
-        Ok(closed)
+        Ok(landed)
+    }
+
+    /// Leaves out an agent's change that never landed.
+    pub fn abandon(&self, change: &str) -> Result<()> {
+        self.inner.history.abandon(change)
     }
 
     /// Runs a history call that changes files, and reads the files it changed again.
@@ -131,10 +138,12 @@ impl Vault {
         self.rewind(|history| history.restore_before(commit))
     }
 
-    /// Takes out what one change did, keeping everything after it; refused when later edits
-    /// touched the same lines.
-    pub fn take_out(&self, commit: &str) -> Result<()> {
-        self.rewind(|history| history.take_out(commit))
+    /// Takes a change (by its change id) out of the history as if it had never been made,
+    /// keeping everything after it, the learner's pending work closed first; refused when later
+    /// edits touched the same lines.
+    pub fn drop_change(&self, change: &str) -> Result<()> {
+        self.close_sitting(None)?;
+        self.rewind(|history| history.drop_change(change))
     }
 
     /// Goes back to an earlier operation of the history (see `History::operations`).

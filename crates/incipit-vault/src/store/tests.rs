@@ -311,24 +311,37 @@ fn undo_restores_files_and_the_index() {
     assert!(vault.get(extra.id()).is_none());
 }
 
+/// A copy for an agent's run `id`, in a folder for runs beside the vault's.
+fn agent_copy(dir: &tempfile::TempDir, vault: &Vault, id: &str) -> AgentCopy {
+    vault.agent_copy(&dir.path().join("runs"), id).unwrap()
+}
+
+fn write_in(copy: &AgentCopy, rel: &str, text: &str) {
+    let full = copy.dir().join(rel);
+    fs::create_dir_all(full.parent().unwrap()).unwrap();
+    fs::write(full, text).unwrap();
+}
+
 #[test]
-fn work_done_by_another_program_is_taken_in_as_one_change() {
-    let (_dir, vault) = new_vault();
+fn an_agents_change_is_made_in_its_own_copy_and_lands_as_one_change() {
+    let (dir, vault) = new_vault();
     let kept = vault.add(note("Essay", "The learner's draft.\n")).unwrap();
-    // The learner's pending work is set apart before the other program starts.
-    vault.close_sitting(None).unwrap().unwrap();
-    let events = vault.subscribe();
-    write_outside(&vault, "notes/Summary.md", "Written by an agent.\n");
-    write_outside(
-        &vault,
+    let mut copy = agent_copy(&dir, &vault, "r1");
+    // The learner's pending work was closed before the copy was made from it.
+    let log = vault.history().log(10).unwrap();
+    assert_eq!(log[0].description, "New note “Essay”");
+    write_in(&copy, "notes/Summary.md", "Written by an agent.\n");
+    write_in(
+        &copy,
         kept.path().as_str(),
         "---\ntitle: Essay\n---\nRewritten by an agent.\n",
     );
-    let change = vault
-        .take_in("Summarise my essay")
-        .unwrap()
-        .expect("the files changed");
-    assert_eq!(change.description, "Summarise my essay");
+    // Nothing reaches the vault while the agent works.
+    assert!(!vault.root().join("notes/Summary.md").exists());
+    let change = copy.describe("agent: Summarise my essay").unwrap();
+    drop(copy);
+    assert!(vault.history().working_copies().unwrap().is_empty());
+    assert!(!dir.path().join("runs/r1").exists());
     let mut files: Vec<(&str, FileStatus)> = change
         .files
         .iter()
@@ -342,6 +355,10 @@ fn work_done_by_another_program_is_taken_in_as_one_change() {
             ("notes/Summary.md", FileStatus::Added)
         ]
     );
+
+    let events = vault.subscribe();
+    let landed = vault.land(&change.change).unwrap();
+    assert_eq!(landed.description, "agent: Summarise my essay");
     // The index holds the work when the call returns, and pages were told it came from outside.
     let summary = vault.at(&path("notes/Summary.md")).expect("it is indexed");
     assert_eq!(summary.body(), "Written by an agent.\n");
@@ -354,29 +371,36 @@ fn work_done_by_another_program_is_taken_in_as_one_change() {
         (event.change, event.origin),
         (Change::Created, Origin::Outside)
     );
-    // Nothing more was done: there is nothing to take in.
-    assert!(vault.take_in("Nothing").unwrap().is_none());
-    assert_eq!(vault.history().log(10).unwrap()[0].commit, change.commit);
+    assert_eq!(vault.history().log(10).unwrap()[0].change, change.change);
 }
 
 #[test]
-fn taking_out_the_change_that_was_taken_in_undoes_it_and_keeps_later_work() {
-    let (_dir, vault) = new_vault();
+fn undoing_an_agents_change_keeps_what_the_learner_wrote_while_it_worked() {
+    let (dir, vault) = new_vault();
     let kept = vault.add(note("Essay", "The learner's draft.\n")).unwrap();
-    vault.close_sitting(None).unwrap().unwrap();
-    write_outside(&vault, "notes/Summary.md", "Written by an agent.\n");
-    write_outside(
-        &vault,
-        kept.path().as_str(),
-        "---\ntitle: Essay\n---\nRewritten by an agent.\n",
-    );
-    let change = vault.take_in("Summarise my essay").unwrap().unwrap();
+    let mut copy = agent_copy(&dir, &vault, "r1");
+    write_in(&copy, "notes/Summary.md", "Written by an agent.\n");
+    // While the agent works, the learner writes a note and reviews a card.
+    let mine = vault
+        .add(note("Mine", "Written while the agent worked.\n"))
+        .unwrap();
+    let review = Review {
+        card: "c1".into(),
+        at: "2026-11-10T09:00:00Z".into(),
+        rating: 3,
+        took: None,
+        variant: false,
+    };
+    vault.append_log(crate::logs::REVIEWS, &review).unwrap();
+    let change = copy.describe("agent: Summarise my essay").unwrap();
+    drop(copy);
+    vault.land(&change.change).unwrap();
     let later = vault
         .add(note("Later", "Written after the agent.\n"))
         .unwrap();
 
     let events = vault.subscribe();
-    vault.take_out(&change.commit).unwrap();
+    vault.drop_change(&change.change).unwrap();
     assert!(vault.at(&path("notes/Summary.md")).is_none());
     assert!(!vault.root().join("notes/Summary.md").exists());
     assert_eq!(
@@ -384,11 +408,71 @@ fn taking_out_the_change_that_was_taken_in_undoes_it_and_keeps_later_work() {
         "The learner's draft.\n"
     );
     assert_eq!(
+        vault.get(mine.id()).unwrap().body(),
+        "Written while the agent worked.\n"
+    );
+    assert_eq!(
         vault.get(later.id()).unwrap().body(),
         "Written after the agent.\n"
     );
+    let reviews = vault.read_log::<Review>(crate::logs::REVIEWS).unwrap();
+    assert_eq!(reviews.entries, [review]);
     let event = events.recv_timeout(EVENT_DEADLINE).unwrap();
     assert_eq!(event.origin, Origin::Here);
+}
+
+// Windows makes links only with a right a test cannot count on; there a book is read in the vault.
+#[cfg(unix)]
+#[test]
+fn a_books_own_file_is_linked_into_a_copy_and_out_again_before_history_looks() {
+    let (dir, vault) = new_vault();
+    let events = vault.subscribe();
+    write_outside(&vault, "library/sicp/sicp.pdf", "%PDF");
+    write_outside(
+        &vault,
+        "library/sicp/book.md",
+        "---\nkind: book\ntitle: SICP\nfile: sicp.pdf\n---\n",
+    );
+    wait_for(&events, |e| e.path.as_str() == "library/sicp/book.md");
+    let mut copy = agent_copy(&dir, &vault, "r1");
+    let link = copy.dir().join("library/sicp/sicp.pdf");
+    assert!(fs::symlink_metadata(&link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(fs::read_to_string(&link).unwrap(), "%PDF");
+    let change = copy.describe("agent: nothing").unwrap();
+    assert!(change.files.is_empty());
+    assert!(fs::symlink_metadata(&link).is_err());
+}
+
+#[test]
+fn copies_of_runs_no_longer_going_are_cleaned_up_and_going_ones_kept() {
+    let (dir, vault) = new_vault();
+    let runs = dir.path().join("runs");
+    // A run the app was working on when it quit, and a folder left behind.
+    vault
+        .history()
+        .add_working_copy("agent-old", &runs.join("old"))
+        .unwrap();
+    fs::create_dir_all(runs.join("stray")).unwrap();
+    let going = agent_copy(&dir, &vault, "r1");
+    vault.clean_up_agent_copies(&runs).unwrap();
+    assert_eq!(vault.history().working_copies().unwrap(), ["agent-r1"]);
+    assert!(!runs.join("old").exists());
+    assert!(!runs.join("stray").exists());
+    assert!(going.dir().is_dir());
+}
+
+#[test]
+fn a_runs_id_names_a_folder_and_nothing_more() {
+    let (dir, vault) = new_vault();
+    for id in ["", "../out", "a/b", "r 1"] {
+        assert!(matches!(
+            vault.agent_copy(&dir.path().join("runs"), id),
+            Err(Error::Name(_))
+        ));
+    }
 }
 
 #[test]

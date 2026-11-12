@@ -3,17 +3,18 @@
 //! shell. While it works the sheet shows what it is doing; when it ends, its closing words, the
 //! files it changed, and Undo.
 //!
-//! Confinement is the provider's: `Models::act` runs the agent in the open vault's folder under
-//! the provider crate's OS sandbox, which lets it read and write there and nowhere else, and
-//! never in the vault's history. The learner's words are the request. What the agent reads in
-//! the files is material, and `INSTRUCTIONS`, which hold no text from any file, say so.
+//! The run itself has no window in it (`run.rs`): the agent works in a working copy of the vault
+//! of its own, under the provider crate's OS sandbox, which lets it write there and nowhere else
+//! and read the vault. The learner's words are the request. What the agent reads in the files
+//! is material, and `INSTRUCTIONS`, which hold no text from any file, say so.
 //!
-//! One request is one change in the vault's history. Before the agent starts, the learner's
-//! pending work is closed as a change of its own; when the agent ends (also when it was stopped
-//! or failed) whatever it changed is closed under the learner's request, read into the index
-//! and announced, so open pages follow. Undo takes that change out and keeps what was written
-//! after it; it is refused when later edits touched the same lines. The history calls block, so
-//! they run off the window's thread and the sheet awaits them.
+//! One request is one change in the vault's history, made of the agent's work alone. When the
+//! agent ends, its change lands after whatever the learner wrote meanwhile, is read into the
+//! index and announced, so open pages follow; one that clashes with the learner's edits, or an
+//! agent that failed or was stopped, lands nothing. Undo takes that change out and keeps what
+//! was written before and after it; it is refused when later edits touched the same lines. The
+//! run and the history calls block, so they run off the window's thread and the sheet awaits
+//! them.
 //!
 //! Closing the sheet does not stop the agent: it goes on, and the key shows it again. Stop does.
 //!
@@ -25,12 +26,15 @@ use gpui::{
     div, prelude::*, px, AnyElement, Context, Entity, EventEmitter, FontWeight, IntoElement,
     KeyDownEvent, Render, ScrollHandle, Subscription, Window,
 };
-use incipit_llm::{Answer, Cancel, Event, Request, Update};
+use incipit_llm::{Cancel, Event, Request, Update};
 use incipit_ui::{button, field, sheet, spinner, FieldEvent, IconName, TextField, Theme, Type};
-use incipit_vault::{FileChange, FileStatus, Vault, VaultPath, Version};
+use incipit_vault::{FileChange, FileStatus, Vault, VaultPath};
 
 use crate::models::Models;
 use crate::workspace::{Happened, Workspace};
+use run::{Job, Outcome, Status};
+
+pub mod run;
 
 /// What the agent is told before the learner's request. It holds no text from the vault.
 const INSTRUCTIONS: &str = "\
@@ -76,21 +80,6 @@ const RUN: f32 = 300.0;
 const STEPS_SHOWN: usize = 6;
 /// The most steps kept of a run that goes on for long.
 const STEPS_KEPT: usize = 200;
-/// The most characters of the request in the change's name in the history, which is read as a
-/// line in a list.
-const NAME: usize = 200;
-
-/// The name of a run's change in the vault's history: the learner's request on one line.
-fn change_name(request: &str) -> String {
-    let line = request.split_whitespace().collect::<Vec<_>>().join(" ");
-    if line.chars().count() <= NAME {
-        return line;
-    }
-    let mut clipped: String = line.chars().take(NAME - 1).collect();
-    clipped.push('…');
-    clipped
-}
-
 /// The request as the agent gets it: the app's instructions, then the learner's words.
 fn request_for(words: &str) -> Request {
     Request::new(INSTRUCTIONS).ask(words)
@@ -131,13 +120,6 @@ fn touched(change: &FileChange, title: Option<String>) -> Touched {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Stage {
-    Working,
-    Finished,
-    Undone,
-}
-
 /// One request and what became of it.
 #[derive(Debug)]
 struct Run {
@@ -146,13 +128,12 @@ struct Run {
     steps: Vec<String>,
     /// Its words as far as they have come, and its closing words once it ended.
     words: String,
-    stage: Stage,
-    /// The learner stopped it.
-    stopped: bool,
+    /// How it ended; `None` while it works.
+    status: Option<Status>,
     /// What went wrong, in words for the learner.
     problems: Vec<String>,
     files: Vec<Touched>,
-    /// The commit of the run's change in the vault's history, which Undo takes out.
+    /// The run's change in the vault's history, by change id, which Undo takes out.
     change: Option<String>,
 }
 
@@ -162,8 +143,7 @@ impl Run {
             request: request.to_owned(),
             steps: Vec::new(),
             words: String::new(),
-            stage: Stage::Working,
-            stopped: false,
+            status: None,
             problems: Vec::new(),
             files: Vec::new(),
             change: None,
@@ -188,52 +168,34 @@ impl Run {
         }
     }
 
-    /// The agent ended with `outcome`, and `taken` is what the vault's history took in of its
-    /// work. `title` gives the title of the document at a path, as the vault has it now.
-    fn finish(
-        &mut self,
-        outcome: Result<Answer, incipit_llm::Error>,
-        taken: Result<Option<Version>, String>,
-        title: impl Fn(&str) -> Option<String>,
-    ) {
-        self.stage = Stage::Finished;
-        match outcome {
-            Ok(answer) if !answer.text.trim().is_empty() => self.words = answer.text,
-            Ok(_) => {}
-            Err(incipit_llm::Error::Cancelled) => self.stopped = true,
-            Err(error) => self
-                .problems
-                .push(format!("The agent could not finish: {error}.")),
+    /// The run ended with `outcome`. `title` gives the title of the document at a path, as the
+    /// vault has it now.
+    fn finish(&mut self, outcome: Outcome, title: impl Fn(&str) -> Option<String>) {
+        if !outcome.answer.trim().is_empty() {
+            self.words = outcome.answer;
         }
-        match taken {
-            Ok(Some(version)) => {
-                self.files = version
-                    .files
-                    .iter()
-                    .map(|change| touched(change, title(&change.path)))
-                    .collect();
-                self.change = Some(version.commit);
-            }
-            Ok(None) => {}
-            Err(error) => self.problems.push(format!(
-                "What it changed could not be put in the vault's history, so it cannot be undone \
-                 from here: {error}."
-            )),
-        }
+        self.problems.extend(outcome.error);
+        self.files = outcome
+            .files
+            .iter()
+            .map(|change| touched(change, title(&change.path)))
+            .collect();
+        self.change = outcome.change;
+        self.status = Some(outcome.status);
     }
 
     fn working(&self) -> bool {
-        self.stage == Stage::Working
+        self.status.is_none()
     }
 
     fn can_undo(&self) -> bool {
-        self.stage == Stage::Finished && !self.files.is_empty()
+        self.status == Some(Status::Merged)
     }
 
     /// Undo ended.
     fn undone(&mut self, result: Result<(), String>) {
         match result {
-            Ok(()) => self.stage = Stage::Undone,
+            Ok(()) => self.status = Some(Status::Undone),
             Err(problem) => self.problems.push(problem),
         }
     }
@@ -245,15 +207,15 @@ impl Run {
 
     /// Where the run stands, in a line, when there is something to say beyond its words.
     fn standing(&self) -> Option<&'static str> {
-        match self.stage {
-            Stage::Working => Some("Working…"),
-            Stage::Undone => Some("Undone: what this request changed was taken back."),
-            Stage::Finished => match (self.stopped, self.files.is_empty()) {
-                (true, true) => Some("Stopped. No file was changed."),
-                (true, false) => Some("Stopped. It had already changed these files:"),
-                (false, true) => Some("No file was changed."),
-                (false, false) => None,
-            },
+        match self.status {
+            None => Some("Working…"),
+            Some(Status::Undone) => Some("Undone: what this request changed was taken back."),
+            Some(Status::Stopped) => Some("Stopped. No file was changed."),
+            Some(Status::Done) => Some("No file was changed."),
+            Some(Status::Failed) if !self.files.is_empty() => {
+                Some("Nothing reached your vault. It would have changed these files:")
+            }
+            Some(Status::Failed | Status::Merged) => None,
         }
     }
 
@@ -267,7 +229,7 @@ impl Run {
         ] {
             run.hear(Event::Activity(step.to_owned()));
         }
-        run.stage = Stage::Finished;
+        run.status = Some(Status::Merged);
         run.words = "I wrote **one flashcard** from the note and linked it there:\n\n\
             - `cards/What attention weighs.md`: what the weights in attention say.\n\
             - `notes/Attention.md`: a link to the new card under *Cards*."
@@ -386,46 +348,34 @@ impl AgentView {
             cx.notify();
             return;
         };
+        let job = Job {
+            runs: run::runs_folder(&crate::workspace::home(), &vault),
+            id: run::new_id(),
+            task: request.clone(),
+            vault: vault.clone(),
+        };
+        let asking = self.models.read(cx).act(
+            request_for(&request),
+            move |provider, request, cancel, on| {
+                Ok(run::execute(provider, request, &job, cancel, on))
+            },
+        );
+        let mut asking = match asking {
+            Ok(asking) => asking,
+            Err(problem) => {
+                self.refuse(&request, problem, cx);
+                return;
+            }
+        };
         self.problem = None;
         self.words.update(cx, |field, cx| field.set_text("", cx));
         self.run = Some(Run::new(&request));
         self.ran_in = Some(vault.clone());
+        self.stop = Some(asking.cancel.clone());
         cx.notify();
         cx.spawn(async move |this, cx| {
-            // The learner's own pending work becomes a change of its own, so the run's stands
-            // alone and can be taken out alone.
-            let apart = vault.clone();
-            let before = cx
-                .background_executor()
-                .spawn(async move { apart.close_sitting(None).map(|_| ()) })
-                .await;
-            let asking = this.update(cx, |this, cx| {
-                let asking = match before {
-                    Ok(()) => {
-                        let models = this.models.read(cx);
-                        models.act(request_for(&request), vault.root())
-                    }
-                    Err(error) => Err(format!(
-                        "The vault's history could not be made ready, so nothing was started: \
-                         {error}."
-                    )),
-                };
-                match asking {
-                    Ok(asking) => {
-                        this.stop = Some(asking.cancel.clone());
-                        Some(asking)
-                    }
-                    Err(problem) => {
-                        this.refuse(&request, problem, cx);
-                        None
-                    }
-                }
-            });
-            let Ok(Some(mut asking)) = asking else {
-                return;
-            };
             // A channel that closes without an end is a run that was dropped: as if stopped.
-            let mut outcome = Err(incipit_llm::Error::Cancelled);
+            let mut outcome = Outcome::stopped();
             while let Some(update) = asking.updates.next().await {
                 match update {
                     Update::Event(event) => {
@@ -441,27 +391,13 @@ impl AgentView {
                         }
                     }
                     Update::Done(result) => {
-                        outcome = result;
+                        if let Ok(ended) = result {
+                            outcome = ended;
+                        }
                         break;
                     }
                 }
             }
-            // Whatever it changed, also when it was stopped or failed, is one change under the
-            // learner's request.
-            let name = change_name(&request);
-            // The earlier app logged an agent's request when its change landed: here, when it
-            // ended without being stopped or failing.
-            if outcome.is_ok() {
-                crate::activity::log(
-                    &vault,
-                    &crate::activity::agent_asked(crate::study::now(), &request),
-                );
-            }
-            let into = vault.clone();
-            let taken = cx
-                .background_executor()
-                .spawn(async move { into.take_in(&name) })
-                .await;
             let _ = this.update(cx, |this, cx| {
                 this.stop = None;
                 if let Some(run) = &mut this.run {
@@ -469,7 +405,7 @@ impl AgentView {
                         let path = VaultPath::new(path).ok()?;
                         vault.at(&path).map(|doc| doc.title())
                     };
-                    run.finish(outcome, taken.map_err(|e| e.to_string()), title);
+                    run.finish(outcome, title);
                 }
                 this.scroll.scroll_to_bottom();
                 cx.notify();
@@ -487,7 +423,7 @@ impl AgentView {
         cx.notify();
     }
 
-    /// Stop the agent. What it changed until now is still kept as one change, to undo.
+    /// Stop the agent. Nothing it changed reaches the vault.
     fn stop(&mut self, cx: &mut Context<Self>) {
         if let Some(stop) = &self.stop {
             stop.cancel();
@@ -495,7 +431,7 @@ impl AgentView {
         cx.notify();
     }
 
-    /// Take the run's change out of the vault.
+    /// Take the run's change out of the vault, and nothing else.
     fn undo(&mut self, cx: &mut Context<Self>) {
         let Some(run) = self.run.as_mut().filter(|run| run.can_undo()) else {
             return;
@@ -503,7 +439,7 @@ impl AgentView {
         if self.undoing {
             return;
         }
-        let (Some(commit), Some(vault)) = (run.change.clone(), self.ran_in.clone()) else {
+        let (Some(change), Some(vault)) = (run.change.clone(), self.ran_in.clone()) else {
             // The made-up run changed nothing.
             run.undone(Ok(()));
             cx.notify();
@@ -514,7 +450,7 @@ impl AgentView {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { vault.take_out(&commit) })
+                .spawn(async move { vault.drop_change(&change) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.undoing = false;
@@ -671,22 +607,11 @@ impl Render for AgentView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::SystemTime;
 
-    fn answer(text: &str) -> Answer {
-        Answer {
-            text: text.to_owned(),
-            provider: "scripted".to_owned(),
-            model: String::new(),
-        }
-    }
-
-    fn version(files: &[(&str, FileStatus)]) -> Version {
-        Version {
-            change: "change".to_owned(),
-            commit: "commit".to_owned(),
-            time: SystemTime::UNIX_EPOCH,
-            description: String::new(),
+    fn outcome(status: Status, answer: &str, files: &[(&str, FileStatus)]) -> Outcome {
+        Outcome {
+            status,
+            answer: answer.to_owned(),
             files: files
                 .iter()
                 .map(|(path, status)| FileChange {
@@ -694,6 +619,8 @@ mod tests {
                     status: *status,
                 })
                 .collect(),
+            change: (status == Status::Merged).then(|| "change".to_owned()),
+            error: None,
         }
     }
 
@@ -734,17 +661,6 @@ mod tests {
     }
 
     #[test]
-    fn a_change_is_named_with_the_request_on_one_line() {
-        assert_eq!(
-            change_name("  Tidy my notes\n\nand link them  "),
-            "Tidy my notes and link them"
-        );
-        let long = change_name(&"word ".repeat(100));
-        assert_eq!(long.chars().count(), NAME);
-        assert!(long.ends_with('…'));
-    }
-
-    #[test]
     fn steps_are_kept_in_order_without_repeats_and_the_latest_are_shown() {
         let mut run = Run::new("x");
         run.hear(Event::Activity("  Reading a.md ".into()));
@@ -768,15 +684,15 @@ mod tests {
         run.hear(Event::Text("look.".into()));
         assert_eq!(run.words, "Let me look.");
         assert_eq!(run.standing(), Some("Working…"));
+        let files = [("cards/New.md", FileStatus::Added)];
         run.finish(
-            Ok(answer("I added one card.")),
-            Ok(Some(version(&[("cards/New.md", FileStatus::Added)]))),
+            outcome(Status::Merged, "I added one card.", &files),
             no_title,
         );
         assert_eq!(run.words, "I added one card.");
         assert!(!run.working());
         assert!(run.can_undo());
-        assert_eq!(run.change.as_deref(), Some("commit"));
+        assert_eq!(run.change.as_deref(), Some("change"));
         assert_eq!(run.standing(), None);
         assert!(run.problems.is_empty());
     }
@@ -787,9 +703,9 @@ mod tests {
         let files = [
             ("notes/Waves.md", FileStatus::Modified),
             ("cards/old card.md", FileStatus::Removed),
-            ("log/reviews.jsonl", FileStatus::Added),
+            ("notes/Tides.md", FileStatus::Added),
         ];
-        run.finish(Ok(answer("Done.")), Ok(Some(version(&files))), |path| {
+        run.finish(outcome(Status::Merged, "Done.", &files), |path| {
             (path == "notes/Waves.md").then(|| "Waves and tides".to_owned())
         });
         let listed: Vec<(&str, &str, &str)> = run
@@ -802,7 +718,7 @@ mod tests {
             [
                 ("Waves and tides", "notes/Waves.md", "Changed"),
                 ("old card", "cards/old card.md", "Removed"),
-                ("reviews.jsonl", "log/reviews.jsonl", "New"),
+                ("Tides", "notes/Tides.md", "New"),
             ]
         );
     }
@@ -810,64 +726,50 @@ mod tests {
     #[test]
     fn a_run_that_changed_nothing_offers_no_undo() {
         let mut run = Run::new("x");
-        run.finish(Ok(answer("Nothing to do.")), Ok(None), no_title);
+        run.finish(outcome(Status::Done, "Nothing to do.", &[]), no_title);
         assert!(!run.can_undo());
         assert_eq!(run.standing(), Some("No file was changed."));
     }
 
     #[test]
-    fn a_stopped_run_still_lists_and_undoes_what_it_had_changed() {
+    fn a_stopped_run_changed_nothing() {
         let mut run = Run::new("x");
-        run.finish(
-            Err(incipit_llm::Error::Cancelled),
-            Ok(Some(version(&[("notes/Half.md", FileStatus::Added)]))),
-            no_title,
-        );
+        run.finish(Outcome::stopped(), no_title);
         assert!(run.problems.is_empty());
-        assert!(run.can_undo());
-        assert_eq!(
-            run.standing(),
-            Some("Stopped. It had already changed these files:")
-        );
-        let mut nothing = Run::new("x");
-        nothing.finish(Err(incipit_llm::Error::Cancelled), Ok(None), no_title);
-        assert_eq!(nothing.standing(), Some("Stopped. No file was changed."));
+        assert!(!run.can_undo());
+        assert_eq!(run.standing(), Some("Stopped. No file was changed."));
     }
 
     #[test]
-    fn a_failed_run_says_why_in_the_providers_words() {
+    fn a_failed_run_says_why_and_what_it_would_have_changed() {
         let mut run = Run::new("x");
-        let error = incipit_llm::Error::Provider {
-            provider: "Codex".into(),
-            message: "usage limit reached".into(),
-        };
-        run.finish(Err(error), Ok(None), no_title);
+        let mut failed = outcome(Status::Failed, "Done.", &[]);
+        failed.error = Some("The agent could not finish: Codex: usage limit reached.".into());
+        run.finish(failed, no_title);
         assert_eq!(
             run.problems,
             ["The agent could not finish: Codex: usage limit reached."]
         );
-    }
-
-    #[test]
-    fn work_the_history_could_not_take_in_is_said_and_cannot_be_undone() {
-        let mut run = Run::new("x");
-        run.finish(
-            Ok(answer("Done.")),
-            Err("the disk is full".into()),
-            no_title,
-        );
         assert!(!run.can_undo());
-        assert!(run.problems[0].contains("cannot be undone from here: the disk is full"));
+        assert_eq!(run.standing(), None);
+
+        let mut clashed = Run::new("x");
+        let files = [("notes/A.md", FileStatus::Modified)];
+        let mut failed = outcome(Status::Failed, "Done.", &files);
+        failed.error = Some("It clashes with edits made while the agent worked.".into());
+        clashed.finish(failed, no_title);
+        assert!(!clashed.can_undo());
+        assert_eq!(
+            clashed.standing(),
+            Some("Nothing reached your vault. It would have changed these files:")
+        );
     }
 
     #[test]
     fn after_undo_nothing_further_is_offered() {
         let mut run = Run::new("x");
-        run.finish(
-            Ok(answer("Done.")),
-            Ok(Some(version(&[("notes/A.md", FileStatus::Modified)]))),
-            no_title,
-        );
+        let files = [("notes/A.md", FileStatus::Modified)];
+        run.finish(outcome(Status::Merged, "Done.", &files), no_title);
         run.undone(Err("it clashed".into()));
         assert!(run.can_undo(), "a refused undo can be tried again");
         assert_eq!(run.problems, ["it clashed"]);

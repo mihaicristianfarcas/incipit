@@ -20,7 +20,7 @@ incipit-app ──▶ incipit-ui ──▶ gpui
 | `incipit-scene` | The figure engine. A figure is a typed spec (`Figure`, one variant per kind); `layout` turns it and a `State` (a moment, a step, parameters, moved points) into marks (lines, shapes, boxes, text) and the handles a window wires to controls; `check` refuses a spec whose drawing would be wrong. [figures.md](figures.md) | no |
 | `incipit-math` | Typesets LaTeX: mitex converts it to Typst, Typst lays it out, and the result is a raster with its size and baseline | no |
 | `incipit-book` | Opens books. `Pdf` draws pages through pdfium and gives each character's place, the PDF's contents (each line with its page and, when the PDF says, how far down the page it leads) and the text of a run of pages, cut at its ends when asked; `PdfWorker` does so on a thread of its own; `Book` turns an EPUB into headings, paragraphs and pictures; `Anchor` ties a note to a passage and finds it again | no |
-| `incipit-learn` | Spaced repetition as pure logic: `schedule` applies one FSRS-6 review to a `Card` and returns the log line, `preview` gives the four buttons' waits, `build_queue` orders what to review (learning steps, due reviews earliest due first, then new cards up to the daily limit), `today_counts` and `streaks` feed the Today page, counting by the learner's day, which starts at 4 am on their clock (`day`). Time and the clock are arguments; there is no storage | no |
+| `incipit-learn` | Spaced repetition as pure logic: `schedule` applies one FSRS-6 review to a `Card` and returns the log line, `preview` gives the four buttons' waits, `build_queue` orders what to review (learning steps, due reviews earliest due first, then new cards up to the daily limit), `today_counts` and `streaks` feed the Today page, counting by the learner's day, which starts at 4 am on their clock (`day`). `asks_new_way` says which reviews of a card known for weeks ask it a new way. Time and the clock are arguments; there is no storage | no |
 | `incipit-graph` | The picture of the graph of ideas, with no drawing in it. `Layout` is a force layout (Barnes-Hut repulsion, springs, gravity, collision by radius) that the caller steps until it settles (the Brain page lays it out on a background thread, then steps it once a frame while a node is dragged); it keeps positions when the graph changes, can pin a dragged node and exports positions to keep. `View`, `SpatialIndex` and `choose_labels` give the window the fit-to-view transform and a view centred on a node, the node under a point or in a rectangle, and the names that fit | no |
 | `incipit-llm` | The one door to models. A `Request` keeps instructions apart from material; a `Provider` gives text, JSON checked against a schema, or an agent's work on files; `Call` runs one in the background and stops it when cancelled ([models.md](models.md)) | no |
 | `incipit-vault` | The vault. Every record is a `Doc`, a Markdown file with YAML properties and a `kind`; `Vault` holds the index, the links and backlinks and the search, writes files whole, announces every change, hears edits made by other programs, and keeps history with Jujutsu through its library ([vault.md](vault.md)) | no |
@@ -63,6 +63,17 @@ concept is not practised, which is not the same as 0. Which cards and notes
 are about a concept, and what a concept builds on, are links in their
 properties ([vault.md](vault.md)), and a recall of a card also gives part
 of a review to the cards on what its ideas build on.
+
+**A card known for weeks is asked a new way.** Every other review of a
+card whose stability is three weeks or more asks a fresh question on the
+same idea in place of the card's front, as in the earlier app, so the
+review checks that the idea can be used and not only that the card's
+wording is remembered. The rule is `new_way` in `incipit-learn`; the
+questions are `new_way` in the app: the chosen model writes them, at most
+eight in a request, while the first cards of a sitting are reviewed, with
+the cards as material. They are kept in memory until used, and a card
+whose question is not ready shows its face. The rating counts for the
+card, and the log's line says it was asked a new way.
 
 **A chapter is mapped into concepts a piece at a time.** From the reader's
 contents, the model fills a form of a chapter's key concepts (`mapping` in

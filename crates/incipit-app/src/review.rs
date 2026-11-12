@@ -12,25 +12,44 @@
 //! again within the sitting comes back a few cards later, and the sitting is over when its list
 //! runs out. A card made or changed meanwhile, here or by another program, is read again without
 //! disturbing the order of what waits (`refresh`).
+//!
+//! A card known for weeks is now and then asked a new way, as in the earlier app: a fresh
+//! question on the same idea, written by the chosen model while the first cards are reviewed
+//! (`crate::new_way`), stands in for the card's front, and its answer, then the card itself,
+//! show when the answer does. Which reviews ask a new way is `incipit_learn::new_way`'s rule.
+//! The card on screen keeps its face when the questions arrive; a card whose question is not
+//! ready, or when no model can be reached, is shown by its face. "Show the card" does that too.
 
 use std::time::Instant;
 
+use futures::StreamExt;
 use gpui::{
     div, prelude::*, px, Context, Entity, FocusHandle, IntoElement, KeyDownEvent, Render,
     ScrollHandle, Subscription, Window,
 };
 use incipit_learn::{format_interval, Rating, Sitting};
+use incipit_llm::{Cancel, Update};
 use incipit_ui::{
     button, card, field, markdown_cloze, page, Cloze, FieldEvent, TextField, Theme, Type,
 };
-use incipit_vault::{DocId, Kind, Vault};
+use incipit_vault::{Concept, DocId, Kind, Vault};
 
+use crate::concepts::ties::Ties;
+use crate::models::Models;
+use crate::new_way::{self, About, NewWay, Written};
 use crate::study::{add_card, now, Deck, Local};
 use crate::workspace::{Happened, Workspace};
 
 pub struct ReviewView {
     workspace: Entity<Workspace>,
+    models: Entity<Models>,
     deck: Option<Deck>,
+    /// The new-way questions written and not yet used.
+    written: Written,
+    /// The question the card on screen is asked by; none when it shows its face.
+    asked: Option<NewWay>,
+    /// What stops the questions being written.
+    writing: Option<Cancel>,
     /// The cards of this sitting still to do; the first is on screen.
     sitting: Sitting<DocId>,
     revealed: bool,
@@ -48,14 +67,22 @@ pub struct ReviewView {
 }
 
 impl ReviewView {
-    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        workspace: Entity<Workspace>,
+        models: Entity<Models>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let front = cx.new(|cx| TextField::new(cx).markdown().placeholder("The question"));
         let back = cx.new(|cx| TextField::new(cx).markdown().placeholder("The answer"));
         let subscriptions = vec![
             cx.subscribe(
                 &workspace,
                 |this: &mut Self, _, happened: &Happened, cx| match happened {
-                    Happened::Opened => this.begin(cx),
+                    Happened::Opened => {
+                        // Another vault's cards: its questions are its own.
+                        this.written.clear();
+                        this.begin(cx)
+                    }
                     // Cards made or changed elsewhere join the sitting; ratings made here are
                     // already counted.
                     Happened::Changed(event) if event.path.as_str().starts_with("cards/") => {
@@ -73,7 +100,11 @@ impl ReviewView {
         ];
         let mut view = ReviewView {
             workspace,
+            models,
             deck: None,
+            written: Written::default(),
+            asked: None,
+            writing: None,
             sitting: Sitting::default(),
             revealed: false,
             reveal_first: std::env::var_os("INCIPIT_BACK").is_some(),
@@ -108,6 +139,99 @@ impl ReviewView {
         // The switch is for the first card there is, so it waits for a vault to be open.
         self.revealed = self.deck.is_some() && std::mem::take(&mut self.reveal_first);
         self.shown = Instant::now();
+        self.face();
+        self.write_new_ways(cx);
+        cx.notify();
+    }
+
+    /// Decides how the card that has just come up is asked: by the question written for it,
+    /// when its review asks a new way and one is ready, else by its face. It is decided once,
+    /// so a question that arrives later does not change the card on screen.
+    fn face(&mut self) {
+        self.asked = self.sitting.current().and_then(|id| {
+            let deck = self.deck.as_ref()?;
+            let entry = deck.get(id)?;
+            deck.asks_new_way(id)
+                .then(|| self.written.get(id, &entry.card).cloned())
+                .flatten()
+        });
+    }
+
+    /// Has the chosen model write the questions for the cards of this sitting that are asked a
+    /// new way and have none yet, a batch at most, while the first card is reviewed. Nothing is
+    /// said when it cannot: those cards are shown by their face.
+    fn write_new_ways(&mut self, cx: &mut Context<Self>) {
+        if let Some(stop) = self.writing.take() {
+            stop.cancel();
+        }
+        let (Some(vault), Some(deck)) = (self.vault(cx), &self.deck) else {
+            return;
+        };
+        let waiting: Vec<&DocId> = self
+            .sitting
+            .left()
+            .iter()
+            .skip(1)
+            .filter(|id| {
+                deck.asks_new_way(id)
+                    && deck
+                        .get(id)
+                        .is_some_and(|entry| self.written.get(id, &entry.card).is_none())
+            })
+            .take(new_way::BATCH)
+            .collect();
+        if waiting.is_empty() {
+            return;
+        }
+        let ties = Ties::read(&vault);
+        let cards: Vec<About> = waiting
+            .into_iter()
+            .filter_map(|id| {
+                let concept = ties
+                    .cards
+                    .get(id)
+                    .into_iter()
+                    .flatten()
+                    .find_map(|concept| {
+                        let doc = vault.get(concept)?;
+                        doc.fields::<Concept>().map(|_| doc.title().to_owned())
+                    });
+                Some(About {
+                    id: id.clone(),
+                    card: deck.get(id)?.card.clone(),
+                    concept,
+                })
+            })
+            .collect();
+        let Ok(mut asking) = self
+            .models
+            .read(cx)
+            .fill(new_way::request(&cards), new_way::form())
+        else {
+            return;
+        };
+        self.writing = Some(asking.cancel.clone());
+        cx.spawn(async move |this, cx| {
+            while let Some(update) = asking.updates.next().await {
+                let Update::Done(result) = update else {
+                    continue;
+                };
+                let _ = this.update(cx, |this, _| {
+                    this.writing = None;
+                    if let Ok(filled) = result {
+                        this.written.keep(&filled.value, &cards);
+                    }
+                });
+                break;
+            }
+        })
+        .detach();
+    }
+
+    /// Shows the card on screen by its face after all: its review then counts as one.
+    fn show_the_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.asked = None;
+        self.focus.focus(window, cx);
         cx.notify();
     }
 
@@ -128,6 +252,7 @@ impl ReviewView {
         if self.sitting.current() != on_screen.as_ref() {
             self.revealed = false;
             self.shown = Instant::now();
+            self.face();
         }
         cx.notify();
     }
@@ -146,15 +271,24 @@ impl ReviewView {
         let Some(deck) = &mut self.deck else { return };
         let took = self.shown.elapsed().as_secs_f64();
         let at = now();
-        match deck.rate(&vault, &id, rating, at, Some(took)) {
+        let kept = match self.asked {
+            Some(_) => deck.rate_new_way(&vault, &id, rating, at, Some(took)),
+            None => deck.rate(&vault, &id, rating, at, Some(took)),
+        };
+        match kept {
             Ok(()) => {
                 self.problem = None;
+                if self.asked.is_some() {
+                    // Asked once: the next time it is a new question.
+                    self.written.forget(&id);
+                }
                 // The queue is not built again: the card goes a few cards later when it is due
                 // again in this sitting, and leaves it otherwise.
                 let due = deck.get(&id).map_or(i64::MAX, |entry| entry.state().due);
                 self.sitting.rated(due, at, id);
                 self.revealed = false;
                 self.shown = Instant::now();
+                self.face();
             }
             Err(e) => self.problem = Some(format!("The review was not kept: {e}")),
         }
@@ -288,21 +422,85 @@ impl ReviewView {
             .flex()
             .flex_col()
             .gap(px(16.0))
-            .text_size(px(17.0))
-            .child(markdown_cloze(
-                "card-front",
-                &entry.card.front,
-                t,
-                hidden_until(self.revealed),
-            ));
-        if self.revealed {
-            face = face.child(incipit_ui::hairline(t)).child(markdown_cloze(
-                "card-back",
-                &entry.card.back,
-                t,
-                Cloze::Shown,
-            ));
-        }
+            .text_size(px(17.0));
+        face = match &self.asked {
+            // Asked a new way: the fresh question, then its answer and the card itself.
+            Some(asked) => {
+                let note = div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.0))
+                    .text_size(px(Type::META))
+                    .text_color(t.tertiary)
+                    .child("Known for weeks, so asked a new way")
+                    .when(!self.revealed, |note| {
+                        note.child(
+                            button("card-itself", "Show the card", t)
+                                .ghost()
+                                .tooltip("Review this card by its own question")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.show_the_card(window, cx)
+                                })),
+                        )
+                    });
+                let face = face.child(note).child(markdown_cloze(
+                    "card-front",
+                    &asked.question,
+                    t,
+                    Cloze::Shown,
+                ));
+                if self.revealed {
+                    face.child(incipit_ui::hairline(t))
+                        .child(markdown_cloze("card-back", &asked.answer, t, Cloze::Shown))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(8.0))
+                                .text_size(px(Type::BODY))
+                                .text_color(t.secondary)
+                                .child(
+                                    div()
+                                        .text_size(px(Type::META))
+                                        .text_color(t.tertiary)
+                                        .child("The card"),
+                                )
+                                .child(markdown_cloze(
+                                    "card-itself-front",
+                                    &entry.card.front,
+                                    t,
+                                    Cloze::Shown,
+                                ))
+                                .child(markdown_cloze(
+                                    "card-itself-back",
+                                    &entry.card.back,
+                                    t,
+                                    Cloze::Shown,
+                                )),
+                        )
+                } else {
+                    face
+                }
+            }
+            None => {
+                let face = face.child(markdown_cloze(
+                    "card-front",
+                    &entry.card.front,
+                    t,
+                    hidden_until(self.revealed),
+                ));
+                if self.revealed {
+                    face.child(incipit_ui::hairline(t)).child(markdown_cloze(
+                        "card-back",
+                        &entry.card.back,
+                        t,
+                        Cloze::Shown,
+                    ))
+                } else {
+                    face
+                }
+            }
+        };
         let controls = if self.revealed {
             let waits = deck.preview(id, now());
             let buttons = Rating::ALL.into_iter().enumerate().map(|(index, rating)| {

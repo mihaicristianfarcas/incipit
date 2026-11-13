@@ -225,6 +225,15 @@ it is a source of truth: deleting it, or any file in it, only means the
 app makes it again. History leaves it out and its changes are not
 announced. The vault writes these files whole (`Vault::write_generated`).
 
+`text-<book>.idx`, one for each book, is the index of the book's text
+(`incipit_book::TextIndex`): its words, folded (case, accents and
+ligatures aside), each with where it is, the book's contents and the
+length and time of change of the book's file it was made from. The
+reader's find bar and the find sheet's search through the books' text use
+it. It is made the first time either needs it, and again when the book's
+file has changed or the index cannot be read. `<book>` is the book's id,
+or a hash of an id that is not a plain file name.
+
 `fitted-schedule.json` is the flashcards' schedule fitted to the learner's
 own reviews: FSRS-6's 21 weights, fitted by the `fsrs` crate's optimizer
 to `log/reviews.jsonl` ([architecture.md](architecture.md),

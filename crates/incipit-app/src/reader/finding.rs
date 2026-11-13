@@ -3,19 +3,20 @@
 //! says which one you are on, and goes there with the phrase marked. Below it, every place it
 //! occurs, by chapter, each with its page and the words around it: choosing one goes straight
 //! there. The list can be hidden, and stays as it was left (kept in the app's folder). This is
-//! the earlier app's find bar; the matching is `incipit_book::find`.
+//! the earlier app's find bar; the matching is the book's index (`incipit_book::TextIndex`):
+//! each word typed begins a word of the book.
 //!
-//! The book's text is read the first time something is looked for in it: an EPUB's from its
-//! blocks, a PDF's through a pdfium document of its own on a background thread, so the pages
-//! being drawn do not wait behind it. Each search runs off the window's thread, and one that
-//! the next has overtaken is dropped. A place found is shown with its line at the reading line
+//! The book's index is taken the first time something is looked for in it, off the window's
+//! thread: the one kept in the vault when the book's file has not changed since, else made by
+//! reading the whole book (a PDF's pages through a pdfium document of its own, so the pages
+//! being drawn do not wait behind it) and kept (`book_index`). Each search runs off the
+//! window's thread too, and one that the next has overtaken is dropped. A place found is shown with its line at the reading line
 //! (a PDF's), or its block at the top (an EPUB's, whose blocks' heights are known only once
 //! drawn).
 //!
 //! Without clicking: INCIPIT_FIND_BOOK=words opens it with those words typed once the book is
 //! open.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{
@@ -23,10 +24,10 @@ use gpui::{
     KeyDownEvent, ListOffset, ScrollHandle, StyledText, Subscription, Window,
 };
 use incipit_book::find::{Hit, MOST};
-use incipit_book::{BookText, Pdf};
+use incipit_book::TextIndex;
 use incipit_ui::{field, floating, icon_button, FieldEvent, IconName, TextField, Theme, Type};
 
-use super::model::{rich, Doc, Opened};
+use super::model::{Doc, Opened};
 use super::place::LINE;
 use super::{ReaderView, State, PAGE_GAP};
 
@@ -42,7 +43,7 @@ const ABOVE_LINE: f32 = 4.0;
 enum Text {
     Unread,
     Reading,
-    Ready(Arc<BookText>),
+    Ready(Arc<TextIndex>),
     Failed(String),
 }
 
@@ -155,19 +156,15 @@ impl ReaderView {
             cx.notify();
             return;
         }
-        let State::Open(opened) = &self.state else {
-            return;
-        };
         let text = match &self.finding.text {
             Text::Ready(text) => text.clone(),
             Text::Unread => return self.read_text(cx),
             Text::Reading | Text::Failed(_) => return,
         };
-        let contents = opened.contents.clone();
         let asked = self.finding.asked;
         let search = cx
             .background_executor()
-            .spawn(async move { text.find(&query, MOST, &contents) });
+            .spawn(async move { text.find(&query, MOST) });
         cx.spawn(async move |this, cx| {
             let hits = search.await;
             let _ = this.update(cx, |this, cx| {
@@ -182,32 +179,23 @@ impl ReaderView {
         .detach();
     }
 
-    /// Reads the open book's text off the window's thread, then looks for what is typed.
+    /// Takes the open book's index off the window's thread (kept, or made and kept), then
+    /// looks for what is typed. A kept index made with other contents than the reader's is
+    /// made again, so that its places name the reader's chapters.
     fn read_text(&mut self, cx: &mut Context<Self>) {
         let (State::Open(opened), Some(book)) = (&self.state, &self.book) else {
             return;
         };
         self.finding.text = Text::Reading;
         let file = book.file.clone();
-        let read = match &opened.doc {
-            Doc::Pdf(_) => {
-                let file = file.clone();
-                cx.background_executor()
-                    .spawn(async move { read_pdf(file) })
-            }
-            Doc::Epub(epub) => {
-                let blocks: Vec<(usize, String)> = epub
-                    .blocks
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, (block, _))| rich(block).map(|r| (i, r.text.clone())))
-                    .collect();
-                cx.background_executor().spawn(async move {
-                    Ok(BookText::of_blocks(
-                        blocks.iter().map(|(i, text)| (*i, text.as_str())),
-                    ))
-                })
-            }
+        let (vault, id) = (self.workspace.read(cx).vault.clone(), book.id.clone());
+        let pdf = matches!(opened.doc, Doc::Pdf(_));
+        let contents = opened.contents.clone();
+        let read = {
+            let file = file.clone();
+            cx.background_executor().spawn(async move {
+                crate::book_index::index(vault.as_ref(), id.as_ref(), &file, pdf, Some(&contents))
+            })
         };
         cx.spawn(async move |this, cx| {
             let text = read.await;
@@ -510,16 +498,6 @@ fn heads_chapter(hits: &[Hit], i: usize, contents: &[incipit_book::Entry]) -> bo
     let chapter = hits[i].chapter;
     let before = i.checked_sub(1).and_then(|b| hits[b].chapter);
     chapter.is_some_and(|c| c < contents.len()) && (i == 0 || chapter != before)
-}
-
-/// Reads a PDF's pages for finding in them; a page whose text cannot be read is taken as empty.
-fn read_pdf(file: PathBuf) -> Result<BookText, String> {
-    let pdf = Pdf::open(&super::root().join("lib/lib"), &file)
-        .map_err(|e| format!("The book's text was not read: {e:#}"))?;
-    let pages: Vec<_> = (0..pdf.pages())
-        .map(|index| pdf.page_text(index).unwrap_or_default())
-        .collect();
-    Ok(BookText::of_pages(&pages))
 }
 
 /// Where place `at` of `count` is, as the bar says it: "3 of 12", and "of 500+" when the search

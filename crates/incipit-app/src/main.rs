@@ -10,6 +10,7 @@
 
 mod activity;
 mod agent;
+mod book_index;
 mod brain;
 mod cardlist;
 mod cards;
@@ -330,8 +331,10 @@ impl Root {
         let find = cx.new(|cx| find::FindView::new(workspace.clone(), cx));
         cx.subscribe(&find, |this: &mut Self, _, found: &find::Found, cx| {
             this.finding = false;
-            if let find::Found::Open(kind, id) = found {
-                this.open(*kind, id, cx);
+            match found {
+                find::Found::Open(kind, id) => this.open(*kind, id, cx),
+                find::Found::Read(book, part) => this.read_part(book.clone(), *part, cx),
+                find::Found::Closed => {}
             }
             cx.notify();
         })
@@ -472,6 +475,11 @@ impl Root {
             (None, Some(block)) => block as usize,
             (None, None) => 0,
         };
+        self.read_part(book, part, cx);
+    }
+
+    /// Opens the reader at page or block `part` of a book of the vault, as `read` does.
+    fn read_part(&mut self, book: DocId, part: usize, cx: &mut Context<Self>) {
         let there = self
             .reader
             .update(cx, |reader, cx| reader.go_to(&book, part, cx));

@@ -58,7 +58,7 @@ screenshots are taken:
 | `INCIPIT_SHOT` | A file name: the window is saved there as a PNG after a moment, and the app quits (macOS) |
 | `INCIPIT_BOOK` | `pdf` or `epub`: opens that sample book in the reader, with no vault needed |
 | `INCIPIT_OPEN` | Words of a title: opens the first book of the vault whose title has them |
-| `INCIPIT_FIND` | Opens the find sheet with these words typed |
+| `INCIPIT_FIND` | Opens the find sheet with these words typed: the vault's documents that have them, and the passages of its books, which join as each book's index is taken (made by reading the book the first time, in `.incipit/`) |
 | `INCIPIT_FIND_BOOK` | On the Reader page: opens the book's find bar with these words typed once the book is open, on the first place they occur, with the list of every place (hidden when the app's folder, `INCIPIT_HOME`, holds a file `find-list` that says `0`) |
 | `INCIPIT_NODE` | Opens the Brain page with these words typed in its find field and Enter pressed: the nodes whose titles have them are ringed, and the best one is selected, brought to the middle, and its card shown |
 | `INCIPIT_CONCEPT` | Opens the Brain page on the page of the concept whose title best matches these words, once the vault is open |

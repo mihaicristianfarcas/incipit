@@ -4481,6 +4481,7 @@ dependencies = [
  "image",
  "pdfium-render",
  "scraper",
+ "unicode-normalization",
  "zip",
 ]
 

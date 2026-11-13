@@ -1,6 +1,7 @@
 //! Incipit's window: a sidebar of pages (Today, Library, Reader, Notes, Review, Brain, Math,
 //! Figure, Settings), each drawn natively in GPUI with incipit-ui, and over them the find sheet
-//! and the sheet of the agent that works on the vault, each opened with a key from any page.
+//! and the sheet of the agent that works on the vault, each opened with a key from any page
+//! (and on the Reader, the find bar of the book open, with a key of its own).
 //! For checks without clicking, environment switches open a page in a given state and save a
 //! picture of the window: docs/development.md lists them.
 
@@ -48,7 +49,7 @@ use gpui::{actions, div, prelude::*, px, AnyElement, App, Context, Entity, KeyBi
 use incipit_ui::{Glide, IconName, Theme, Type};
 use incipit_vault::{DocId, Kind};
 
-actions!(incipit, [Find, Act]);
+actions!(incipit, [Find, Act, FindInBook]);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Page {
@@ -493,6 +494,14 @@ impl Root {
         cx.notify();
     }
 
+    /// Open the reader's find bar, when the reader is the page shown.
+    fn find_in_book(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page == Page::Reader {
+            self.reader
+                .update(cx, |reader, cx| reader.find_in_book(window, cx));
+        }
+    }
+
     /// Open the agent's sheet: empty, or on the run that is going on or ended last. It is told
     /// where the learner is: the page, the note or concept open on it, the book and the place
     /// in it, and the selection.
@@ -654,20 +663,24 @@ fn main() {
                     cx.new(|cx| Root::new(window, cx))
                 })
                 .expect("the window opens");
-            let (find, act) = if cfg!(target_os = "macos") {
-                ("cmd-k", "cmd-j")
+            let (find, act, in_book) = if cfg!(target_os = "macos") {
+                ("cmd-k", "cmd-j", "cmd-f")
             } else {
-                ("ctrl-k", "ctrl-j")
+                ("ctrl-k", "ctrl-j", "ctrl-f")
             };
             cx.bind_keys([
                 KeyBinding::new(find, Find, None),
                 KeyBinding::new(act, Act, None),
+                KeyBinding::new(in_book, FindInBook, None),
             ]);
             cx.on_action(move |_: &Find, cx| {
                 let _ = window.update(cx, |root, window, cx| root.find(window, cx));
             });
             cx.on_action(move |_: &Act, cx| {
                 let _ = window.update(cx, |root, window, cx| root.act(window, cx));
+            });
+            cx.on_action(move |_: &FindInBook, cx| {
+                let _ = window.update(cx, |root, window, cx| root.find_in_book(window, cx));
             });
             // Reading in progress is written before the app goes.
             cx.on_app_quit(move |cx| {

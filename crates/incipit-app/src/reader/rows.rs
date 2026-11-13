@@ -13,12 +13,15 @@ use incipit_book::{Block, Rich};
 use incipit_ui::Theme;
 
 use super::model::{byte_of, Doc, Note, Opened, Place};
-use super::{ReaderView, State, ANSWER, COLUMN, GAP, MARGIN};
+use super::{ReaderView, State, ANSWER, COLUMN, GAP, MARGIN, PAGE_GAP};
 
 const SERIF: &str = "Charter";
 /// Room kept for a card when placing the next one under it: closed, open (the most it can
 /// take: its quote, what it says, its buttons), and being written.
 const CARD: (f32, f32, f32) = (44.0, ANSWER + 160.0, 150.0);
+/// How strongly the place the find bar is on is marked: more than a note, as the earlier app
+/// marked it, so it stands out among them.
+const FOUND: f32 = 0.55;
 
 pub fn format_of(name: &str) -> Option<ImageFormat> {
     match name
@@ -204,6 +207,14 @@ impl ReaderView {
                         .map(|b| (b, tint(t.accent, 0.3))),
                 );
             }
+            if let Some((start, end)) = self.found_in(index) {
+                marks.extend(
+                    held.page
+                        .boxes(start, end)
+                        .into_iter()
+                        .map(|b| (b, tint(t.attention, FOUND))),
+                );
+            }
         }
         // Cards never overlap: one whose passage is too close under another's moves down.
         cards.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -244,7 +255,7 @@ impl ReaderView {
             .w(px(width))
             .h(px(height))
             .flex_none()
-            .mb(px(16.0))
+            .mb(px(PAGE_GAP))
             .bg(gpui::white())
             .rounded(px(3.0))
             .overflow_hidden()
@@ -382,6 +393,10 @@ impl ReaderView {
             .and_then(|s| s.within(index, text.text.len(), false))
         {
             marks.push((from, to, tint(t.accent, 0.35)));
+        }
+        if let Some((start, end)) = self.found_in(index) {
+            let found = (byte_of(&text.text, start), byte_of(&text.text, end));
+            marks.push((found.0, found.1, tint(t.attention, FOUND)));
         }
         let mut cuts: Vec<usize> = vec![0, text.text.len()];
         cuts.extend(text.spans.iter().flat_map(|s| [s.start, s.end]));

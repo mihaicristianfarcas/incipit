@@ -99,6 +99,8 @@ pub struct Held {
     pub page: Page,
     pub image: Arc<RenderImage>,
     pub text: Vec<char>,
+    /// Drawn dark, for the dark theme.
+    pub dark: bool,
     /// Where the page was last painted in the window.
     pub origin: Rc<Cell<Point<Pixels>>>,
 }

@@ -172,6 +172,7 @@ mod tests {
         let section = ask(Cut {
             top: Some(0.44),
             bottom: Some(0.8),
+            before: None,
         });
         assert!(whole.starts_with("1 Introduction"));
         assert!(section.starts_with("2 Background"));

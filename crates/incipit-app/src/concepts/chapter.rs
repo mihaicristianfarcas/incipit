@@ -6,10 +6,12 @@
 //! its first and last page as the earlier app's `pagesText` cut it: where the contents say how
 //! far down the page its line leads, the chapter takes from its first page only the lines of
 //! text from just above that place down; from its last, only the lines above the place the next
-//! line leads to, which is the top of the page when the contents name only the page. So a
-//! chapter whose successor starts at the top of a page takes nothing from that page, and the
-//! page is not one of its parts. A quote is looked for in the parts, so only in the chapter's
-//! own lines, as the earlier app's `locateInPages` looked.
+//! line leads to. A chapter whose successor starts at the top of a page takes nothing from that
+//! page, and the page is not one of its parts. Where the contents name only the page the next
+//! line leads to, its title is looked for among that page's lines and the page is cut above it
+//! (`Cut::before`), else taken whole: the earlier app cut it at the page's top, so a chapter
+//! whose successor starts lower on the page lost its last lines. A quote is looked for in the
+//! parts, so only in the chapter's own lines, as the earlier app's `locateInPages` looked.
 //!
 //! Quotes from models are often slightly off (hyphenation, marks, spacing, a word changed at the
 //! edge), so a quote is found as the earlier app's `locateInBlocks` and `locateInPages` find it:
@@ -66,14 +68,18 @@ pub fn span(entries: &[Entry], at: usize, parts: usize, pdf: bool) -> Span {
     .min(parts);
     let mut cut = Cut::default();
     if pdf {
-        // A line that names only its page leads to the page's top; the last chapter ends at
+        // A line that names only its page starts at the page's top; the last chapter ends at
         // the bottom of the last page.
         let from = entry.y.unwrap_or(0.0);
         cut.top = (from > 0.0).then_some(from - ABOVE_START);
-        let to = next
-            .filter(|next| next.page + 1 == end)
-            .map_or(1.0, |next| next.y.unwrap_or(0.0));
-        cut.bottom = (to < 1.0).then_some(to - ABOVE_NEXT);
+        match next.filter(|next| next.page + 1 == end) {
+            Some(Entry { y: Some(to), .. }) => {
+                cut.bottom = (*to < 1.0).then_some(to - ABOVE_NEXT);
+            }
+            // Where on its page the next line starts is found from its title.
+            Some(next) => cut.before = Some(next.title.clone()),
+            None => {}
+        }
     }
     Span {
         parts: start..end,
@@ -91,7 +97,7 @@ impl Span {
             .zip(texts)
             .filter(|(index, text)| {
                 let cut = (*index == first && self.cut.top.is_some())
-                    || (*index == last && self.cut.bottom.is_some());
+                    || (*index == last && (self.cut.bottom.is_some() || self.cut.before.is_some()));
                 !(cut && text.trim().is_empty())
             })
             .map(|(index, text)| Part { index, text })
@@ -247,7 +253,11 @@ mod tests {
     }
 
     fn cut(top: Option<f32>, bottom: Option<f32>) -> Cut {
-        Cut { top, bottom }
+        Cut {
+            top,
+            bottom,
+            before: None,
+        }
     }
 
     fn parts(texts: &[&str]) -> Vec<Part> {
@@ -304,11 +314,18 @@ mod tests {
         let encoder = chapter(2);
         assert_eq!(encoder.parts, 2..3);
         assert_eq!(encoder.cut, cut(Some(0.75 - 0.02), Some(0.875 - 0.005)));
-        // A successor at the top of a page, named by its page alone or with the page's top:
-        // the bottom is above the page, so nothing of that page is taken.
+        // A successor named by its page alone: its title is looked for on that page.
         let results = chapter(4);
         assert_eq!(results.parts, 6..9);
-        assert_eq!(results.cut, cut(Some(0.5 - 0.02), Some(-0.005)));
+        assert_eq!(
+            results.cut,
+            Cut {
+                before: Some("4 Conclusion".into()),
+                ..cut(Some(0.5 - 0.02), None)
+            }
+        );
+        // One named with the page's top: the bottom is above the page, so nothing of that
+        // page is taken.
         let conclusion = chapter(5);
         assert_eq!(conclusion.parts, 8..10);
         // A chapter that starts at the top of its page takes the page from its top.
@@ -362,6 +379,17 @@ mod tests {
             cut: cut(Some(0.4), Some(0.3)),
         };
         assert!(one.of_pages(text(&[""])).is_empty());
+        // A last page cut above the next title, which was at its top, goes; one where the
+        // title was not found is whole, and stays.
+        let titled = Span {
+            parts: 6..8,
+            cut: Cut {
+                before: Some("4 Conclusion".into()),
+                ..Cut::default()
+            },
+        };
+        assert_eq!(indexes(titled.of_pages(text(&["a", ""]))), [6]);
+        assert_eq!(indexes(titled.of_pages(text(&["a", "b"]))), [6, 7]);
     }
 
     #[test]
@@ -374,7 +402,9 @@ mod tests {
         let gathered = |title: &str| {
             let at = contents.iter().position(|e| e.title == title).unwrap();
             let chapter = span(&contents, at, pdf.pages(), true);
-            let texts = pdf.texts(chapter.parts.clone(), chapter.cut).unwrap();
+            let texts = pdf
+                .texts(chapter.parts.clone(), chapter.cut.clone())
+                .unwrap();
             (chapter.parts.clone(), chapter.of_pages(texts))
         };
         // "2 Background" starts and ends part-way down the paper's second page, between the end
@@ -411,6 +441,36 @@ mod tests {
             locate(&model, "Self-attention, sometimes called intra-attention"),
             None
         );
+    }
+
+    #[test]
+    #[ignore = "requires pdfium in lib/ and the sample paper from tools/setup"]
+    fn a_chapter_whose_next_line_names_only_its_page_ends_above_that_lines_title() {
+        let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+        let pdf = incipit_book::Pdf::open(&root.join("lib/lib"), &root.join("samples/paper.pdf"))
+            .unwrap();
+        // The paper's contents as an outline that names only pages.
+        let contents: Vec<Entry> = pdf
+            .contents()
+            .into_iter()
+            .map(|e| Entry { y: None, ..e })
+            .collect();
+        let at = contents
+            .iter()
+            .position(|e| e.title == "Background")
+            .unwrap();
+        let chapter = span(&contents, at, pdf.pages(), true);
+        assert_eq!(chapter.parts, 1..2);
+        assert_eq!(chapter.cut.before.as_deref(), Some("Model Architecture"));
+        let texts = pdf
+            .texts(chapter.parts.clone(), chapter.cut.clone())
+            .unwrap();
+        let parts = chapter.of_pages(texts);
+        // The page from its top, as the line names only the page, to above "3 Model
+        // Architecture" 0.81 down it.
+        let text = parts[0].text.trim_end();
+        assert!(text.starts_with("1 Introduction"), "{text}");
+        assert!(text.ends_with("such as [17, 18] and [9]."), "{text}");
     }
 
     #[test]

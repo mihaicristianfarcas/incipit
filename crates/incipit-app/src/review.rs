@@ -19,6 +19,8 @@
 //! above it. When the list runs out the page says how many reviews were made on this visit and
 //! what share were recalled on the first try (`incipit_learn::first_try_percent`).
 //!
+//! "Set aside" under the card (or S) stops a card being asked; the Cards page brings it back.
+//!
 //! A mixed review quiz across the concepts known least, as the earlier app's Review page had,
 //! opens in the quiz sheet from the page's header or from Today (`crate::quiz`); the page's keys wait while it
 //! is open. INCIPIT_QUIZ=mixed starts one once the vault is open (it calls a model), and
@@ -407,6 +409,24 @@ impl ReviewView {
         cx.notify();
     }
 
+    /// Sets the card on screen aside: it leaves the sitting and is not asked again until it is
+    /// brought back on the Cards page. Its reviews stay in the log.
+    fn set_aside(&mut self, cx: &mut Context<Self>) {
+        let (Some(vault), Some(id)) = (self.vault(cx), self.sitting.current().cloned()) else {
+            return;
+        };
+        match crate::cardlist::set_aside(&vault, &id, true) {
+            Ok(_) => {
+                self.problem = None;
+                self.refresh(cx);
+            }
+            Err(e) => {
+                self.problem = Some(format!("The card was not set aside: {e}"));
+                cx.notify();
+            }
+        }
+    }
+
     fn keep_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(vault) = self.vault(cx) else { return };
         let (front, back) = (
@@ -442,6 +462,7 @@ impl ReviewView {
             return;
         }
         let rating = match event.keystroke.key.as_str() {
+            "s" if self.sitting.current().is_some() => return self.set_aside(cx),
             "space" | "enter" if !self.revealed => return self.reveal(cx),
             "1" => Rating::Again,
             "2" => Rating::Hard,
@@ -681,6 +702,10 @@ impl ReviewView {
         if self.type_first && !self.revealed {
             face = face.child(field(&self.typed, t).min_rows(3));
         }
+        let aside = button("card-aside", "Set aside", t)
+            .ghost()
+            .tooltip("Stop asking this card (S); bring it back on the Cards page")
+            .on_click(cx.listener(|this, _, _, cx| this.set_aside(cx)));
         let controls = if self.revealed {
             let waits = deck.preview(id, now());
             let buttons = Rating::ALL.into_iter().enumerate().map(|(index, rating)| {
@@ -728,6 +753,7 @@ impl ReviewView {
             .gap(px(14.0))
             .child(face)
             .child(controls)
+            .child(div().flex().justify_center().child(aside))
             .into_any_element()
     }
 }

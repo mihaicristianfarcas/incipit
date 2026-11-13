@@ -3,7 +3,8 @@
 //! menu); each row shows a card's question, its deck, the concepts it is about and when it is
 //! due; Edit opens the card in place with its question, answer, deck and concepts (concepts are
 //! names separated by commas, each a concept the vault has); Save writes it through
-//! the vault (`crate::cardlist::save`) and Escape or Cancel leaves it. The page is reached from
+//! the vault (`crate::cardlist::save`) and Escape or Cancel leaves it. "Set aside" stops a card
+//! being asked and "Bring back" asks it again. The page is reached from
 //! Review's "All cards" button; INCIPIT_PAGE=cards opens it, and INCIPIT_DECK=name narrows it to
 //! a deck.
 
@@ -198,6 +199,21 @@ impl CardsView {
         }
     }
 
+    /// Sets a card aside, or brings it back.
+    fn set_aside(&mut self, id: &DocId, aside: bool, cx: &mut Context<Self>) {
+        let Some(vault) = self.vault(cx) else { return };
+        match cardlist::set_aside(&vault, id, aside) {
+            Ok(_) => {
+                self.problem = None;
+                self.reload(cx);
+            }
+            Err(e) => {
+                self.problem = Some(e);
+                cx.notify();
+            }
+        }
+    }
+
     fn deck_menu(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let mut choices = vec![Choice::new("All decks")];
         choices.extend(
@@ -266,8 +282,13 @@ impl CardsView {
         }
         let mut about = vec![listed.card.deck.clone()];
         about.extend(listed.concepts.iter().cloned());
-        about.push(when(listed, now()));
+        about.push(if listed.card.suspended {
+            "Set aside".to_owned()
+        } else {
+            when(listed, now())
+        });
         let edit_id = id.clone();
+        let aside = !listed.card.suspended;
         card(t)
             .p(px(12.0))
             .flex_row()
@@ -293,6 +314,20 @@ impl CardsView {
                             .text_color(t.tertiary)
                             .child(about.join("  ·  ")),
                     ),
+            )
+            .child(
+                button(
+                    ("card-aside", index),
+                    if aside { "Set aside" } else { "Bring back" },
+                    t,
+                )
+                .ghost()
+                .tooltip(if aside {
+                    "Stop asking this card; its reviews are kept"
+                } else {
+                    "Ask this card again"
+                })
+                .on_click(cx.listener(move |this, _, _, cx| this.set_aside(&id, aside, cx))),
             )
             .child(
                 button(("card-edit", index), "Edit", t).on_click(

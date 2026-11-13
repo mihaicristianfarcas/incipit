@@ -114,6 +114,19 @@ pub fn save(vault: &Vault, id: &DocId, edit: &Edit) -> Result<Doc, String> {
     vault.update(&doc).map_err(|e| e.to_string())
 }
 
+/// Sets a card aside (the queue and what is known of a concept pass it over) or brings it back.
+/// Nothing else of the card changes, and its reviews stay in the log.
+pub fn set_aside(vault: &Vault, id: &DocId, aside: bool) -> Result<Doc, String> {
+    let mut doc = vault.get(id).ok_or("The card is gone.")?;
+    let mut card = doc.fields::<Card>().ok_or("That is not a card.")?;
+    if card.suspended == aside {
+        return Ok(doc);
+    }
+    card.suspended = aside;
+    doc.set_fields(&card);
+    vault.update(&doc).map_err(|e| e.to_string())
+}
+
 /// The concepts typed as the learner writes them: separated by commas.
 pub fn concepts_in(text: &str) -> Vec<String> {
     text.split(',')
@@ -240,6 +253,35 @@ mod tests {
         let read = saved.fields::<Card>().unwrap();
         assert_eq!(read.deck, "general");
         assert!(read.suspended);
+    }
+
+    #[test]
+    fn a_card_set_aside_leaves_the_queue_and_comes_back_when_brought_back() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let card = add_card(&vault, "q", "a").unwrap();
+        let queued = |vault: &Vault| {
+            Deck::load(vault)
+                .queue_in(None, crate::study::now(), &incipit_learn::Fixed(0))
+                .cards
+        };
+        assert_eq!(queued(&vault), vec![card.id().clone()]);
+        let aside = set_aside(&vault, card.id(), true).unwrap();
+        assert!(aside.fields::<Card>().unwrap().suspended);
+        assert!(queued(&vault).is_empty());
+        // Its words are untouched, and it is still in the list.
+        assert_eq!(list(&vault, None, None)[0].card.front, "q");
+        assert!(list(&vault, None, None)[0].card.suspended);
+        set_aside(&vault, card.id(), false).unwrap();
+        assert!(
+            !vault
+                .get(card.id())
+                .unwrap()
+                .fields::<Card>()
+                .unwrap()
+                .suspended
+        );
+        assert_eq!(queued(&vault), vec![card.id().clone()]);
     }
 
     #[test]

@@ -16,7 +16,8 @@
 //!
 //! A chapter can be mapped into concepts from the contents, and the concepts that came from the
 //! book's passages have cards in the margin beside them (`concepts`). A phrase is found on
-//! every page with the find bar (`finding`).
+//! every page with the find bar (`finding`). A scroll bar beside the book shows where the screen
+//! is in it (`scrolling`).
 //!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =session for a tutor session with a made-up conversation),
@@ -37,6 +38,7 @@ mod model;
 mod place;
 mod reading;
 mod rows;
+mod scrolling;
 mod session;
 mod studying;
 
@@ -53,8 +55,8 @@ use gpui::{
 use incipit_book::{Anchor, Block, Book, Entry, Page, PdfInfo, PdfWorker};
 use incipit_llm::Cancel;
 use incipit_ui::{
-    button, drag_area, field, floating, icon_button, FieldEvent, IconName, Metrics, TextField,
-    Theme, Type,
+    button, drag_area, field, floating, icon_button, scrollbar, FieldEvent, IconName, Metrics,
+    TextField, Theme, Type,
 };
 
 use incipit_vault::fields::Status;
@@ -1226,6 +1228,36 @@ impl ReaderView {
         Some(deferred(anchored().position(at).snap_to_window().child(menu)).into_any_element())
     }
 
+    /// The book's list as its scroll bar measures it: a PDF's pages in pixels at the width they
+    /// are drawn, an EPUB's blocks in characters.
+    fn scrolled(&self, opened: &Opened, cx: &mut Context<Self>) -> scrolling::Book {
+        let (lengths, in_pixels) = match &opened.doc {
+            Doc::Pdf(pdf) => {
+                let width = self.scale.min(self.room);
+                let heights = pdf
+                    .sizes
+                    .iter()
+                    .map(|&(w, h)| f64::from(h * width / w.max(1.0) + PAGE_GAP));
+                (scrolling::Lengths::new(heights), true)
+            }
+            Doc::Epub(book) => (
+                scrolling::Lengths::of_blocks(book.blocks.iter().map(|(block, chars)| {
+                    (!matches!(block, Block::Image { .. })).then_some(chars.len())
+                })),
+                false,
+            ),
+        };
+        let weak = cx.entity().downgrade();
+        scrolling::Book {
+            list: self.list.clone(),
+            lengths: std::rc::Rc::new(lengths),
+            in_pixels,
+            moved: std::rc::Rc::new(move |cx: &mut gpui::App| {
+                let _ = weak.update(cx, |this, cx| this.moved(cx));
+            }),
+        }
+    }
+
     /// A note's card in the margin: one line when closed, whole when open.
     fn card(&self, note: &Note, t: Theme, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         if let Some(concept) = &note.concept {
@@ -1434,13 +1466,22 @@ impl Render for ReaderView {
                     }),
                 )
                 .size_full();
+                let book = self.scrolled(opened, cx);
                 div()
                     .size_full()
                     .flex()
                     .when(self.contents, |row| {
                         row.child(self.contents(&opened.contents, t, window, cx))
                     })
-                    .child(div().flex_1().min_w_0().h_full().child(rows))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .relative()
+                            .child(rows)
+                            .child(scrollbar("reader-scroll-bar", &book, t)),
+                    )
                     .into_any_element()
             }
         };

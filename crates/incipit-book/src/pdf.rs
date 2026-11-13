@@ -1,6 +1,7 @@
 //! A PDF through pdfium: each page as a picture at the width asked for, with where every character
-//! is on it, so a window can let text be selected over the picture; its table of contents, each
-//! line with the page it leads to and how far down that page; and the text of pages without
+//! and every picture is on it, so a window can let text be selected over the picture (and leave
+//! the pictures as they are on a dark page); its table of contents, each line with the page it
+//! leads to and how far down that page; and the text of pages without
 //! drawing them, whole or in its lines, each with how far down the page it is.
 //!
 //! A chapter can start or end part-way down a page, so the text of a run of pages can be cut at
@@ -315,6 +316,9 @@ pub struct Page {
     pub pixel_height: u32,
     /// Its characters in reading order. Spaces and line ends pdfium adds have no size.
     pub glyphs: Vec<Glyph>,
+    /// The boxes of the pictures on it (x, y, width, height in points from its top left), which
+    /// a dark page leaves as they are (`Dark`).
+    pub pictures: Vec<(f32, f32, f32, f32)>,
 }
 
 impl Pdf {
@@ -437,6 +441,21 @@ impl Pdf {
             })
             .collect();
         let glyphs = plain_glyphs(glyphs);
+        let pictures = page
+            .objects()
+            .iter()
+            .filter(|object| object.object_type() == PdfPageObjectType::Image)
+            .filter_map(|object| object.bounds().ok())
+            .map(|b| {
+                let (left, top) = (b.left().value, b.top().value);
+                (
+                    left,
+                    height - top,
+                    b.right().value - left,
+                    top - b.bottom().value,
+                )
+            })
+            .collect();
         Ok(Page {
             width,
             height,
@@ -444,6 +463,7 @@ impl Pdf {
             pixel_width: bitmap.width() as u32,
             pixel_height: bitmap.height() as u32,
             glyphs,
+            pictures,
         })
     }
 }
@@ -721,6 +741,7 @@ mod tests {
             pixel_width: 0,
             pixel_height: 0,
             glyphs: glyphs(lines),
+            pictures: Vec::new(),
         }
     }
 
@@ -893,6 +914,32 @@ mod tests {
         // The page is cut a little above the title's line, and never below its top.
         assert!((above_title(0.151) - 0.136).abs() < 1e-6);
         assert!((above_title(0.004) + 0.005).abs() < 1e-6);
+    }
+
+    #[test]
+    #[ignore = "requires pdfium in lib/ and the sample paper from tools/setup"]
+    fn a_drawn_page_turns_dark_but_for_its_pictures() {
+        let pdf = sample();
+        let mut page = pdf.page(0, 1280).unwrap();
+        let mut pixels = std::mem::take(&mut page.pixels);
+        let started = std::time::Instant::now();
+        crate::Dark::new().recolour(&mut pixels, page.pixel_width as usize, &[]);
+        eprintln!(
+            "page 1 at {} by {} pixels turned dark in {:?}",
+            page.pixel_width,
+            page.pixel_height,
+            started.elapsed()
+        );
+        // The paper's corner is the dark ground.
+        assert_eq!(&pixels[..3], &crate::dark::GROUND);
+        // Every page's pictures sit on it.
+        for index in 0..pdf.pages() {
+            let page = pdf.page(index, 200).unwrap();
+            for &(x, y, w, h) in &page.pictures {
+                assert!(x >= -1.0 && y >= -1.0 && w > 0.0 && h > 0.0);
+                assert!(x + w <= page.width + 1.0 && y + h <= page.height + 1.0);
+            }
+        }
     }
 
     #[test]

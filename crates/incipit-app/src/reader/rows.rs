@@ -1,5 +1,6 @@
 //! One row of the reader's list: a part of the book (a PDF's page, an EPUB's block) with the
-//! margin's cards for it beside it. A row turns the mouse into places in the book; what a press,
+//! margin's cards for it beside it. A PDF's page is drawn dark when the app is (`incipit_book::
+//! dark`), as the earlier app's reader drew it. A row turns the mouse into places in the book; what a press,
 //! a drag and a release mean is the view's.
 
 use std::sync::Arc;
@@ -9,7 +10,8 @@ use gpui::{
     FontStyle, FontWeight, Hsla, ImageFormat, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Point, RenderImage, Rgba, StyledText, TextRun, Window,
 };
-use incipit_book::{Block, Rich};
+use incipit_book::dark::{self, Dark};
+use incipit_book::{Block, Page, Rich};
 use incipit_ui::Theme;
 
 use super::model::{byte_of, Doc, Note, Opened, Place};
@@ -22,6 +24,28 @@ const CARD: (f32, f32, f32) = (44.0, ANSWER + 160.0, 150.0);
 /// How strongly the place the find bar is on is marked: more than a note, as the earlier app
 /// marked it, so it stands out among them.
 const FOUND: f32 = 0.55;
+
+/// Turns a drawn page's RGBA pixels dark (on the PDF's thread), leaving its pictures as they are.
+fn darken(pixels: &mut [u8], page: &Page) {
+    let scale = page.pixel_width as f32 / page.width.max(1.0);
+    let boxes: Vec<[usize; 4]> = page
+        .pictures
+        .iter()
+        .map(|&(x, y, w, h)| {
+            let at = |v: f32| (v * scale).max(0.0) as usize;
+            [
+                at(x),
+                at(y),
+                at(x + w).saturating_add(1),
+                at(y + h).saturating_add(1),
+            ]
+        })
+        .collect();
+    DARK.recolour(pixels, page.pixel_width as usize, &boxes);
+}
+
+/// The dark page's ramp, worked out once.
+static DARK: std::sync::LazyLock<Dark> = std::sync::LazyLock::new(Dark::new);
 
 pub fn format_of(name: &str) -> Option<ImageFormat> {
     match name
@@ -125,15 +149,19 @@ impl ReaderView {
         let (page_width, page_height) = pdf.sizes[index];
         let scale = width / page_width;
         let height = page_height * scale;
-        // A page not drawn yet, or drawn for another width, is asked for once.
+        // A page not drawn yet, or drawn for another width or the other theme, is asked for once.
+        let dark = t.dark;
         let fresh = pdf
             .pages
             .get(&index)
-            .is_some_and(|h| h.page.pixel_width.abs_diff(wanted) <= 1);
+            .is_some_and(|h| h.page.pixel_width.abs_diff(wanted) <= 1 && h.dark == dark);
         if !fresh && pdf.asked.insert(index) {
             pdf.worker.page(index, wanted, move |result| {
                 let result = result.map_err(|e| format!("{e:#}")).and_then(|mut page| {
                     let mut pixels = std::mem::take(&mut page.pixels);
+                    if dark {
+                        darken(&mut pixels, &page);
+                    }
                     // GPUI's images are BGRA.
                     for p in pixels.as_chunks_mut::<4>().0 {
                         p.swap(0, 2);
@@ -144,6 +172,7 @@ impl ReaderView {
                     Ok((
                         page,
                         Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])),
+                        dark,
                     ))
                 });
                 let _ = drawn.unbounded_send((index, result));
@@ -256,7 +285,18 @@ impl ReaderView {
             .h(px(height))
             .flex_none()
             .mb(px(PAGE_GAP))
-            .bg(gpui::white())
+            // The paper, until the page is drawn on it: dark on a dark page.
+            .bg(if dark {
+                let [r, g, b] = dark::GROUND;
+                gpui::Rgba {
+                    r: f32::from(r) / 255.0,
+                    g: f32::from(g) / 255.0,
+                    b: f32::from(b) / 255.0,
+                    a: 1.0,
+                }
+            } else {
+                gpui::white().into()
+            })
             .rounded(px(3.0))
             .overflow_hidden()
             .cursor_text()

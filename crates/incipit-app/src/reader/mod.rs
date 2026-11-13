@@ -116,7 +116,7 @@ enum State {
 }
 
 /// A page drawn by the PDF's thread, ready for the window.
-type Drawn = (usize, Result<(Page, Arc<RenderImage>), String>);
+type Drawn = (usize, Result<(Page, Arc<RenderImage>, bool), String>);
 
 /// The learner asked to see a figure made for a passage.
 pub struct OpenFigure(pub incipit_scene::Figure);
@@ -576,7 +576,7 @@ impl ReaderView {
                     return;
                 };
                 pdf.asked.remove(&index);
-                if let Ok((page, image)) = result {
+                if let Ok((page, image, dark)) = result {
                     let text = page.text();
                     pdf.pages.insert(
                         index,
@@ -584,6 +584,7 @@ impl ReaderView {
                             page,
                             image,
                             text,
+                            dark,
                             origin: Default::default(),
                         },
                     );

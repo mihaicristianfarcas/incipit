@@ -7,6 +7,13 @@ publish.workspace = true
 
 [dependencies]
 serde.workspace = true
+# FSRS-6's optimizer, for the weights fitted to a learner's reviews (`fit`). The version Anki pins.
+fsrs = { version = "=6.6.2", optional = true }
+
+[features]
+# Fitting the weights to the learner's reviews: brings in the optimizer and its dependencies
+# (ndarray, rayon), which a build that only schedules does without.
+fit = ["dep:fsrs"]
 
 [dev-dependencies]
 serde_json.workspace = true

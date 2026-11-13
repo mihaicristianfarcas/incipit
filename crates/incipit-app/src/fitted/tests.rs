@@ -189,6 +189,11 @@ fn the_line_says_whether_the_schedule_is_fitted_from_how_many_reviews_and_when()
         ..few
     };
     assert!(describe(true, Some(&failed), false, date).contains("did not work"));
+    // Before the vault has been looked at, no count is made up.
+    assert_eq!(
+        describe(true, None, false, date),
+        "The standard schedule for now."
+    );
     assert_eq!(grouped(1_234_567), "1,234,567");
     assert_eq!(grouped(400), "400");
 }

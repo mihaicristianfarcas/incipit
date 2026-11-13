@@ -12,6 +12,7 @@ mod agent;
 mod brain;
 mod cardlist;
 mod cards;
+mod cards_demo;
 mod concepts;
 mod demo;
 mod drafter;
@@ -239,7 +240,7 @@ impl Root {
         })
         .detach();
         let review = cx.new(|cx| review::ReviewView::new(workspace.clone(), models.clone(), cx));
-        let cards = cx.new(|cx| cards::CardsView::new(workspace.clone(), cx));
+        let cards = cx.new(|cx| cards::CardsView::new(workspace.clone(), models.clone(), cx));
         // The page of all cards is reached from Review, and goes back to it.
         cx.subscribe(&review, |this: &mut Self, _, _: &review::Browse, cx| {
             this.cards.update(cx, |cards, cx| cards.reload(cx));

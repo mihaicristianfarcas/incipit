@@ -15,8 +15,8 @@ use std::collections::{HashMap, HashSet};
 
 use incipit_learn::schedule::CREDIT_SHARE;
 use incipit_learn::{
-    asks_new_way, build_queue, credit, new_today, preview, schedule, today_counts, Candidate,
-    Params, Preview, Queue, QueueOptions, Rating, State, TodayCounts, Zone, DAY_MS,
+    asks_new_way, build_queue, credit, is_leech, new_today, preview, schedule, today_counts,
+    Candidate, Params, Preview, Queue, QueueOptions, Rating, State, TodayCounts, Zone, DAY_MS,
 };
 use incipit_vault::{Card, Doc, DocId, Kind, Review, Vault, REVIEWS};
 
@@ -295,7 +295,8 @@ impl Deck {
         Some(preview(&self.cards.get(id)?.state, now, &self.params))
     }
 
-    /// Rate a card shown by its face: one line in the vault's log, and its new schedule here.
+    /// Rate a card shown by its face: one line in the vault's log, and its new schedule here. True
+    /// when the rating was the lapse that set the card aside (it keeps slipping).
     pub fn rate(
         &mut self,
         vault: &Vault,
@@ -303,7 +304,7 @@ impl Deck {
         rating: Rating,
         now: i64,
         took: Option<f64>,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         self.record(vault, id, rating, now, took, false)
     }
 
@@ -316,7 +317,7 @@ impl Deck {
         rating: Rating,
         now: i64,
         took: Option<f64>,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         self.record(vault, id, rating, now, took, true)
     }
 
@@ -328,7 +329,7 @@ impl Deck {
         now: i64,
         took: Option<f64>,
         new_way: bool,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         if !self.cards.contains_key(id) {
             return Err("the card is gone".into());
         }
@@ -346,9 +347,23 @@ impl Deck {
         vault
             .append_log(REVIEWS, &line)
             .map_err(|e| e.to_string())?;
+        let before = self.cards.get(id).map_or(0, |entry| entry.state.lapses);
         self.apply(id, rating, now);
         self.asked(id, new_way);
-        Ok(())
+        // A card forgotten again and again is set aside (`incipit_learn::leech`): the rating is
+        // kept either way, and
+        let lapses = self.cards.get(id).map_or(0, |entry| entry.state.lapses);
+        // (When the vault cannot write the card, the next lapse that counts tries again.)
+        if lapses > before
+            && is_leech(lapses)
+            && crate::cardlist::set_aside(vault, id, true).is_ok()
+        {
+            if let Some(entry) = self.cards.get_mut(id) {
+                entry.card.suspended = true;
+            }
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 
@@ -434,6 +449,48 @@ mod tests {
         assert_eq!(counts.len(), 2);
         assert!(counts.contains(&("Maths".to_string(), 2)));
         assert!(counts.contains(&("Poems".to_string(), 1)));
+    }
+
+    #[test]
+    fn the_eighth_lapse_sets_a_card_aside_and_its_reviews_are_kept() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let card = add_card(&vault, "q", "a").unwrap();
+        let mut deck = Deck::load(&vault);
+        let id = card.id();
+        let mut at = now() - 2000 * DAY;
+        for step in [0, 11 * 60_000, 20 * DAY] {
+            deck.rate(&vault, id, Rating::Good, at + step, None)
+                .unwrap();
+        }
+        at += 20 * DAY;
+        let mut slipped = Vec::new();
+        for _ in 0..8 {
+            at += 30 * DAY;
+            slipped.push(deck.rate(&vault, id, Rating::Again, at, None).unwrap());
+            for minutes in [20, 40] {
+                let relearned = at + minutes * 60_000;
+                let _ = deck
+                    .rate(&vault, id, Rating::Good, relearned, None)
+                    .unwrap();
+            }
+            at += 40 * 60_000;
+        }
+        // Only the eighth lapse sets it aside.
+        assert_eq!(
+            slipped,
+            [false, false, false, false, false, false, false, true]
+        );
+        let aside = vault.get(id).unwrap().fields::<Card>().unwrap().suspended;
+        assert!(aside, "the card file says it is set aside");
+        assert!(deck.get(id).unwrap().card.suspended);
+        assert_eq!(deck.get(id).unwrap().state().lapses, 8);
+        let again = Deck::load(&vault);
+        assert!(again.get(id).unwrap().card.suspended);
+        assert!(again.queue(now(), &UTC).cards.is_empty());
+        // Every review stays in the log.
+        let kept = vault.read_log::<Review>(REVIEWS).unwrap().entries.len();
+        assert_eq!(kept, 3 + 8 * 3);
     }
 
     #[test]

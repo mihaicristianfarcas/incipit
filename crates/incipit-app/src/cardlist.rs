@@ -31,6 +31,14 @@ pub struct Listed {
     created: String,
 }
 
+impl Listed {
+    /// Whether it is set aside after being forgotten again and again
+    /// (`incipit_learn::keeps_slipping`).
+    pub fn slipping(&self) -> bool {
+        self.card.suspended && incipit_learn::keeps_slipping(self.lapses)
+    }
+}
+
 /// What the learner can change about a card.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Edit {
@@ -125,6 +133,23 @@ pub fn set_aside(vault: &Vault, id: &DocId, aside: bool) -> Result<Doc, String> 
     card.suspended = aside;
     doc.set_fields(&card);
     vault.update(&doc).map_err(|e| e.to_string())
+}
+
+/// The concepts a card's own concepts build on (not its own), the ones to refresh when the card
+/// keeps slipping: each once, in the order they are named.
+pub fn builds_on(vault: &Vault, card: &Listed) -> Vec<DocId> {
+    let ties = crate::concepts::ties::Ties::read(vault);
+    let mut out: Vec<DocId> = Vec::new();
+    for base in card
+        .concept_ids
+        .iter()
+        .flat_map(|c| ties.builds_on.get(c).into_iter().flatten())
+    {
+        if !card.concept_ids.contains(base) && !out.contains(base) {
+            out.push(base.clone());
+        }
+    }
+    out
 }
 
 /// The concepts typed as the learner writes them: separated by commas.
@@ -282,6 +307,27 @@ mod tests {
                 .suspended
         );
         assert_eq!(queued(&vault), vec![card.id().clone()]);
+    }
+
+    #[test]
+    fn what_a_card_builds_on_is_what_its_concepts_build_on_and_not_its_own() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let limit = concept(&vault, "Limit", &[], &[]);
+        let derivative = concept(&vault, "Derivative", &["Limit"], &[]);
+        card_on(&vault, "On both", &["[[Derivative]]", "[[Limit]]"]);
+        card_on(&vault, "On the derivative", &["[[Derivative]]"]);
+        card_on(&vault, "On nothing", &[]);
+        let cards = list(&vault, None, None);
+        let bases = |front: &str| {
+            let k = cards.iter().find(|k| k.card.front == front).unwrap();
+            builds_on(&vault, k)
+        };
+        assert_eq!(bases("On the derivative"), vec![limit.id().clone()]);
+        // Limit is one of its own concepts, so nothing is left to build on.
+        assert!(bases("On both").is_empty());
+        assert!(bases("On nothing").is_empty());
+        let _ = derivative;
     }
 
     #[test]

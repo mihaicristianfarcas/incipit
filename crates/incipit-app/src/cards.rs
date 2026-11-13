@@ -6,7 +6,13 @@
 //! the vault (`crate::cardlist::save`) and Escape or Cancel leaves it. "Set aside" stops a card
 //! being asked and "Bring back" asks it again. The page is reached from
 //! Review's "All cards" button; INCIPIT_PAGE=cards opens it, and INCIPIT_DECK=name narrows it to
-//! a deck.
+//! a deck. INCIPIT_CARDS=demo adds made-up cards to a throwaway vault, one of them slipping, and
+//! INCIPIT_CARDS=edit opens the first card's editor.
+//!
+//! Cards that keep slipping (set aside at their eighth lapse, `incipit_learn::leech`) are
+//! listed first under "Keeps slipping", each with three ways on: Rewrite it (the editor; saving
+//! brings it back), Refresh what it builds on (a short review quiz on the concepts its concepts
+//! build on, as the earlier app's refresher), or Bring it back as it is.
 
 use gpui::{
     div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, Render, ScrollHandle,
@@ -20,8 +26,13 @@ use incipit_ui::{
 use incipit_vault::{DocId, Kind, Vault};
 
 use crate::cardlist::{self, Edit, Listed};
+use crate::models::Models;
+use crate::quiz::QuizView;
 use crate::study::now;
 use crate::workspace::{Happened, Workspace};
+
+/// How many questions a refresher has: the earlier app's, when it offers one before a chapter.
+const REFRESHER: usize = 3;
 
 /// The learner wants the Review page back.
 pub struct Back;
@@ -38,17 +49,28 @@ pub struct CardsView {
     concept: Option<DocId>,
     /// The card being edited.
     editing: Option<DocId>,
+    /// The cards that keep slipping and have concepts to refresh.
+    refreshable: Vec<DocId>,
     front: Entity<TextField>,
     back: Entity<TextField>,
     deck_field: Entity<TextField>,
     concepts_field: Entity<TextField>,
     problem: Option<String>,
+    /// The sheet of a refresher quiz.
+    quiz: Entity<QuizView>,
+    /// INCIPIT_CARDS: add made-up cards, and open the first card's editor, once a vault is open.
+    demo: bool,
+    edit_first: bool,
     scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
 impl CardsView {
-    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        workspace: Entity<Workspace>,
+        models: Entity<Models>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let front = cx.new(|cx| TextField::new(cx).markdown().placeholder("The question"));
         let back = cx.new(|cx| TextField::new(cx).markdown().placeholder("The answer"));
         let deck_field = cx.new(|cx| TextField::new(cx).placeholder("general"));
@@ -88,6 +110,7 @@ impl CardsView {
                 }),
             );
         }
+        let quiz = cx.new(|cx| QuizView::new(workspace.clone(), models, cx));
         let mut view = CardsView {
             workspace,
             cards: Vec::new(),
@@ -96,11 +119,15 @@ impl CardsView {
             deck: std::env::var("INCIPIT_DECK").ok().filter(|d| !d.is_empty()),
             concept: None,
             editing: None,
+            refreshable: Vec::new(),
             front,
             back,
             deck_field,
             concepts_field,
             problem: None,
+            quiz,
+            demo: crate::cards_demo::asked().as_deref() == Some("demo"),
+            edit_first: crate::cards_demo::asked().as_deref() == Some("edit"),
             scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
@@ -121,6 +148,9 @@ impl CardsView {
             cx.notify();
             return;
         };
+        if std::mem::take(&mut self.demo) {
+            crate::cards_demo::add(&vault);
+        }
         self.decks = cardlist::deck_counts(&vault);
         if !self
             .decks
@@ -151,11 +181,27 @@ impl CardsView {
         {
             self.editing = None;
         }
+        self.refreshable = self
+            .cards
+            .iter()
+            .filter(|k| k.slipping() && !cardlist::builds_on(&vault, k).is_empty())
+            .map(|k| k.id.clone())
+            .collect();
+        if std::mem::take(&mut self.edit_first) {
+            if let Some(first) = self.cards.first().map(|k| k.id.clone()) {
+                self.fill(&first, cx);
+            }
+        }
         cx.notify();
     }
 
-    /// Opens a card in place, its fields filled.
+    /// Opens a card in place, its fields filled, with the keyboard in its question.
     fn edit(&mut self, id: &DocId, window: &mut Window, cx: &mut Context<Self>) {
+        self.fill(id, cx);
+        TextField::focus(&self.front, window, cx);
+    }
+
+    fn fill(&mut self, id: &DocId, cx: &mut Context<Self>) {
         let Some(listed) = self.cards.iter().find(|k| k.id == *id) else {
             return;
         };
@@ -172,7 +218,6 @@ impl CardsView {
             .update(cx, |f, cx| f.set_text(concepts, cx));
         self.editing = Some(id.clone());
         self.problem = None;
-        TextField::focus(&self.front, window, cx);
         cx.notify();
     }
 
@@ -186,8 +231,13 @@ impl CardsView {
             deck: self.deck_field.read(cx).text().to_owned(),
             concepts: cardlist::concepts_in(self.concepts_field.read(cx).text()),
         };
+        let slipping = self.cards.iter().any(|k| k.id == id && k.slipping());
         match cardlist::save(&vault, &id, &edit) {
             Ok(_) => {
+                // A card rewritten after it kept slipping is asked again.
+                if slipping {
+                    let _ = cardlist::set_aside(&vault, &id, false);
+                }
                 self.problem = None;
                 self.editing = None;
                 self.reload(cx);
@@ -212,6 +262,21 @@ impl CardsView {
                 cx.notify();
             }
         }
+    }
+
+    /// A short quiz on what the card's concepts build on, to firm up the ground it stands on.
+    fn refresh_base(&mut self, id: &DocId, cx: &mut Context<Self>) {
+        let Some(vault) = self.vault(cx) else { return };
+        let Some(listed) = self.cards.iter().find(|k| k.id == *id) else {
+            return;
+        };
+        let bases: Vec<String> = cardlist::builds_on(&vault, listed)
+            .iter()
+            .map(|id| id.as_str().to_owned())
+            .collect();
+        self.quiz.update(cx, |quiz, cx| {
+            quiz.start_review(&bases, REFRESHER, "Refresher", cx)
+        });
     }
 
     fn deck_menu(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -337,6 +402,74 @@ impl CardsView {
             .into_any_element()
     }
 
+    /// A card that keeps slipping, with the three things to do about it.
+    fn slipping_row(
+        &self,
+        index: usize,
+        listed: &Listed,
+        t: Theme,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let id = listed.id.clone();
+        if self.editing.as_ref() == Some(&id) {
+            return self.editor(t, cx).into_any_element();
+        }
+        let (edit_id, base_id, back_id) = (id.clone(), id.clone(), id.clone());
+        let about = format!("{}  ·  forgotten {} times", listed.card.deck, listed.lapses);
+        card(t)
+            .p(px(12.0))
+            .gap(px(10.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.0))
+                    .child(div().truncate().child(markdown_cloze(
+                        ("slipping-front", index),
+                        &first_line(&listed.card.front),
+                        t,
+                        Cloze::Shown,
+                    )))
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(Type::META))
+                            .text_color(t.tertiary)
+                            .child(about),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(8.0))
+                    .child(
+                        button(("slipping-rewrite", index), "Rewrite it", t)
+                            .tooltip("Change the question or the answer; saving brings it back")
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.edit(&edit_id, window, cx)
+                            })),
+                    )
+                    .when(self.refreshable.contains(&id), |row| {
+                        row.child(
+                            button(("slipping-refresh", index), "Refresh what it builds on", t)
+                                .tooltip("A short quiz on the ideas this card rests on")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.refresh_base(&base_id, cx)
+                                })),
+                        )
+                    })
+                    .child(
+                        button(("slipping-back", index), "Bring it back as it is", t)
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.set_aside(&back_id, false, cx)
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
     fn editor(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let label = |text: &'static str| {
             div()
@@ -412,9 +545,15 @@ impl Render for CardsView {
             1 => "1 card".to_string(),
             n => format!("{n} cards"),
         };
-        let rows: Vec<gpui::AnyElement> = self
-            .cards
-            .clone()
+        let cards = self.cards.clone();
+        let (slipping, others): (Vec<&Listed>, Vec<&Listed>) =
+            cards.iter().partition(|k| k.slipping());
+        let slipping_rows: Vec<gpui::AnyElement> = slipping
+            .iter()
+            .enumerate()
+            .map(|(index, listed)| self.slipping_row(index, listed, t, cx))
+            .collect();
+        let rows: Vec<gpui::AnyElement> = others
             .iter()
             .enumerate()
             .map(|(index, listed)| self.row(index, listed, t, cx))
@@ -446,6 +585,28 @@ impl Render for CardsView {
                     .clone()
                     .map(|p| div().text_color(t.danger).child(p)),
             )
+            .when(!slipping_rows.is_empty(), |body| {
+                body.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.0))
+                        .child(
+                            div()
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .child("Keeps slipping"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(Type::META))
+                                .text_color(t.tertiary)
+                                .child(
+                                    "These were forgotten again and again, so they are set aside.",
+                                ),
+                        )
+                        .children(slipping_rows),
+                )
+            })
             .when(self.cards.is_empty(), |body| {
                 body.child(
                     div()
@@ -459,6 +620,7 @@ impl Render for CardsView {
             .id("cards")
             .size_full()
             .child(page("cards-page", &self.scroll, 680.0, t, body))
+            .child(self.quiz.clone())
             .into_any_element()
     }
 }

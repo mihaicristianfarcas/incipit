@@ -14,6 +14,11 @@
 //! runs out. A card made or changed meanwhile, here or by another program, is read again without
 //! disturbing the order of what waits (`refresh`).
 //!
+//! "Type answers first" (a switch in the header, kept in the app's folder) puts a field on the
+//! card's front for the learner's own answer; Enter shows the answer, and what was written shows
+//! above it. When the list runs out the page says how many reviews were made on this visit and
+//! what share were recalled on the first try (`incipit_learn::first_try_percent`).
+//!
 //! A mixed review quiz across the concepts known least, as the earlier app's Review page had,
 //! opens in the quiz sheet from the page's header or from Today (`crate::quiz`); the page's keys wait while it
 //! is open. INCIPIT_QUIZ=mixed starts one once the vault is open (it calls a model), and
@@ -33,11 +38,11 @@ use gpui::{
     div, prelude::*, px, Context, Entity, FocusHandle, IntoElement, KeyDownEvent, Render,
     ScrollHandle, Subscription, Window,
 };
-use incipit_learn::{format_interval, Rating, Sitting};
+use incipit_learn::{first_try_percent, format_interval, Rating, Sitting};
 use incipit_llm::{Cancel, Update};
 use incipit_ui::{
-    button, card, field, markdown_cloze, page, select, Choice, Cloze, FieldEvent, TextField, Theme,
-    Type,
+    button, card, field, markdown_cloze, page, select, switch, Choice, Cloze, FieldEvent,
+    TextField, Theme, Type,
 };
 use incipit_vault::{Concept, DocId, Kind, Vault};
 
@@ -68,6 +73,17 @@ pub struct ReviewView {
     /// The cards of this sitting still to do; the first is on screen.
     sitting: Sitting<DocId>,
     revealed: bool,
+    /// Reviews made on this visit to the page, and how many were Again, over every deck chosen
+    /// meanwhile: the earlier app's `stats`, for the words at the end.
+    done: usize,
+    again: usize,
+    /// "Type answers first" is on: the card's front offers a field for the answer before it is
+    /// shown, and what was written is shown beside the answer. Kept in the app's folder.
+    type_first: bool,
+    typed: Entity<TextField>,
+    /// The field wants the keyboard (a card came up), or the page does (the answer was shown).
+    focus_typed: bool,
+    focus_page: bool,
     /// INCIPIT_BACK: the first card of the first sitting of an open vault shows its back.
     reveal_first: bool,
     /// When the card on screen was shown, for how long the answer took.
@@ -93,7 +109,17 @@ impl ReviewView {
     ) -> Self {
         let front = cx.new(|cx| TextField::new(cx).markdown().placeholder("The question"));
         let back = cx.new(|cx| TextField::new(cx).markdown().placeholder("The answer"));
+        let typed = cx.new(|cx| {
+            TextField::new(cx)
+                .multiline()
+                .placeholder("Recall it first: type your answer (Enter to show the answer)")
+        });
         let subscriptions = vec![
+            cx.subscribe(&typed, |this: &mut Self, _, event: &FieldEvent, cx| {
+                if *event == FieldEvent::Submit {
+                    this.reveal(cx);
+                }
+            }),
             cx.subscribe(
                 &workspace,
                 |this: &mut Self, _, happened: &Happened, cx| match happened {
@@ -133,6 +159,12 @@ impl ReviewView {
             writing: None,
             sitting: Sitting::default(),
             revealed: false,
+            done: 0,
+            again: 0,
+            type_first: type_first_kept(&crate::workspace::home()),
+            typed,
+            focus_typed: false,
+            focus_page: false,
             reveal_first: std::env::var_os("INCIPIT_BACK").is_some(),
             shown: Instant::now(),
             adding: false,
@@ -157,6 +189,13 @@ impl ReviewView {
     /// this when it opens and when a vault does; the queue is not built again until the next
     /// sitting.
     pub fn begin(&mut self, cx: &mut Context<Self>) {
+        self.done = 0;
+        self.again = 0;
+        self.start(cx);
+    }
+
+    /// The queue for the deck chosen, as a sitting.
+    fn start(&mut self, cx: &mut Context<Self>) {
         self.deck = self.vault(cx).map(|vault| Deck::load(&vault));
         // A deck that is gone (another vault's, or emptied) is not reviewed: all decks are.
         if let Some(deck) = &self.deck {
@@ -177,7 +216,7 @@ impl ReviewView {
         // The switch is for the first card there is, so it waits for a vault to be open.
         self.revealed = self.deck.is_some() && std::mem::take(&mut self.reveal_first);
         self.shown = Instant::now();
-        self.face();
+        self.face(cx);
         self.write_new_ways(cx);
         if self.deck.is_some() && std::mem::take(&mut self.mixed_on_open) {
             self.mixed_quiz(cx);
@@ -193,7 +232,7 @@ impl ReviewView {
         }
         self.chosen = name;
         self.written.clear();
-        self.begin(cx);
+        self.start(cx);
     }
 
     /// A mixed review quiz across the concepts known least, with the earlier app's count.
@@ -206,7 +245,9 @@ impl ReviewView {
     /// Decides how the card that has just come up is asked: by the question written for it,
     /// when its review asks a new way and one is ready, else by its face. It is decided once,
     /// so a question that arrives later does not change the card on screen.
-    fn face(&mut self) {
+    fn face(&mut self, cx: &mut Context<Self>) {
+        self.typed.update(cx, |field, cx| field.set_text("", cx));
+        self.focus_typed = self.type_first;
         self.asked = self.sitting.current().and_then(|id| {
             let deck = self.deck.as_ref()?;
             let entry = deck.get(id)?;
@@ -315,7 +356,7 @@ impl ReviewView {
         if self.sitting.current() != on_screen.as_ref() {
             self.revealed = false;
             self.shown = Instant::now();
-            self.face();
+            self.face(cx);
         }
         cx.notify();
     }
@@ -323,6 +364,7 @@ impl ReviewView {
     fn reveal(&mut self, cx: &mut Context<Self>) {
         if self.sitting.current().is_some() && !self.revealed {
             self.revealed = true;
+            self.focus_page = true;
             cx.notify();
         }
     }
@@ -349,9 +391,11 @@ impl ReviewView {
                 // again in this sitting, and leaves it otherwise.
                 let due = deck.get(&id).map_or(i64::MAX, |entry| entry.state().due);
                 self.sitting.rated(due, at, id);
+                self.done += 1;
+                self.again += usize::from(rating == Rating::Again);
                 self.revealed = false;
                 self.shown = Instant::now();
-                self.face();
+                self.face(cx);
             }
             Err(e) => self.problem = Some(format!("The review was not kept: {e}")),
         }
@@ -386,8 +430,10 @@ impl ReviewView {
         cx.notify();
     }
 
-    fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        if self.adding || self.quiz.read(cx).is_open() {
+    fn key(&mut self, event: &KeyDownEvent, window: &Window, cx: &mut Context<Self>) {
+        // Keys typed into the answer field, or the composer, are theirs.
+        let typing = self.type_first && !self.revealed && self.typed.read(cx).is_focused(window);
+        if self.adding || typing || self.quiz.read(cx).is_open() {
             return;
         }
         let rating = match event.keystroke.key.as_str() {
@@ -446,6 +492,28 @@ impl ReviewView {
             })
     }
 
+    /// "Type answers first", kept for the next time.
+    fn type_switch(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .text_size(px(Type::META))
+            .text_color(t.secondary)
+            .child("Type answers first")
+            .child(switch("review-type", self.type_first, t).on_toggle({
+                let view = cx.entity().downgrade();
+                move |on, _, cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        this.type_first = on;
+                        keep_type_first(&crate::workspace::home(), on);
+                        this.focus_typed = on && !this.revealed;
+                        cx.notify();
+                    });
+                }
+            }))
+    }
+
     fn composer(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
         card(t)
             .p(px(16.0))
@@ -491,20 +559,31 @@ impl ReviewView {
     fn sitting(&self, deck: &Deck, t: Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
         let asked = self.sitting.current();
         let Some((id, entry)) = asked.and_then(|id| Some((id, deck.get(id)?))) else {
-            let words = if deck.is_empty() {
-                "No cards yet. Add one, or make them from what you read."
-            } else if self.sitting.done() > 0 {
-                "Done for now. What you reviewed comes back when it is about to fade."
+            let (title, words) = if deck.is_empty() {
+                (
+                    "No cards yet".to_string(),
+                    "Add one, or make them from what you read.".to_string(),
+                )
             } else {
-                "Nothing is due. Cards come back when they are about to fade."
+                end_of_sitting(self.done, self.again)
             };
             return div()
                 .py(px(40.0))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(10.0))
                 .text_center()
-                .text_color(t.secondary)
-                .child(words)
+                .child(div().text_size(px(Type::TITLE)).child(title))
+                .child(div().text_color(t.secondary).child(words))
+                .child(
+                    button("review-done-mixed", "Mixed quiz", t)
+                        .accent()
+                        .on_click(cx.listener(|this, _, _, cx| this.mixed_quiz(cx))),
+                )
                 .into_any_element();
         };
+        let wrote = self.typed.read(cx).text().trim().to_owned();
         let mut face = card(t)
             .p(px(24.0))
             .min_h(px(220.0))
@@ -539,7 +618,8 @@ impl ReviewView {
                     Cloze::Shown,
                 ));
                 if self.revealed {
-                    face.child(incipit_ui::hairline(t))
+                    you_wrote(face, &wrote, t)
+                        .child(incipit_ui::hairline(t))
                         .child(markdown_cloze("card-back", &asked.answer, t, Cloze::Shown))
                         .child(
                             div()
@@ -579,17 +659,23 @@ impl ReviewView {
                     hidden_until(self.revealed),
                 ));
                 if self.revealed {
-                    face.child(incipit_ui::hairline(t)).child(markdown_cloze(
-                        "card-back",
-                        &entry.card.back,
-                        t,
-                        Cloze::Shown,
-                    ))
+                    you_wrote(face, &wrote, t)
+                        .child(incipit_ui::hairline(t))
+                        .child(markdown_cloze(
+                            "card-back",
+                            &entry.card.back,
+                            t,
+                            Cloze::Shown,
+                        ))
                 } else {
                     face
                 }
             }
         };
+        // The learner's own answer, before it is shown: a field on the card's front.
+        if self.type_first && !self.revealed {
+            face = face.child(field(&self.typed, t).min_rows(3));
+        }
         let controls = if self.revealed {
             let waits = deck.preview(id, now());
             let buttons = Rating::ALL.into_iter().enumerate().map(|(index, rating)| {
@@ -644,6 +730,11 @@ impl ReviewView {
 impl Render for ReviewView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme(window);
+        if std::mem::take(&mut self.focus_typed) && self.type_first && !self.revealed {
+            TextField::focus(&self.typed, window, cx);
+        } else if std::mem::take(&mut self.focus_page) {
+            self.focus.focus(window, cx);
+        }
         let Some(deck) = &self.deck else {
             return div()
                 .size_full()
@@ -674,6 +765,7 @@ impl Render for ReviewView {
                     }),
             )
             .child(self.deck_menu(deck, t, cx))
+            .child(self.type_switch(t, cx))
             .child(button("card-new", "New card", t).on_click(cx.listener(
                 |this, _, window, cx| {
                     this.adding = true;
@@ -702,10 +794,73 @@ impl Render for ReviewView {
             .id("review")
             .size_full()
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
+            .on_key_down(
+                cx.listener(|this, event: &KeyDownEvent, window, cx| this.key(event, window, cx)),
+            )
             .child(page("review-page", &self.scroll, 640.0, t, body))
             .child(self.quiz.clone())
             .into_any_element()
+    }
+}
+
+/// What the learner typed, shown above the answer once it is revealed; nothing when they typed
+/// nothing.
+fn you_wrote(face: gpui::Div, wrote: &str, t: Theme) -> gpui::Div {
+    if wrote.is_empty() {
+        return face;
+    }
+    face.child(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .text_size(px(Type::BODY))
+            .text_color(t.secondary)
+            .child(
+                div()
+                    .text_size(px(Type::META))
+                    .text_color(t.tertiary)
+                    .child("You wrote"),
+            )
+            .child(div().child(wrote.to_owned())),
+    )
+}
+
+/// The file in the app's folder that says whether answers are typed first.
+const TYPE_FILE: &str = "review-type-first";
+
+/// Whether the learner asked to type answers first, kept in the app's folder (off when it says
+/// nothing or cannot be read).
+fn type_first_kept(home: &std::path::Path) -> bool {
+    std::fs::read_to_string(home.join(TYPE_FILE)).is_ok_and(|kept| kept.trim() == "1")
+}
+
+/// Keeps the choice for the next time; a failure only means it is not remembered.
+fn keep_type_first(home: &std::path::Path, on: bool) {
+    let _ = std::fs::create_dir_all(home);
+    let _ = std::fs::write(home.join(TYPE_FILE), if on { "1" } else { "0" });
+}
+
+/// What the page says when the sitting's list has run out: a title and a line, in the earlier
+/// app's words, from the reviews made on this visit and how many of them were Again.
+fn end_of_sitting(done: usize, again: usize) -> (String, String) {
+    match first_try_percent(done, again) {
+        Some(percent) => (
+            match done {
+                1 => "Done: 1 review".to_string(),
+                n => format!("Done: {n} reviews"),
+            },
+            format!(
+                "You recalled {percent}% on the first try. Each card comes back just before \
+                 you'd forget it."
+            ),
+        ),
+        None => (
+            "Nothing due right now".to_string(),
+            "Cards come back when you're about to forget them. Make new ones while you read: \
+             select a passage and choose Cards."
+                .to_string(),
+        ),
     }
 }
 
@@ -721,6 +876,25 @@ fn hidden_until(revealed: bool) -> Cloze {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_end_of_a_sitting_says_how_many_were_done_and_how_many_were_recalled() {
+        let (title, words) = end_of_sitting(8, 2);
+        assert_eq!(title, "Done: 8 reviews");
+        assert!(words.starts_with("You recalled 75% on the first try."));
+        assert_eq!(end_of_sitting(1, 0).0, "Done: 1 review");
+        assert_eq!(end_of_sitting(0, 0).0, "Nothing due right now");
+    }
+
+    #[test]
+    fn typing_answers_first_is_remembered_in_the_apps_folder() {
+        let home = tempfile::tempdir().unwrap();
+        assert!(!type_first_kept(home.path()));
+        keep_type_first(home.path(), true);
+        assert!(type_first_kept(home.path()));
+        keep_type_first(home.path(), false);
+        assert!(!type_first_kept(home.path()));
+    }
 
     #[test]
     fn a_questions_hidden_words_are_a_blank_until_the_answer_is_shown() {

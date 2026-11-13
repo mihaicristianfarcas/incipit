@@ -44,7 +44,7 @@ pub use queue::{
     build_queue, new_today, today_counts, Candidate, Queue, QueueOptions, TodayCounts,
 };
 pub use schedule::{credit, format_interval, preview, retrievability, schedule, Preview};
-pub use sitting::Sitting;
+pub use sitting::{first_try_percent, Sitting};
 pub use sittings::{Beat, Ended, Sittings};
 
 /// Milliseconds in a day.

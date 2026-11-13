@@ -19,6 +19,17 @@ pub const BACK_AFTER: usize = 3;
 /// the queue's look ahead for cards in short steps ([`crate::queue::LEARNING_LOOKAHEAD_MS`]).
 pub const BACK_WITHIN_MS: i64 = 20 * MINUTE_MS;
 
+/// The share of a visit's reviews recalled on the first try, in whole percent, rounded as the
+/// earlier app's `Math.round(((done - again) / done) * 100)` does (halves go up); none when
+/// nothing was reviewed. `again` is how many of the `done` ratings were Again.
+pub fn first_try_percent(done: usize, again: usize) -> Option<u32> {
+    if done == 0 {
+        return None;
+    }
+    let recalled = done.saturating_sub(again) as f64;
+    Some((recalled / done as f64 * 100.0).round() as u32)
+}
+
 /// The cards of one sitting still to do, the one being asked first, and how many were rated.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sitting<T> {
@@ -103,6 +114,16 @@ mod tests {
 
     fn sitting(cards: &[&'static str]) -> Sitting<&'static str> {
         Sitting::new(cards.to_vec())
+    }
+
+    #[test]
+    fn the_first_try_share_is_rounded_to_a_whole_percent() {
+        assert_eq!(first_try_percent(0, 0), None);
+        assert_eq!(first_try_percent(4, 1), Some(75));
+        assert_eq!(first_try_percent(3, 1), Some(67));
+        assert_eq!(first_try_percent(8, 1), Some(88));
+        assert_eq!(first_try_percent(5, 5), Some(0));
+        assert_eq!(first_try_percent(2, 0), Some(100));
     }
 
     #[test]

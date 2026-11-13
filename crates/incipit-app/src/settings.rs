@@ -1,6 +1,8 @@
-//! Settings: the folder the vault is in, and the model that answers. Each way to reach a model
-//! is a row saying whether it can be used now and, if not, what to do; the learner picks one.
-//! Signing in happens in the browser, started from here.
+//! Settings: the folder the vault is in, the learner's profile, and the model that answers. Each
+//! way to reach a model is a row saying whether it can be used now and, if not, what to do; the
+//! learner picks one. Signing in happens in the browser, started from here. The profile form here
+//! also says whether the flashcards' schedule is fitted to the learner (`crate::fitted`), with the
+//! switch back to the standard one.
 
 use gpui::{
     div, prelude::*, px, Context, Entity, IntoElement, Render, ScrollHandle, SharedString,
@@ -8,6 +10,7 @@ use gpui::{
 };
 use incipit_ui::{button, footnote, page, page_header, rows, section, setting};
 
+use crate::fitted::Fitting;
 use crate::models::{Changed, Models};
 use crate::profile_form::ProfileForm;
 use crate::workspace::{Happened, Workspace};
@@ -24,6 +27,7 @@ impl SettingsView {
     pub fn new(
         workspace: Entity<Workspace>,
         models: Entity<Models>,
+        fitting: Entity<Fitting>,
         cx: &mut Context<Self>,
     ) -> Self {
         let subscriptions = [
@@ -32,7 +36,7 @@ impl SettingsView {
         ];
         // Whatever the models say about themselves (a sign-in under way) shows here.
         cx.observe(&models, |_, _, cx| cx.notify()).detach();
-        let form = cx.new(|cx| ProfileForm::new(workspace.clone(), "Save", cx));
+        let form = cx.new(|cx| ProfileForm::new(workspace.clone(), "Save", Some(fitting), cx));
         SettingsView {
             workspace,
             models,

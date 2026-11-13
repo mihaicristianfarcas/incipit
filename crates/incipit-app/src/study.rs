@@ -13,6 +13,9 @@
 //!
 //! The days since a card's last review are the learner's days, counted on this computer's clock
 //! (`Local`) as the scheduler counts them; a test gives a deck a clock of its own (`load_in`).
+//! The schedule uses the weights fitted to the learner's reviews when they want them and there
+//! are some (`crate::fitted`). The log is replayed with them, so they change when each card is
+//! due next and nothing of what was reviewed: the same ratings, phases and lapses.
 
 use std::collections::{HashMap, HashSet};
 
@@ -114,10 +117,7 @@ impl Deck {
     /// The same, counting the days between reviews on `clock` instead of this computer's.
     pub fn load_in(vault: &Vault, ties: &Ties, clock: impl Zone + Send + Sync + 'static) -> Deck {
         let profile = vault.profile();
-        let params = Params {
-            desired_retention: profile.retention,
-            ..Params::default()
-        };
+        let params = crate::fitted::params(vault, &profile);
         let mut cards: HashMap<DocId, Entry> = HashMap::new();
         let mut order = Vec::new();
         for doc in vault.list(Some(Kind::Card)) {
@@ -757,6 +757,58 @@ mod tests {
         let (utc, west) = (state(UTC), state(Fixed(-480)));
         assert!(utc.stability > west.stability);
         assert_eq!(utc.reps, west.reps);
+    }
+
+    #[test]
+    fn fitted_weights_change_when_cards_come_due_and_nothing_of_what_was_reviewed() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let cards: Vec<Doc> = (0..4)
+            .map(|n| add_card(&vault, &format!("front {n}"), "back").unwrap())
+            .collect();
+        let ties = Ties::read(&vault);
+        let mut deck = Deck::load_in(&vault, &ties, UTC);
+        let plan = [
+            Rating::Good,
+            Rating::Good,
+            Rating::Again,
+            Rating::Good,
+            Rating::Hard,
+            Rating::Easy,
+        ];
+        let start = 20_000 * DAY + 12 * 3_600_000;
+        for (n, card) in cards.iter().enumerate() {
+            let mut at = start + n as i64 * 60_000;
+            for i in 0..plan.len() {
+                let rating = plan[(i + n) % plan.len()];
+                deck.rate(&vault, card.id(), rating, at, None).unwrap();
+                at = deck.get(card.id()).unwrap().state().due.max(at + 60_000);
+            }
+        }
+        let log = vault.read_log::<Review>(REVIEWS).unwrap().entries;
+        let standard = Deck::load_in(&vault, &ties, UTC);
+        let weights = [
+            0.17, 0.39, 0.94, 1.63, 6.52, 0.67, 3.25, 0.014, 1.63, 0.21, 0.57, 1.35, 0.1, 0.14,
+            1.58, 0.62, 1.87, 0.64, 0.004, 0.067, 0.11,
+        ];
+        let fit = crate::fitted::Cached {
+            weights,
+            reviews: 1_234,
+            fitted: start,
+        };
+        crate::fitted::keep(&vault, &fit).unwrap();
+        let fitted = Deck::load_in(&vault, &ties, UTC);
+        let mut moved = 0;
+        for card in &cards {
+            let a = standard.get(card.id()).unwrap().state();
+            let b = fitted.get(card.id()).unwrap().state();
+            let reviewed = |c: &incipit_learn::Card| (c.state, c.reps, c.lapses, c.last_review);
+            assert_eq!(reviewed(a), reviewed(b));
+            moved += usize::from(a.due != b.due);
+        }
+        assert!(moved > 0);
+        // Nothing is written to the log.
+        assert_eq!(vault.read_log::<Review>(REVIEWS).unwrap().entries, log);
     }
 
     #[test]

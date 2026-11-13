@@ -4467,6 +4467,7 @@ dependencies = [
  "incipit-scene",
  "incipit-ui",
  "incipit-vault",
+ "serde",
  "serde_json",
  "tempfile",
  "unicode-normalization",

@@ -17,7 +17,8 @@
 //! "Type answers first" (a switch in the header, kept in the app's folder) puts a field on the
 //! card's front for the learner's own answer; Enter shows the answer, and what was written shows
 //! above it. When the list runs out the page says how many reviews were made on this visit and
-//! what share were recalled on the first try (`incipit_learn::first_try_percent`).
+//! what share were recalled on the first try (`incipit_learn::first_try_percent`). The end of a
+//! sitting is also when the schedule may be fitted again to the reviews made (`crate::fitted`).
 //!
 //! "Set aside" under the card (or S) stops a card being asked; the Cards page brings it back.
 //!
@@ -49,6 +50,7 @@ use incipit_ui::{
 use incipit_vault::{Concept, DocId, Kind, Vault};
 
 use crate::concepts::ties::Ties;
+use crate::fitted::Fitting;
 use crate::learning::learner;
 use crate::learning::quiz::Mode;
 use crate::models::Models;
@@ -68,6 +70,8 @@ impl EventEmitter<Browse> for ReviewView {}
 pub struct ReviewView {
     workspace: Entity<Workspace>,
     models: Entity<Models>,
+    /// Told when a sitting ends, so the schedule can be fitted again to the reviews made.
+    fitting: Entity<Fitting>,
     deck: Option<Deck>,
     /// The one deck being reviewed; none reviews every deck, interleaved.
     chosen: Option<String>,
@@ -114,6 +118,7 @@ impl ReviewView {
     pub fn new(
         workspace: Entity<Workspace>,
         models: Entity<Models>,
+        fitting: Entity<Fitting>,
         cx: &mut Context<Self>,
     ) -> Self {
         let front = cx.new(|cx| TextField::new(cx).markdown().placeholder("The question"));
@@ -161,6 +166,7 @@ impl ReviewView {
         let mut view = ReviewView {
             workspace,
             models,
+            fitting,
             deck: None,
             chosen: std::env::var("INCIPIT_DECK").ok().filter(|d| !d.is_empty()),
             written: Written::default(),
@@ -403,6 +409,10 @@ impl ReviewView {
                 // again in this sitting, and leaves it otherwise.
                 let due = deck.get(&id).map_or(i64::MAX, |entry| entry.state().due);
                 self.sitting.rated(due, at, id);
+                if self.sitting.current().is_none() {
+                    // The sitting is over: its reviews may be enough to fit the schedule again.
+                    self.fitting.update(cx, |fitting, cx| fitting.check(cx));
+                }
                 self.done += 1;
                 self.again += usize::from(rating == Rating::Again);
                 self.revealed = false;

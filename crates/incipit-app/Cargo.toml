@@ -17,13 +17,14 @@ incipit-ui.workspace = true
 incipit-scene = { path = "../incipit-scene" }
 incipit-math = { path = "../incipit-math" }
 incipit-book = { path = "../incipit-book" }
+serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 image = { version = "0.25", default-features = false }
 futures = "0.3"
 incipit-vault = { path = "../incipit-vault" }
 dirs = "6"
-incipit-learn = { path = "../incipit-learn" }
+incipit-learn = { path = "../incipit-learn", features = ["fit"] }
 incipit-graph = { path = "../incipit-graph" }
 incipit-llm = { path = "../incipit-llm" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

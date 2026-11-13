@@ -109,7 +109,7 @@ impl FirstRun {
         models: Entity<Models>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let form = cx.new(|cx| ProfileForm::new(workspace.clone(), "Start learning", cx));
+        let form = cx.new(|cx| ProfileForm::new(workspace.clone(), "Start learning", None, cx));
         let name = cx.new(|cx| {
             let mut field = TextField::new(cx).placeholder("Incipit");
             field.set_text("Incipit", cx);

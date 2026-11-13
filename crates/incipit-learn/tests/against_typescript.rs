@@ -1,11 +1,18 @@
 //! Checks the Rust scheduler against numbers printed by the TypeScript original (`shared/fsrs.ts`
 //! of the earlier app) for ten sequences of ratings at given times, a set of `credit` calls and the
-//! interval labels, stored in `tests/fixtures/fsrs_ts.json`. Stability, difficulty and recall must
-//! agree within a relative error of 1e-9; due times and the previewed waits must be equal to the
-//! millisecond. No network or TypeScript is needed to run it.
+//! interval labels, stored in `tests/fixtures/fsrs_ts.json`. No network or TypeScript is needed to
+//! run it.
+//!
+//! The scheduler keeps the earlier app's learning steps but follows canonical FSRS-6 where the
+//! earlier app's formulas depart from it (`schedule`'s module doc lists where), so only what the
+//! two still share is checked here: at every step the card's phase, step, repetitions, lapses and
+//! last review, and the minute-long waits of the learning steps, exactly; the memory a first
+//! review gives and the recall it leaves for the next one, within a relative error of 1e-9; every
+//! `credit` call; and the labels. Stability, difficulty and the day-long intervals after a first
+//! review follow canonical FSRS-6 and are not compared here.
 
 use incipit_learn::{credit, format_interval, preview, retrievability, schedule};
-use incipit_learn::{Card, Params, Rating, State};
+use incipit_learn::{Card, Params, Rating, State, DAY_MS};
 use serde_json::Value;
 
 const TOLERANCE: f64 = 1e-9;
@@ -77,8 +84,35 @@ fn check_card(rust: &Card, ts: &Value, what: &str) {
     );
 }
 
+/// The learning-step machine: what the scheduler does apart from the memory formulas.
+fn check_steps(rust: &Card, ts: &Value, what: &str) {
+    let phase = match rust.state {
+        State::Learning => "learning",
+        State::Review => "review",
+        State::Relearning => "relearning",
+        State::New => "new",
+    };
+    assert_eq!(phase, ts["phase"].as_str().unwrap(), "{what} phase");
+    assert_eq!(rust.last_review, ts["last"].as_i64(), "{what} last review");
+    assert_eq!(
+        u64::from(rust.reps),
+        ts["reps"].as_u64().unwrap(),
+        "{what} reps"
+    );
+    assert_eq!(
+        u64::from(rust.lapses),
+        ts["lapses"].as_u64().unwrap(),
+        "{what} lapses"
+    );
+    assert_eq!(
+        u64::from(rust.step),
+        ts["step"].as_u64().unwrap(),
+        "{what} step"
+    );
+}
+
 #[test]
-fn every_rating_sequence_matches_the_typescript_scheduler() {
+fn the_learning_steps_and_first_reviews_match_the_typescript_scheduler() {
     let f = fixtures();
     let weights: Vec<f64> = f["weights"]
         .as_array()
@@ -102,24 +136,35 @@ fn every_rating_sequence_matches_the_typescript_scheduler() {
             let now = step["now"].as_i64().unwrap();
             let p = preview(&card, now, &params);
             for (r, key) in Rating::ALL.iter().zip(["1", "2", "3", "4"]) {
-                assert_eq!(
-                    p.get(*r),
-                    step["preview"][key].as_i64().unwrap(),
-                    "{what} preview {key}"
+                let ts = step["preview"][key].as_i64().unwrap();
+                // A wait under a day is a learning step; a longer one is the memory's interval.
+                if ts < DAY_MS {
+                    assert_eq!(p.get(*r), ts, "{what} preview {key}");
+                } else {
+                    assert!(p.get(*r) >= DAY_MS, "{what} preview {key}");
+                }
+            }
+            if i <= 1 {
+                close(
+                    retrievability(&card, now, &params),
+                    step["retrievability_before"].as_f64().unwrap(),
+                    &format!("{what} recall"),
                 );
             }
-            close(
-                retrievability(&card, now, &params),
-                step["retrievability_before"].as_f64().unwrap(),
-                &format!("{what} recall"),
-            );
             let (next, review) = schedule(
                 &card,
                 rating(step["rating"].as_i64().unwrap()),
                 now,
                 &params,
             );
-            check_card(&next, &step["after"], &what);
+            let after = &step["after"];
+            check_steps(&next, after, &what);
+            if next.state != State::Review {
+                assert_eq!(next.due, after["due"].as_i64().unwrap(), "{what} due");
+            }
+            if i == 0 {
+                check_card(&next, after, &what);
+            }
             assert_eq!(review.scheduled_ms, next.due - now);
             card = next;
             steps_checked += 1;

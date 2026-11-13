@@ -1,7 +1,16 @@
 //! One FSRS-6 review: the next card and log record for a rating, the interval each of the four
-//! buttons would give, and the probability of recall. Formulas, rounding and learning-step rules
-//! follow the earlier app's `shared/fsrs.ts` exactly. Intervals in days are rounded to whole days
-//! (at least one) and are not fuzzed.
+//! buttons would give, and the probability of recall. Intervals in days are rounded to whole days
+//! (at least one) and are not fuzzed. The learning steps, the rounding and the credit for a memory
+//! used are the earlier app's (`shared/fsrs.ts`).
+//!
+//! The formulas are canonical FSRS-6: the algorithm's description (the "The Algorithm" page of
+//! the open-spaced-repetition wiki), py-fsrs and the `fsrs` crate Anki uses agree on them. FSRS-6's
+//! default weights were fitted to these formulas, and weights fitted to a learner's reviews mean
+//! something only under the model they were fitted for, so where the earlier app's port departs
+//! from them this one does not follow it:
+//!
+//! - a review on the day of the last one never lowers stability when it is a pass, and Hard is
+//!   a pass (the earlier app floored only Good and Easy).
 
 use crate::card::{Card, Rating, Review, State};
 use crate::params::Params;
@@ -65,11 +74,12 @@ fn forget_s(s: f64, d: f64, r: f64, p: &Params) -> f64 {
     next.min(s / (w[17] * w[18]).exp())
 }
 
-/// A review on the day of the last one: stability changes a little, and never shrinks on a pass.
+/// A review on the day of the last one: stability changes a little, and never shrinks on a pass
+/// (Hard, Good or Easy; "SInc >= 1 when G >= 2" in FSRS-6's description).
 fn short_term_s(s: f64, rating: Rating, p: &Params) -> f64 {
     let w = &p.weights;
     let mut inc = (w[17] * (rating.grade() - 3.0 + w[18])).exp() * s.powf(-w[19]);
-    if rating.grade() >= 3.0 {
+    if rating.grade() >= 2.0 {
         inc = inc.max(1.0);
     }
     s * inc
@@ -341,6 +351,17 @@ mod tests {
         assert_eq!((lapsed.state, lapsed.lapses), (State::Relearning, 1));
         assert_eq!(lapsed.due - card.due, 10 * MINUTE_MS);
         assert!(lapsed.stability < card.stability);
+    }
+
+    #[test]
+    fn a_hard_on_the_same_day_keeps_the_stability_and_again_lowers_it() {
+        let p = Params::default();
+        let learning = run(&[(0, Rating::Good)]);
+        let later = NOW + 10 * MINUTE_MS;
+        let hard = schedule(&learning, Rating::Hard, later, &p).0;
+        assert_eq!(hard.stability, learning.stability);
+        let again = schedule(&learning, Rating::Again, later, &p).0;
+        assert!(again.stability < learning.stability);
     }
 
     #[test]

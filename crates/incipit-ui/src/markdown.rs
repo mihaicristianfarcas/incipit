@@ -1,14 +1,25 @@
 //! Markdown, as models write it, drawn with the theme: paragraphs,
 //! headings, emphasis, inline code and code blocks, lists (nested, numbered,
-//! tasks), block quotes, links (opened in the browser), rules and tables.
+//! tasks), block quotes, links (opened in the browser), rules, tables and
+//! math.
+//!
+//! Math is typeset (`formula`), as the earlier app set it with KaTeX: `$…$`
+//! in a line, sitting on its baseline, and `$$…$$` a block of its own when
+//! it has its line or lines to itself (written inside a sentence, it is set
+//! in the line, as the earlier app set it). A fenced block whose language is
+//! `math` is a block of math too. Models often write `\(…\)` and `\[…\]`:
+//! outside code they are read as `$…$` and `$$…$$` first, as in the earlier
+//! app. What is math is pulldown-cmark's rule: a `$` opens only before
+//! something other than a space and closes only after one, so a lone `$` in
+//! prose, a price, stays text, as do code and an escaped `\$`. Math that
+//! cannot be typeset, and math still being typeset, stays as written.
 //!
 //! A flashcard's text is drawn with its cloze (`markdown_cloze`): `{{the
 //! hidden words}}` stand out once the answer is shown and are a blank until
 //! then. What counts as a cloze is the earlier app's rule: two opening
 //! braces, one or more characters that are neither a closing brace nor a
 //! line break, two closing braces, all in one stretch of plain text. So
-//! braces in code, in math (`$…$`, which stays as written) or in the words of
-//! a link are left alone, and a cloze does not reach across emphasis or a
+//! braces in code, in math or in the words of a link are left alone, and a cloze does not reach across emphasis or a
 //! line break. Its blank is the earlier app's too, as near as text allows: a
 //! sunken stretch with `[…]` at its end, about as wide as the words it hides
 //! (the mark stands in for their last three characters, and for all of a
@@ -16,15 +27,18 @@
 //! before). The hidden words that keep the width are in the text and are not
 //! drawn.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use gpui::{
     div, prelude::*, px, AnyElement, App, ElementId, FontStyle, FontWeight, HighlightStyle,
-    InteractiveText, SharedString, StrikethroughStyle, StyledText, UnderlineStyle, Window,
+    InteractiveText, SharedString, StrikethroughStyle, StyledText, UnderlineStyle, WhiteSpace,
+    Window,
 };
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::formula::{formula, lazily};
 use crate::theme::{Radius, Theme, Type};
 
 /// How a card's `{{hidden words}}` are drawn ([`markdown_cloze`]).
@@ -69,9 +83,86 @@ struct Inline {
     text: String,
     runs: Vec<(Range<usize>, Marks)>,
     links: Vec<(Range<usize>, String)>,
+    /// The formulas in it, in order; the text holds each as it was written.
+    math: Vec<Math>,
+    /// Where a line of the source ended, as the space or line break that stands for it.
+    breaks: Vec<usize>,
+}
+
+/// A formula in a stretch of text: where its written form is, its TeX, and whether it was
+/// written `$$…$$`.
+#[derive(Clone, Debug, PartialEq)]
+struct Math {
+    range: Range<usize>,
+    tex: String,
+    display: bool,
 }
 
 impl Inline {
+    fn push_math(&mut self, tex: &str, display: bool, marks: Marks) {
+        let fence = if display { "$$" } else { "$" };
+        let start = self.text.len();
+        self.push(&format!("{fence}{tex}{fence}"), marks);
+        self.math.push(Math {
+            range: start..self.text.len(),
+            tex: tex.to_string(),
+            display,
+        });
+    }
+
+    /// Adds `other` at the end.
+    fn append(&mut self, other: Inline) {
+        let shift = self.text.len();
+        self.text.push_str(&other.text);
+        let moved = |r: Range<usize>| r.start + shift..r.end + shift;
+        self.runs
+            .extend(other.runs.into_iter().map(|(r, m)| (moved(r), m)));
+        self.links
+            .extend(other.links.into_iter().map(|(r, u)| (moved(r), u)));
+        self.math.extend(other.math.into_iter().map(|m| Math {
+            range: moved(m.range),
+            ..m
+        }));
+        self.breaks
+            .extend(other.breaks.into_iter().map(|b| b + shift));
+    }
+
+    /// The stretch `range` of it, with what is marked in it.
+    fn slice(&self, range: Range<usize>) -> Inline {
+        let within = |r: &Range<usize>| {
+            let (start, end) = (r.start.max(range.start), r.end.min(range.end));
+            (start < end).then(|| start - range.start..end - range.start)
+        };
+        Inline {
+            text: self.text[range.clone()].to_string(),
+            runs: self
+                .runs
+                .iter()
+                .filter_map(|(r, m)| Some((within(r)?, *m)))
+                .collect(),
+            links: self
+                .links
+                .iter()
+                .filter_map(|(r, u)| Some((within(r)?, u.clone())))
+                .collect(),
+            math: self
+                .math
+                .iter()
+                .filter(|m| range.start <= m.range.start && m.range.end <= range.end)
+                .map(|m| Math {
+                    range: m.range.start - range.start..m.range.end - range.start,
+                    ..m.clone()
+                })
+                .collect(),
+            breaks: self
+                .breaks
+                .iter()
+                .filter(|b| range.contains(b))
+                .map(|b| b - range.start)
+                .collect(),
+        }
+    }
+
     fn push(&mut self, s: &str, marks: Marks) {
         if s.is_empty() {
             return;
@@ -99,6 +190,8 @@ enum Block {
     Quote(Vec<Block>),
     Rule,
     Table(Vec<Vec<Inline>>),
+    /// A formula of its own: its TeX, and whether it was a fenced block (else `$$…$$`).
+    Math(String, bool),
 }
 
 /// The words of each cloze in a stretch of plain text, `{{the words}}`: two opening braces, one
@@ -135,15 +228,99 @@ fn kept_of_blank(words: &str) -> &str {
     &words[..cut]
 }
 
+/// The byte ranges of `text` that are code: inline code and code blocks.
+fn code_ranges(text: &str) -> Vec<Range<usize>> {
+    Parser::new_ext(text, Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS)
+        .into_offset_iter()
+        .filter(|(event, _)| matches!(event, Event::Code(_) | Event::Start(Tag::CodeBlock(_))))
+        .map(|(_, range)| range)
+        .collect()
+}
+
+/// `\[…\]` read as `$$…$$` and `\(…\)` as `$…$` (what is inside trimmed), where they start
+/// outside code: the earlier app's reading of how models often write math. Each runs from its
+/// opening to the first closing after at least one character.
+fn normalize_math(text: &str) -> Cow<'_, str> {
+    if !text.contains("\\(") && !text.contains("\\[") {
+        return Cow::Borrowed(text);
+    }
+    let code = code_ranges(text);
+    let in_code = |at: usize| code.iter().any(|r| r.contains(&at));
+    let between = |text: &str, open: &str, close: &str, make: &dyn Fn(&str) -> String| {
+        let mut out = String::with_capacity(text.len());
+        let mut at = 0;
+        while let Some(found) = text[at..].find(open) {
+            let start = at + found;
+            let inner = start + open.len();
+            let Some(first) = text[inner..].chars().next() else {
+                break;
+            };
+            let Some(closed) = text[inner + first.len_utf8()..].find(close) else {
+                break;
+            };
+            let end = inner + first.len_utf8() + closed;
+            out.push_str(&text[at..start]);
+            if in_code(start) {
+                out.push_str(&text[start..end + close.len()]);
+            } else {
+                out.push_str(&make(&text[inner..end]));
+            }
+            at = end + close.len();
+        }
+        out.push_str(&text[at..]);
+        out
+    };
+    // `\[` and `\]` are as long as `$$`, so the code is where it was for the second pass.
+    let displayed = between(text, "\\[", "\\]", &|tex| format!("$${tex}$$"));
+    Cow::Owned(between(&displayed, "\\(", "\\)", &|tex| {
+        format!("${}$", tex.trim())
+    }))
+}
+
+/// A paragraph's blocks: a formula written `$$…$$` that has its line or lines to itself is a
+/// block of its own, and the text around it stays paragraphs.
+fn paragraphs(inline: Inline) -> Vec<Block> {
+    let len = inline.text.len();
+    let alone = |m: &&Math| {
+        m.display
+            && (m.range.start == 0 || inline.breaks.contains(&(m.range.start - 1)))
+            && (m.range.end == len || inline.breaks.contains(&m.range.end))
+    };
+    let blocks: Vec<&Math> = inline.math.iter().filter(alone).collect();
+    if blocks.is_empty() {
+        return vec![Block::Paragraph(inline)];
+    }
+    let mut out = Vec::new();
+    let mut at = 0;
+    for math in blocks {
+        // The line ends around it go with it.
+        let before = inline.slice(at..math.range.start.saturating_sub(1).max(at));
+        if !before.is_empty() {
+            out.push(Block::Paragraph(before));
+        }
+        out.push(Block::Math(math.tex.clone(), false));
+        at = (math.range.end + 1).min(len);
+    }
+    let after = inline.slice(at..len);
+    if !after.is_empty() {
+        out.push(Block::Paragraph(after));
+    }
+    out
+}
+
 /// Parse `source` into blocks. With `cloze`, `{{…}}` in plain text is a cloze, drawn that way.
 fn parse(source: &str, cloze: Option<Cloze>) -> Vec<Block> {
+    let source = normalize_math(source);
     let mut opts = Options::empty();
-    opts.insert(Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS);
-    if cloze.is_some() {
-        // Math is told apart from text, so that braces in it are never a cloze.
-        opts.insert(Options::ENABLE_MATH);
-    }
-    let events: Vec<Event> = Parser::new_ext(source, opts).collect();
+    opts.insert(
+        Options::ENABLE_TABLES
+            | Options::ENABLE_STRIKETHROUGH
+            | Options::ENABLE_TASKLISTS
+            // Math is told apart from text, to be typeset, and so that braces in it are never
+            // a cloze.
+            | Options::ENABLE_MATH,
+    );
+    let events: Vec<Event> = Parser::new_ext(&source, opts).collect();
     let mut pos = 0;
     parse_blocks(&events, &mut pos, None, cloze)
 }
@@ -160,7 +337,7 @@ fn parse_blocks(
     let mut loose = Inline::default();
     let flush = |loose: &mut Inline, out: &mut Vec<Block>| {
         if !loose.is_empty() {
-            out.push(Block::Paragraph(std::mem::take(loose)));
+            out.extend(paragraphs(std::mem::take(loose)));
         } else {
             *loose = Inline::default();
         }
@@ -175,7 +352,7 @@ fn parse_blocks(
             }
             Event::Start(Tag::Paragraph) => {
                 flush(&mut loose, &mut out);
-                out.push(Block::Paragraph(parse_inline(
+                out.extend(paragraphs(parse_inline(
                     events,
                     pos,
                     TagEnd::Paragraph,
@@ -207,8 +384,15 @@ fn parse_blocks(
                         _ => {}
                     }
                 }
-                let _ = matches!(kind, CodeBlockKind::Fenced(_));
-                out.push(Block::Code(code.trim_end_matches('\n').to_string()));
+                let code = code.trim_end_matches('\n').to_string();
+                // A fence of `math` is a formula, as the earlier app drew it.
+                let math = matches!(&kind, CodeBlockKind::Fenced(info)
+                    if info.split_whitespace().next() == Some("math"));
+                out.push(if math {
+                    Block::Math(code, true)
+                } else {
+                    Block::Code(code)
+                });
             }
             Event::Start(Tag::List(start)) => {
                 flush(&mut loose, &mut out);
@@ -280,24 +464,11 @@ fn parse_blocks(
             | Event::SoftBreak
             | Event::HardBreak => {
                 *pos -= 1;
-                let mut inline = parse_inline_until_block(events, pos, cloze);
+                let inline = parse_inline_until_block(events, pos, cloze);
                 if loose.text.is_empty() {
                     loose = inline;
                 } else {
-                    let shift = loose.text.len();
-                    loose.text.push_str(&inline.text);
-                    loose.runs.extend(
-                        inline
-                            .runs
-                            .drain(..)
-                            .map(|(r, m)| (r.start + shift..r.end + shift, m)),
-                    );
-                    loose.links.extend(
-                        inline
-                            .links
-                            .drain(..)
-                            .map(|(r, u)| (r.start + shift..r.end + shift, u)),
-                    );
+                    loose.append(inline);
                 }
             }
             _ => {}
@@ -347,11 +518,16 @@ impl Gather {
                     ..self.marks
                 },
             ),
-            // Math is not typeset here: it stays as it was written.
-            Event::InlineMath(t) => self.inline.push(&format!("${t}$"), self.marks),
-            Event::DisplayMath(t) => self.inline.push(&format!("$${t}$$"), self.marks),
-            Event::SoftBreak => self.inline.push(" ", self.marks),
-            Event::HardBreak => self.inline.push("\n", self.marks),
+            Event::InlineMath(t) => self.inline.push_math(&t, false, self.marks),
+            Event::DisplayMath(t) => self.inline.push_math(&t, true, self.marks),
+            Event::SoftBreak => {
+                self.inline.breaks.push(self.inline.text.len());
+                self.inline.push(" ", self.marks);
+            }
+            Event::HardBreak => {
+                self.inline.breaks.push(self.inline.text.len());
+                self.inline.push("\n", self.marks);
+            }
             Event::Start(Tag::Emphasis) => self.span(|m| m.italic = true, false),
             Event::End(TagEnd::Emphasis) => self.span_end(|m| m.italic = false),
             Event::Start(Tag::Strong) => self.span(|m| m.bold = true, false),
@@ -499,9 +675,7 @@ fn render_block(
     *n += 1;
     let key = ElementId::Name(format!("{id:?}-{n}").into());
     match block {
-        Block::Paragraph(inline) => {
-            render_inline(key, inline, t, Type::BODY, FontWeight::NORMAL).into_any_element()
-        }
+        Block::Paragraph(inline) => render_text(key, inline, t, Type::BODY, FontWeight::NORMAL),
         Block::Heading(level, inline) => {
             let size = match level {
                 1 => 17.0,
@@ -510,23 +684,38 @@ fn render_block(
             };
             div()
                 .pt(px(if *level <= 2 { 4.0 } else { 2.0 }))
-                .child(render_inline(key, inline, t, size, FontWeight::SEMIBOLD))
+                .child(render_text(key, inline, t, size, FontWeight::SEMIBOLD))
                 .into_any_element()
         }
-        Block::Code(code) => div()
-            .w_full()
-            .px(px(10.0))
-            .py(px(8.0))
-            .rounded(px(Radius::ROW))
-            .bg(t.primary.alpha(if t.dark { 0.05 } else { 0.045 }))
-            .border_1()
-            .border_color(t.card_stroke)
-            .font_family(crate::mono_font())
-            .text_size(px(12.0))
-            .line_height(px(17.0))
-            .text_color(t.primary.alpha(0.9))
-            .child(code.clone())
-            .into_any_element(),
+        Block::Math(tex, fenced) => {
+            let (tex, fenced) = (tex.clone(), *fenced);
+            formula(
+                tex.clone(),
+                true,
+                Type::BODY,
+                Type::BODY * 1.5,
+                t.primary,
+                move || {
+                    if fenced {
+                        code_block(&tex, t)
+                    } else {
+                        render_inline(
+                            key,
+                            &Inline {
+                                text: format!("$${tex}$$"),
+                                ..Inline::default()
+                            },
+                            t,
+                            Type::BODY,
+                            FontWeight::NORMAL,
+                        )
+                        .into_any_element()
+                    }
+                },
+            )
+            .into_any_element()
+        }
+        Block::Code(code) => code_block(code, t),
         Block::List { start, items } => div()
             .flex()
             .flex_col()
@@ -600,7 +789,7 @@ fn render_block(
                             .px(px(10.0))
                             .py(px(6.0))
                             .when(c > 0, |d| d.border_l_1().border_color(t.hairline))
-                            .child(render_inline(
+                            .child(render_text(
                                 ElementId::Name(format!("{id:?}-{n}").into()),
                                 cell,
                                 t,
@@ -615,6 +804,134 @@ fn render_block(
             }))
             .into_any_element(),
     }
+}
+
+fn code_block(code: &str, t: Theme) -> AnyElement {
+    div()
+        .w_full()
+        .px(px(10.0))
+        .py(px(8.0))
+        .rounded(px(Radius::ROW))
+        .bg(t.primary.alpha(if t.dark { 0.05 } else { 0.045 }))
+        .border_1()
+        .border_color(t.card_stroke)
+        .font_family(crate::mono_font())
+        .text_size(px(12.0))
+        .line_height(px(17.0))
+        .text_color(t.primary.alpha(0.9))
+        .child(code.to_string())
+        .into_any_element()
+}
+
+/// A stretch of text, with its formulas typeset when it has any.
+fn render_text(
+    key: ElementId,
+    inline: &Inline,
+    t: Theme,
+    size: f32,
+    weight: FontWeight,
+) -> AnyElement {
+    if inline.math.is_empty() {
+        render_inline(key, inline, t, size, weight).into_any_element()
+    } else {
+        render_flow(key, inline, t, size, weight)
+    }
+}
+
+/// A piece of a line of text with formulas in it.
+#[derive(Debug, PartialEq)]
+enum Piece {
+    /// A word and the spaces after it, or spaces alone where a line starts with them.
+    Words(Range<usize>),
+    /// The end of a line the text breaks.
+    Break,
+}
+
+/// The pieces of `range` of `text`: each word with the spaces after it, and its line breaks.
+fn pieces(text: &str, range: Range<usize>) -> Vec<Piece> {
+    let mut out = Vec::new();
+    let mut start = range.start;
+    let mut spaced = false;
+    for (i, c) in text[range.clone()].char_indices() {
+        let at = range.start + i;
+        if c == '\n' {
+            if start < at {
+                out.push(Piece::Words(start..at));
+            }
+            out.push(Piece::Break);
+            start = at + 1;
+            spaced = false;
+        } else if c.is_whitespace() {
+            spaced = true;
+        } else if spaced {
+            if start < at {
+                out.push(Piece::Words(start..at));
+            }
+            start = at;
+            spaced = false;
+        }
+    }
+    if start < range.end {
+        out.push(Piece::Words(start..range.end));
+    }
+    out
+}
+
+/// Text with formulas in it: its words and its formulas side by side, wrapping where its words
+/// do, each formula on the words' baseline. Where the text is not to wrap (a line cut short),
+/// they stay on one line, cut at its end.
+fn render_flow(
+    key: ElementId,
+    inline: &Inline,
+    t: Theme,
+    size: f32,
+    weight: FontWeight,
+) -> AnyElement {
+    let mut items: Vec<AnyElement> = Vec::new();
+    let mut n = 0usize;
+    let mut words = |range: Range<usize>, items: &mut Vec<AnyElement>| {
+        for piece in pieces(&inline.text, range) {
+            items.push(match piece {
+                Piece::Words(r) => {
+                    n += 1;
+                    let key = ElementId::Name(format!("{key:?}-{n}").into());
+                    render_inline(key, &inline.slice(r), t, size, weight).into_any_element()
+                }
+                // A piece as wide as the line ends it.
+                Piece::Break => div().w_full().h_0().into_any_element(),
+            });
+        }
+    };
+    let mut at = 0;
+    for math in &inline.math {
+        words(at..math.range.start, &mut items);
+        let written = inline.slice(math.range.clone());
+        let written_key = ElementId::Name(format!("{key:?}-math-{}", math.range.start).into());
+        items.push(
+            formula(
+                math.tex.clone(),
+                false,
+                size,
+                size * 1.5,
+                t.primary,
+                move || render_inline(written_key, &written, t, size, weight).into_any_element(),
+            )
+            .into_any_element(),
+        );
+        at = math.range.end;
+    }
+    words(at..inline.text.len(), &mut items);
+    lazily(move |window, _| {
+        let wraps = window.text_style().white_space != WhiteSpace::Nowrap;
+        div()
+            .flex()
+            .items_baseline()
+            .when(wraps, |row| row.flex_wrap())
+            .when(!wraps, |row| row.overflow_hidden())
+            .children(items)
+            .into_any_element()
+    })
+    .into_any_element()
 }
 
 fn render_inline(
@@ -846,6 +1163,115 @@ mod tests {
         };
         assert_eq!(p.text, "A {{template}} here.");
         assert!(p.runs.is_empty());
+    }
+
+    /// The formulas of the blocks of `source`, by block: (TeX, written `$$…$$`), and a block of
+    /// math as (TeX, true) alone.
+    fn formulas(source: &str) -> Vec<Vec<(String, bool)>> {
+        parse_plain(source)
+            .into_iter()
+            .map(|block| match block {
+                Block::Paragraph(p) => p.math.into_iter().map(|m| (m.tex, m.display)).collect(),
+                Block::Math(tex, _) => vec![(tex, true)],
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    fn math(tex: &str, display: bool) -> (String, bool) {
+        (tex.to_string(), display)
+    }
+
+    #[test]
+    fn math_in_a_line_is_found_and_keeps_its_written_form() {
+        let Some(Block::Paragraph(p)) = parse_plain(r"The area is $\pi r^2$ here.").pop() else {
+            panic!("a paragraph")
+        };
+        assert_eq!(p.text, r"The area is $\pi r^2$ here.");
+        assert_eq!(p.math.len(), 1);
+        assert_eq!(&p.text[p.math[0].range.clone()], r"$\pi r^2$");
+        assert_eq!(p.math[0].tex, r"\pi r^2");
+        assert!(!p.math[0].display);
+    }
+
+    #[test]
+    fn display_math_on_lines_of_its_own_is_a_block_and_in_a_sentence_is_not() {
+        assert_eq!(
+            formulas("Before\n\n$$\nE = mc^2\n$$\n\nAfter"),
+            [vec![], vec![math("\nE = mc^2\n", true)], vec![]]
+        );
+        // On its own line between lines of text, it parts them.
+        let blocks = parse_plain("So:\n$$x^2$$\nand more.");
+        assert!(matches!(&blocks[0], Block::Paragraph(p) if p.text == "So:"));
+        assert!(matches!(&blocks[1], Block::Math(tex, false) if tex == "x^2"));
+        assert!(matches!(&blocks[2], Block::Paragraph(p) if p.text == "and more."));
+        // Inside a sentence, it stays in the line.
+        assert_eq!(formulas("We have $$x^2$$ here."), [vec![math("x^2", true)]]);
+        // A fence of math is a block of math.
+        let blocks = parse_plain("```math\n\\frac{a}{b}\n```");
+        assert!(matches!(&blocks[0], Block::Math(tex, true) if tex == "\\frac{a}{b}"));
+    }
+
+    #[test]
+    fn a_lone_dollar_code_and_escaped_dollars_stay_text() {
+        for source in [
+            "It costs $5.",
+            "It costs $5 and $10 is more.",
+            r"Write \$x\$ for a dollar.",
+            "Write `$x$` in code.",
+            "```\n$x$\n```",
+            "A $ x $ with spaces.",
+        ] {
+            assert!(formulas(source).iter().all(Vec::is_empty), "{source}");
+        }
+        assert_eq!(
+            formulas("It costs $5. The formula $x$ holds."),
+            [vec![math("x", false)]]
+        );
+    }
+
+    #[test]
+    fn math_written_with_backslashes_is_read_as_dollars_outside_code() {
+        assert_eq!(
+            normalize_math(r"So \( x^2 \) and \[y\]."),
+            r"So $x^2$ and $$y$$."
+        );
+        assert_eq!(
+            normalize_math(r"Code `\(x\)` stays."),
+            r"Code `\(x\)` stays."
+        );
+        assert_eq!(normalize_math(r"No math \(here."), r"No math \(here.");
+        assert_eq!(
+            formulas("Lines:\n\\[\na+b\n\\]\nend"),
+            [vec![], vec![math("\na+b\n", true)], vec![]]
+        );
+    }
+
+    #[test]
+    fn a_cards_cloze_and_its_math_stay_apart() {
+        let shown = card(r"The {{area}} is $\pi r^{2}$.", Cloze::Shown);
+        assert_eq!(parts(&shown, ClozePart::Words), ["area"]);
+        assert_eq!(shown.math.len(), 1);
+        assert_eq!(&shown.text[shown.math[0].range.clone()], r"$\pi r^{2}$");
+        // Braces inside math are never a cloze, and the braces around math are not either.
+        for source in [r"So $\frac{{a}}{b}$ holds.", "So {{$x$}} holds."] {
+            let read = card(source, Cloze::Hidden);
+            assert!(read.runs.iter().all(|(_, m)| m.cloze.is_none()), "{source}");
+            assert_eq!(read.math.len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn a_line_with_math_is_cut_into_words_and_line_breaks() {
+        let text = " is a bc  d\nnext";
+        let words: Vec<_> = pieces(text, 0..text.len())
+            .into_iter()
+            .map(|p| match p {
+                Piece::Words(r) => &text[r],
+                Piece::Break => "|",
+            })
+            .collect();
+        assert_eq!(words, [" ", "is ", "a ", "bc  ", "d", "|", "next"]);
     }
 
     #[test]

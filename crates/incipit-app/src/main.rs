@@ -656,6 +656,8 @@ fn main() {
         .with_assets(incipit_ui::Assets)
         .run(|cx: &mut App| {
             incipit_ui::init(cx);
+            // Math in Markdown is typeset by incipit-math.
+            incipit_ui::typeset_with(cx, math::typeset);
             let mut options = incipit_ui::window_options(
                 "Incipit",
                 "dev.mihaicristian.incipit",

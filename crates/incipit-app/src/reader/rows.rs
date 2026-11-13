@@ -263,7 +263,8 @@ impl ReaderView {
             .children(picture)
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                    this.focus.focus(window, cx);
                     if let Some(place) = this.page_place(index, e.position) {
                         this.pressed(place, cx);
                     }
@@ -443,7 +444,8 @@ impl ReaderView {
             .child(styled)
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                    this.focus.focus(window, cx);
                     this.pressed(down(e.position), cx)
                 }),
             )

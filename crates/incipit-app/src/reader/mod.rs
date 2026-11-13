@@ -21,7 +21,8 @@
 //! works from the keyboard (`keys`).
 //!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
-//! =answer for a model's answer, =session for a tutor session with a made-up conversation),
+//! =answer for a model's answer, =math for one with math in it, =session for a tutor session
+//! with a made-up conversation),
 //! INCIPIT_ASK=explain|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
 //! INCIPIT_DRAFTS=demo (the drafter's sheet on made-up flashcards), INCIPIT_EXPLAIN=demo (the
 //! explaining sheet on a made-up explanation, graded), INCIPIT_EXPLAIN=write (with INCIPIT_NOTE:
@@ -731,16 +732,31 @@ impl ReaderView {
         let State::Open(opened) = &self.state else {
             return;
         };
+        let math = std::env::var("INCIPIT_NOTE").as_deref() == Ok("math");
         let (noted, selected, words) = match &opened.doc {
             Doc::Pdf(_) => (
                 "based solely on attention mechanisms",
                 "superior in quality while being more parallelizable",
-                "The claim of the whole paper. What does recurrence buy that attention has to replace?",
+                if math {
+                    "Each position weighs every other by how well its query $q$ meets their keys $k_j$, \
+                     scaled by $\\sqrt{d_k}$:\n\n\
+                     $$\\mathrm{Attention}(Q, K, V) = \\mathrm{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V$$\n\n\
+                     So a layer costs $O(n^2 \\cdot d)$ for $n$ positions, with no step waiting on the one before."
+                } else {
+                    "The claim of the whole paper. What does recurrence buy that attention has to replace?"
+                },
             ),
             Doc::Epub(_) => (
                 "What, then, do you mean by the assertion that these propositions are true?",
                 "with more respect than love",
-                "The question the chapter turns on: following from axioms is not the same as being true of the world.",
+                if math {
+                    "A rod moving at speed $v$ is measured shorter, by the factor \
+                     $\\sqrt{1 - v^2/c^2}$:\n\n\
+                     $$L = L_0 \\sqrt{1 - \\frac{v^2}{c^2}}$$\n\n\
+                     At everyday speeds $v \\ll c$, so $L \\approx L_0$."
+                } else {
+                    "The question the chapter turns on: following from axioms is not the same as being true of the world."
+                },
             ),
         };
         let mut note = None;
@@ -781,7 +797,7 @@ impl ReaderView {
                 words: words.into(),
                 asked: matches!(
                     std::env::var("INCIPIT_NOTE").as_deref(),
-                    Ok("answer" | "session")
+                    Ok("answer" | "session" | "math")
                 )
                 .then(|| asking::EXPLAIN.to_owned()),
                 ..Note::default()

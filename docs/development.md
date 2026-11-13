@@ -47,7 +47,7 @@ screenshots are taken:
 |---|---|
 | `INCIPIT_PAGE` | Opens on `today` (the default), `library`, `reader`, `notes`, `review`, `cards` (all the cards, reached in the app from Review's "All cards"), `brain`, `concepts` (the Brain's list of concepts), `journey`, `math`, `figure` or `settings` |
 | `INCIPIT_DECK` | A deck's name: Review starts on that deck, and the Cards page lists only it (a name no card has is ignored) |
-| `INCIPIT_CARDS` | On the Cards page, with `INCIPIT_VAULT` on a throwaway folder: `demo` adds made-up cards to a vault that has none (two decks, concepts where one builds on the other, and one card forgotten eight times and set aside, so "Keeps slipping" shows), `edit` opens the first card's editor. No model is called; Refresh what it builds on does call one |
+| `INCIPIT_CARDS` | On the Cards page, with `INCIPIT_VAULT` on a throwaway folder: `demo` adds made-up cards to a vault that has none (two decks, concepts where one builds on the other, math in the two Calculus cards not set aside, so Review with `INCIPIT_DECK=Calculus` starts on a card with math, and one card forgotten eight times and set aside, so "Keeps slipping" shows), `edit` opens the first card's editor. No model is called; Refresh what it builds on does call one |
 | `INCIPIT_VAULT` | A folder: the vault there is opened (made, if it is not one yet) without asking. Use a temporary folder for checks, never a vault of your own |
 | `INCIPIT_FIRST_RUN` | `vault`, `model` or `you`: opens on that step of the first run (where the vault is kept, how to reach a model, who you are), whatever the state; going on from it follows the real state. Without it the first run is left out when `INCIPIT_VAULT`, `INCIPIT_PAGE` or `INCIPIT_BOOK` is set. To see the whole flow as a new person would, start with none of them and a throwaway `INCIPIT_HOME`. The profile form is also on `INCIPIT_PAGE=settings` |
 | `INCIPIT_HOME` | A folder for the app's own files (the list of vaults, and the place each book was left at, `places.json`), instead of the system's place for app data |
@@ -70,7 +70,7 @@ screenshots are taken:
 | `INCIPIT_DRAFTS` | `demo` on the Reader page opens the drafter's sheet on made-up flashcards to keep, edit or drop; no model is called, and saving them is refused |
 | `HELIO_APPEARANCE` | `light` or `dark`: the app's theme, whatever the system's. With `dark`, a PDF's pages in the reader are drawn dark too (the paper dark, the ink light, pictures as they are) |
 | `INCIPIT_WAIT` | With `INCIPIT_SHOT`: seconds to wait before the picture, instead of 1.5 |
-| `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected; `answer` shows the note as a model's answer, `session` opens it as a tutor session with a made-up conversation (no model is called) |
+| `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected; `answer` shows the note as a model's answer, `math` as an answer with math in it (in a line and on a line of its own), `session` opens it as a tutor session with a made-up conversation (no model is called) |
 | `INCIPIT_CONTENTS` | On the Reader page: starts with the book's contents open |
 | `INCIPIT_PART` | On the Reader page: the page (PDF) or block (EPUB) to start at, counted from 0 |
 | `INCIPIT_MAP` | On the Reader page, with a book of the vault (`INCIPIT_OPEN`): maps line n of the contents, counted from 0, into concepts once the book is open, with the contents open to show it. This calls a model with your own login |

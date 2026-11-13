@@ -24,7 +24,7 @@ incipit-app ──▶ incipit-ui ──▶ gpui
 | `incipit-graph` | The picture of the graph of ideas, with no drawing in it. `Layout` is a force layout (Barnes-Hut repulsion, springs, gravity, collision by radius) that the caller steps until it settles (the Brain page lays it out on a background thread, then steps it once a frame while a node is dragged); it keeps positions when the graph changes, can pin a dragged node and exports positions to keep. `View`, `SpatialIndex` and `choose_labels` give the window the fit-to-view transform and a view centred on a node, the node under a point or in a rectangle, and the names that fit | no |
 | `incipit-llm` | The one door to models. A `Request` keeps instructions apart from material; a `Provider` gives text, JSON checked against a schema, or an agent's work on files; `Call` runs one in the background and stops it when cancelled ([models.md](models.md)) | no |
 | `incipit-vault` | The vault. Every record is a `Doc`, a Markdown file with YAML properties and a `kind`; `Vault` holds the index, the links and backlinks and the search, writes files whole, announces every change, hears edits made by other programs, and keeps history with Jujutsu through its library ([vault.md](vault.md)) | no |
-| `incipit-ui` | The look: theme, controls, icons, motion, window chrome. It began as Helio's kit | yes |
+| `incipit-ui` | The look: theme, controls, icons, motion, window chrome, and Markdown, its math typeset by what the app gives it. It began as Helio's kit | yes |
 | `incipit-app` | The window: one module per page | yes |
 
 ## Decisions
@@ -167,7 +167,11 @@ the app's own folder (`places.json`), not in the vault.
 translates it. The mitex files Typst loads are vendored in
 `third_party/mitex` with two patches for the Typst version in use
 (`third_party/PATCHES.md`). Formulas are rasters made at the screen's
-density, typeset once for each theme and kept.
+density, typeset once for each theme and kept. Math in Markdown (answers,
+cards, quizzes, sessions) is typeset the same way: the app gives
+incipit-ui a typesetter that calls incipit-math, so the look does not
+carry Typst, and a formula is typeset off the window's thread, shown as
+written until it is ready.
 
 **PDFs go through pdfium.** It is a native library, loaded when the first
 PDF is opened, one pinned build fetched by `tools/setup`. It gives the

@@ -1,6 +1,7 @@
 //! Made-up cards for looking at the Cards page: INCIPIT_CARDS=demo, on a throwaway vault
-//! (INCIPIT_VAULT), adds a few cards in two decks, on a concept that builds on another, and one
-//! card forgotten eight times that is set aside for slipping. Nothing is added to a vault that
+//! (INCIPIT_VAULT), adds a few cards in two decks, on a concept that builds on another, the two
+//! cards of the Calculus deck that are not set aside with math in them (so Review on that deck
+//! starts on math), and one card forgotten eight times that is set aside for slipping. Nothing is added to a vault that
 //! already has cards. INCIPIT_CARDS=edit opens the first card's editor once the cards are listed.
 
 use incipit_vault::{Card, Concept, Doc, Kind, Review, Vault, REVIEWS};
@@ -41,14 +42,14 @@ pub fn add(vault: &Vault) {
     let _ = concept("Limit", &[]);
     let _ = concept("Derivative", &["Limit"]);
     let _ = card(
-        "What does {{a limit}} describe?",
-        "The value a function approaches.",
+        r"What does {{a limit}} describe, as in $\lim_{x \to a} f(x)$?",
+        "The value a function approaches:\n\n$$\\lim_{x \\to a} f(x) = L$$",
         "Calculus",
         "Limit",
     );
     let _ = card(
-        "What is the derivative of a function at a point?",
-        "The slope of the tangent line there.",
+        "What is the derivative of $f$ at a point $a$?",
+        r"The slope of the tangent line there: $f'(a) = \lim_{h \to 0} \frac{f(a+h) - f(a)}{h}$.",
         "Calculus",
         "Derivative",
     );

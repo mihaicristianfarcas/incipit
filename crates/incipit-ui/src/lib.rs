@@ -9,6 +9,7 @@ pub mod chrome;
 pub mod controls;
 pub mod desktop;
 pub mod focus;
+pub mod formula;
 pub mod glass;
 pub mod icon;
 pub mod instance;
@@ -38,6 +39,7 @@ pub use focus::{
     arrow_step, clicked, focus_handle, focus_ring, keep_focus, keyboard_focus, keyboard_moved,
     ringed, scroll_areas, scroll_into_view, scrollbar, scrolled, Scrolled, Span,
 };
+pub use formula::{typeset_with, Typeset, Typesetter};
 pub use icon::{icon, Assets, Icon, IconName, IconSize};
 pub use markdown::{markdown, markdown_cloze, Cloze};
 pub use meter::meter;

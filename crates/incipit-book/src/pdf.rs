@@ -611,6 +611,52 @@ impl Page {
     pub fn text(&self) -> Vec<char> {
         self.glyphs.iter().map(|g| g.c).collect()
     }
+
+    /// The passage at a height down the page (in points), for selecting it from the keyboard:
+    /// the first and last characters of the lines from the first one that reaches down to
+    /// `y`, as the earlier app chose them among the page's runs of text sorted by their tops and
+    /// then by how far left they start. Runs whose tops are within half the first one's
+    /// height are one line; the passage stops before a gap of more than 1.6 times that height
+    /// (a new paragraph, a heading) or a seventh line. The runs here are the lines pdfium ends.
+    /// `None` when no text on the page reaches down to `y`.
+    pub fn lines_at(&self, y: f32) -> Option<(usize, usize)> {
+        // Each run's first and last sized character, top, bottom and left.
+        let mut runs: Vec<(usize, usize, f32, f32, f32)> = Vec::new();
+        let mut open: Option<(usize, usize, f32, f32, f32)> = None;
+        for (i, g) in self.glyphs.iter().enumerate() {
+            if g.c == '\n' {
+                runs.extend(open.take());
+                continue;
+            }
+            if g.w <= 0.0 || g.h <= 0.0 || g.c.is_whitespace() {
+                continue;
+            }
+            let run = open.get_or_insert((i, i, g.y, g.y + g.h, g.x));
+            run.1 = i;
+            run.2 = run.2.min(g.y);
+            run.3 = run.3.max(g.y + g.h);
+            run.4 = run.4.min(g.x);
+        }
+        runs.extend(open);
+        runs.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.4.total_cmp(&b.4)));
+        let start = runs.iter().position(|r| r.3 >= y)?;
+        let height = runs[start].3 - runs[start].2;
+        let (mut end, mut lines) = (start, 1);
+        for i in start + 1..runs.len() {
+            let gap = runs[i].2 - runs[i - 1].2;
+            if gap > height * 0.5 {
+                lines += 1;
+                if gap > height * 1.6 || lines > 6 {
+                    break;
+                }
+            }
+            end = i;
+        }
+        let chosen = &runs[start..=end];
+        let first = chosen.iter().map(|r| r.0).min()?;
+        let last = chosen.iter().map(|r| r.1).max()?;
+        Some((first, last))
+    }
 }
 
 #[cfg(test)]
@@ -639,6 +685,81 @@ mod tests {
     fn sample() -> Pdf {
         let root = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
         Pdf::open(&root.join("lib/lib"), &root.join("samples/paper.pdf")).unwrap()
+    }
+
+    /// Glyphs of lines of text, each line's characters 5 points wide and 10 high, the line
+    /// starting `top` points down, and each line ended by a line end pdfium added.
+    fn glyphs(lines: &[(&str, f32)]) -> Vec<Glyph> {
+        lines
+            .iter()
+            .flat_map(|&(line, top)| {
+                line.chars()
+                    .enumerate()
+                    .map(move |(i, c)| Glyph {
+                        c,
+                        x: 50.0 + 5.0 * i as f32,
+                        y: top,
+                        w: 5.0,
+                        h: 10.0,
+                    })
+                    .chain([Glyph {
+                        c: '\n',
+                        x: 0.0,
+                        y: 0.0,
+                        w: 0.0,
+                        h: 0.0,
+                    }])
+            })
+            .collect()
+    }
+
+    fn sheet(lines: &[(&str, f32)]) -> Page {
+        Page {
+            width: 600.0,
+            height: 800.0,
+            pixels: Vec::new(),
+            pixel_width: 0,
+            pixel_height: 0,
+            glyphs: glyphs(lines),
+        }
+    }
+
+    #[test]
+    fn the_keyboard_selects_the_lines_from_the_reading_line_to_the_paragraphs_end() {
+        // Two lines of a paragraph, then a gap of more than 1.6 lines, then another.
+        let page = sheet(&[("one", 100.0), ("two", 112.0), ("three", 140.0)]);
+        let text: String = page.text().into_iter().collect();
+        let (first, last) = page.lines_at(105.0).unwrap();
+        assert_eq!(&text[first..=last], "one\ntwo");
+        // From the second line, which the reading line reaches.
+        let (first, last) = page.lines_at(111.0).unwrap();
+        assert_eq!(&text[first..=last], "two");
+        // Under every line, nothing.
+        assert_eq!(page.lines_at(200.0), None);
+    }
+
+    #[test]
+    fn the_keyboard_selects_six_lines_at_most() {
+        let lines: Vec<(String, f32)> = (0..9)
+            .map(|n| (format!("line{n}"), 100.0 + 12.0 * n as f32))
+            .collect();
+        let lines: Vec<(&str, f32)> = lines.iter().map(|(s, y)| (s.as_str(), *y)).collect();
+        let page = sheet(&lines);
+        let text: String = page.text().into_iter().collect();
+        let (first, last) = page.lines_at(100.0).unwrap();
+        assert_eq!(
+            &text[first..=last],
+            "line0\nline1\nline2\nline3\nline4\nline5"
+        );
+    }
+
+    #[test]
+    fn runs_side_by_side_are_one_line_of_the_passage() {
+        // Two columns' lines at nearly the same height count once.
+        let page = sheet(&[("left", 100.0), ("right", 101.0), ("next", 112.0)]);
+        let text: String = page.text().into_iter().collect();
+        let (first, last) = page.lines_at(100.0).unwrap();
+        assert_eq!(&text[first..=last], "left\nright\nnext");
     }
 
     /// A page 792 points high of lines 14 points apart in 10 point type, the first with its

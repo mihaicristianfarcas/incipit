@@ -17,7 +17,8 @@
 //! A chapter can be mapped into concepts from the contents, and the concepts that came from the
 //! book's passages have cards in the margin beside them (`concepts`). A phrase is found on
 //! every page with the find bar (`finding`). A scroll bar beside the book shows where the screen
-//! is in it (`scrolling`).
+//! is in it (`scrolling`). S selects the passage at the reading line, and the selection's menu
+//! works from the keyboard (`keys`).
 //!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =session for a tutor session with a made-up conversation),
@@ -29,11 +30,13 @@
 //! pretest written by the model) or demo|done (a made-up quiz, at its start or finished),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block),
 //! INCIPIT_MAP=n (map line n of the contents, from 0, into concepts once the book is open),
-//! INCIPIT_FIND_BOOK=words (the find bar on those words once the book is open).
+//! INCIPIT_FIND_BOOK=words (the find bar on those words once the book is open), INCIPIT_SELECT=1
+//! (S pressed once the book is open: the passage at the reading line selected from the keyboard).
 
 mod asking;
 mod concepts;
 mod finding;
+mod keys;
 mod model;
 mod place;
 mod reading;
@@ -49,8 +52,9 @@ use std::sync::Arc;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::StreamExt;
 use gpui::{
-    anchored, deferred, div, list, prelude::*, px, AnyElement, Context, Entity, IntoElement,
-    ListAlignment, ListOffset, ListState, Pixels, Point, Render, RenderImage, Subscription, Window,
+    anchored, deferred, div, list, prelude::*, px, AnyElement, Context, Entity, FocusHandle,
+    IntoElement, KeyDownEvent, ListAlignment, ListOffset, ListState, Pixels, Point, Render,
+    RenderImage, Subscription, Window,
 };
 use incipit_book::{Anchor, Block, Book, Entry, Page, PdfInfo, PdfWorker};
 use incipit_llm::Cancel;
@@ -145,6 +149,13 @@ pub struct ReaderView {
     dragging: bool,
     /// Where the mouse let go of a selection: the menu opens there.
     menu: Option<Point<Pixels>>,
+    /// The book's keyboard (`keys`), and the selection menu's.
+    focus: FocusHandle,
+    menu_focus: FocusHandle,
+    /// The book has just opened: it takes the keyboard.
+    focus_book: bool,
+    /// S is to be pressed once the book is open (INCIPIT_SELECT).
+    select_on_open: bool,
     notes: Vec<Note>,
     next_id: u64,
     /// The note that is open in the margin.
@@ -278,6 +289,10 @@ impl ReaderView {
             scale: 0.0,
             selection: None,
             dragging: false,
+            focus: cx.focus_handle(),
+            menu_focus: cx.focus_handle(),
+            focus_book: false,
+            select_on_open: std::env::var_os("INCIPIT_SELECT").is_some(),
             menu: None,
             notes: Vec::new(),
             next_id: 1,
@@ -648,6 +663,7 @@ impl ReaderView {
                         }
                         let parts = opened.parts();
                         this.state = State::Open(opened);
+                        this.focus_book = true;
                         this.note_length(parts, cx);
                         this.report(cx);
                         this.kept_notes(cx);
@@ -1167,6 +1183,7 @@ impl ReaderView {
     fn selection_menu(&self, t: Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
         let at = self.menu?;
         let menu = floating(t)
+            .track_focus(&self.menu_focus)
             .flex_row()
             .p(px(4.0))
             .gap(px(2.0))
@@ -1442,6 +1459,10 @@ impl Render for ReaderView {
             self.list.remeasure();
         }
         self.restore_fraction();
+        if std::mem::take(&mut self.focus_book) {
+            self.focus.focus(window, cx);
+        }
+        self.select_wanted(window, cx);
         self.find_wanted(window, cx);
         let body: AnyElement = match &self.state {
             State::Opening => div().into_any_element(),
@@ -1489,6 +1510,10 @@ impl Render for ReaderView {
             .size_full()
             .flex()
             .flex_col()
+            .track_focus(&self.focus)
+            .on_key_down(
+                cx.listener(|this, event: &KeyDownEvent, window, cx| this.key(event, window, cx)),
+            )
             .child(self.bar(t, cx))
             .children(self.said.clone().map(|said| {
                 div()

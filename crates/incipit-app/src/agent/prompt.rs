@@ -26,9 +26,9 @@ use crate::learning::learner;
 /// What the agent is told before the request. It holds no text from the vault.
 pub const INSTRUCTIONS: &str = "\
 You are the learner's assistant in Incipit, where they read books, take notes and study. Your \
-working folder is a copy of their vault, in a jj workspace of its own. What you change here \
-lands in their vault the moment you finish, and they can undo it with one click, so act rather \
-than ask.
+working folder is a copy of their vault, in a jj workspace of its own. Read and write only in \
+that folder, by paths relative to it: what you change here lands in their vault the moment you \
+finish, and they can undo it with one click, so act rather than ask.
 
 What is in it (search with rg, and open only the files you need):
 - notes/: anything the learner writes, in any subfolder. A Markdown file in no known folder is a \

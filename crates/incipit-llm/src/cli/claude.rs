@@ -378,8 +378,10 @@ impl Provider for Claude {
         if sandbox.write {
             run.tools.extend(["Edit".into(), "Write".into()]);
         }
+        // `read_also` is readable through the sandbox's settings only, never `--add-dir`: Claude
+        // Code tells the model an added folder is one of its working folders, and seen live, it
+        // then wrote there (and was refused) instead of in the workspace.
         run.settings = Some(claude_settings(&workspace, sandbox));
-        run.add_dirs = sandbox.read_also.clone();
         if !request.images.is_empty() {
             return Err(Error::Unsupported(
                 "Claude Code's agent takes no pictures here; describe them, or use a plain call"

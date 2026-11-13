@@ -153,9 +153,11 @@ pub fn execute(
         }
     };
     on(Event::Activity("Reading your vault".into()));
+    // The working copy holds the whole vault but for the books' files, which are links into the
+    // vault's `library`: that folder is readable, and nothing else of the vault.
     let sandbox = Sandbox {
         write: true,
-        read_also: vec![vault.root().to_path_buf()],
+        read_also: vec![vault.root().join("library")],
         read_only: forbidden_in(copy.dir())
             .into_iter()
             .map(PathBuf::from)
@@ -459,7 +461,7 @@ mod tests {
         let (folder, sandbox) = agent.seen.lock().unwrap().clone().unwrap();
         assert!(!folder.starts_with(vault.root()));
         assert!(sandbox.write);
-        assert_eq!(sandbox.read_also, [vault.root().to_path_buf()]);
+        assert_eq!(sandbox.read_also, [vault.root().join("library")]);
         assert!(!folder.exists(), "the copy is gone once the run ended");
 
         assert_eq!(outcome.status, Status::Merged);

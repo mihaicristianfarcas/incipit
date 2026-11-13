@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use crate::{retrievability, schedule, Card, Params, Rating};
+use crate::{retrievability, schedule, Card, Params, Rating, Zone};
 
 /// How many of a concept's latest quizzes its accuracy is read from: the earlier app's.
 pub const WINDOW: usize = 6;
@@ -46,11 +46,12 @@ pub struct Evidence {
     pub memory: Card,
 }
 
-/// Each concept's evidence from `quizzes`, replayed oldest first. An answer whose score is not
-/// a finite number is left out.
+/// Each concept's evidence from `quizzes`, replayed oldest first, the days between them counted on
+/// the learner's clock `zone`. An answer whose score is not a finite number is left out.
 pub fn evidence<K: Eq + Hash + Clone>(
     quizzes: &[Quizzed<K>],
     params: &Params,
+    zone: &impl Zone,
 ) -> HashMap<K, Evidence> {
     let mut ordered: Vec<&Quizzed<K>> = quizzes.iter().collect();
     ordered.sort_by_key(|quiz| quiz.time);
@@ -70,7 +71,7 @@ pub fn evidence<K: Eq + Hash + Clone>(
             let before = was
                 .as_ref()
                 .map_or_else(|| Card::new(quiz.time), |e| e.memory.clone());
-            let (memory, _) = schedule(&before, rating_for(mean), quiz.time, params);
+            let (memory, _) = schedule(&before, rating_for(mean), quiz.time, params, zone);
             let mut scores = was.map(|e| e.scores).unwrap_or_default();
             scores.push(mean);
             found.insert(concept.clone(), Evidence { scores, memory });
@@ -110,7 +111,7 @@ impl Evidence {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DAY_MS;
+    use crate::{Fixed, DAY_MS};
 
     const NOW: i64 = 1_800_000_000_000;
 
@@ -123,7 +124,7 @@ mod tests {
 
     fn recall(quizzes: &[Quizzed<&'static str>], concept: &str, now: i64) -> Option<f64> {
         let p = Params::default();
-        evidence(quizzes, &p)
+        evidence(quizzes, &p, &Fixed(0))
             .get(concept)
             .map(|found| found.recall(now, &p))
     }
@@ -168,7 +169,7 @@ mod tests {
         let carnot = recall(&quizzes, "carnot", NOW).unwrap();
         // Missed long ago and right since beats right long ago and mostly missed since.
         assert!(heat > carnot, "{heat} {carnot}");
-        let found = &evidence(&quizzes, &Params::default())["carnot"];
+        let found = &evidence(&quizzes, &Params::default(), &Fixed(0))["carnot"];
         assert_eq!(found.scores.len(), 2);
         assert!((found.scores[1] - 1.0 / 3.0).abs() < 1e-12);
     }
@@ -177,7 +178,7 @@ mod tests {
     fn only_the_latest_six_quizzes_count_toward_accuracy() {
         let mut quizzes: Vec<_> = (0..4).map(|i| quiz(NOW + i, &[("limit", 0.0)])).collect();
         quizzes.extend((4..10).map(|i| quiz(NOW + i, &[("limit", 1.0)])));
-        let found = &evidence(&quizzes, &Params::default())["limit"];
+        let found = &evidence(&quizzes, &Params::default(), &Fixed(0))["limit"];
         assert_eq!(found.scores.len(), 10);
         let p = Params::default();
         let r = retrievability(&found.memory, NOW + 10, &p);
@@ -187,9 +188,9 @@ mod tests {
     #[test]
     fn an_answer_that_is_not_a_number_is_left_out() {
         let quizzes = [quiz(NOW, &[("limit", f64::NAN), ("limit", 1.0)])];
-        let found = &evidence(&quizzes, &Params::default())["limit"];
+        let found = &evidence(&quizzes, &Params::default(), &Fixed(0))["limit"];
         assert_eq!(found.scores, vec![1.0]);
         let none = [quiz(NOW, &[("limit", f64::INFINITY)])];
-        assert!(evidence(&none, &Params::default()).is_empty());
+        assert!(evidence(&none, &Params::default(), &Fixed(0)).is_empty());
     }
 }

@@ -12,10 +12,15 @@
 //! review follow canonical FSRS-6 and are not compared here.
 
 use incipit_learn::{credit, format_interval, preview, retrievability, schedule};
-use incipit_learn::{Card, Params, Rating, State, DAY_MS};
+use incipit_learn::{Card, Fixed, Params, Rating, State, DAY_MS};
 use serde_json::Value;
 
 const TOLERANCE: f64 = 1e-9;
+
+/// The learner's clock for these sequences. Their reviews fall at 09:00 UTC and minutes or whole
+/// days after, so on this clock (whose day starts at 04:00) every gap under a day stays in the
+/// same learner day, as the TypeScript scheduler counted it.
+const UTC: Fixed = Fixed(0);
 
 fn fixtures() -> Value {
     serde_json::from_str(include_str!("fixtures/fsrs_ts.json")).expect("fixture is valid JSON")
@@ -134,7 +139,7 @@ fn the_learning_steps_and_first_reviews_match_the_typescript_scheduler() {
         for (i, step) in sc["steps"].as_array().unwrap().iter().enumerate() {
             let what = format!("{name} step {i}");
             let now = step["now"].as_i64().unwrap();
-            let p = preview(&card, now, &params);
+            let p = preview(&card, now, &params, &UTC);
             for (r, key) in Rating::ALL.iter().zip(["1", "2", "3", "4"]) {
                 let ts = step["preview"][key].as_i64().unwrap();
                 // A wait under a day is a learning step; a longer one is the memory's interval.
@@ -156,6 +161,7 @@ fn the_learning_steps_and_first_reviews_match_the_typescript_scheduler() {
                 rating(step["rating"].as_i64().unwrap()),
                 now,
                 &params,
+                &UTC,
             );
             let after = &step["after"];
             check_steps(&next, after, &what);
@@ -189,6 +195,7 @@ fn credit_matches_the_typescript_scheduler() {
             c["now"].as_i64().unwrap(),
             c["share"].as_f64().unwrap(),
             &params,
+            &UTC,
         );
         check_card(&after, &c["after"], &format!("credit {i}"));
     }

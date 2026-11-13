@@ -118,7 +118,14 @@ mod tests {
 
     fn known(days_ago: i64) -> Card {
         let p = Params::default();
-        schedule(&Card::new(0), Rating::Easy, NOW - days_ago * DAY_MS, &p).0
+        schedule(
+            &Card::new(0),
+            Rating::Easy,
+            NOW - days_ago * DAY_MS,
+            &p,
+            &incipit_learn::Fixed(0),
+        )
+        .0
     }
 
     #[test]

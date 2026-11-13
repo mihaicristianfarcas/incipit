@@ -7,6 +7,9 @@
 //! - when today began ([`day_start`], its `startOfDay`): the last time the clock read 04:00. The
 //!   day's allowance of new cards counts from it.
 //!
+//! The scheduler asks one more ([`days_between`]): how many of these days apart two moments are,
+//! which is how FSRS counts the time since a card's last review.
+//!
 //! The clock is a [`Zone`]: how far east of UTC it stands at a given moment. It is asked for each
 //! moment, never once for all of them, because it moves with daylight-saving time: a review made
 //! in winter is placed by winter's clock, whatever the clock reads now.
@@ -72,6 +75,12 @@ pub fn day_start(now: i64, zone: &impl Zone) -> i64 {
     }
 }
 
+/// Whole learner days from `earlier` to `later`: 0 when both fall in the same learner day,
+/// however many hours apart, and 1 from one day to the next, however few. Never below 0.
+pub fn days_between(earlier: i64, later: i64, zone: &impl Zone) -> i64 {
+    (day_number(later, zone) - day_number(earlier, zone)).max(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,6 +99,19 @@ mod tests {
         assert_eq!(day_number(10 * DAY_MS + 3 * HOUR + 59 * MINUTE_MS, &utc), 9);
         assert_eq!(day_number(10 * DAY_MS + 4 * HOUR, &utc), 10);
         assert_eq!(day_number(10 * DAY_MS + 23 * HOUR, &utc), 10);
+    }
+
+    #[test]
+    fn moments_are_whole_learner_days_apart() {
+        let utc = Fixed(0);
+        let evening = 10 * DAY_MS + 22 * HOUR;
+        // Six hours later is the next morning, past four: a day later.
+        assert_eq!(days_between(evening, evening + 6 * HOUR, &utc), 1);
+        // From five in the morning to eleven at night is the same day.
+        let morning = 10 * DAY_MS + 5 * HOUR;
+        assert_eq!(days_between(morning, morning + 18 * HOUR, &utc), 0);
+        assert_eq!(days_between(morning, morning + 3 * DAY_MS, &utc), 3);
+        assert_eq!(days_between(morning + DAY_MS, morning, &utc), 0);
     }
 
     #[test]

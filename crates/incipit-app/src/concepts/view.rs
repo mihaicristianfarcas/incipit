@@ -128,7 +128,7 @@ impl Concepts {
             ties,
             deck,
             cards_on,
-            answered: incipit_learn::evidence(&quizzes, &Params::default()),
+            answered: incipit_learn::evidence(&quizzes, &Params::default(), &crate::study::Local),
             now,
         }
     }

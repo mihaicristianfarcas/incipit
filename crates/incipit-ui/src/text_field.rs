@@ -3,6 +3,8 @@
 //! character palette and dictation work as in any native field. Every
 //! change can be undone. A field made with `markdown()` is a place to write
 //! notes: `markup` says how its text looks and what Enter and Tab do there.
+//! Up and Down in a one-line field also go on to what holds it, which may
+//! step through a list with them.
 
 use std::ops::Range;
 use std::time::Instant;
@@ -422,10 +424,20 @@ impl TextField {
 
     fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
         self.vertical(false, cx);
+        self.pass_on_line_keys(cx);
     }
 
     fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
         self.vertical(true, cx);
+        self.pass_on_line_keys(cx);
+    }
+
+    /// A one-line field has no lines to move between, so Up and Down also reach what holds it:
+    /// a list of results the field steps through.
+    fn pass_on_line_keys(&self, cx: &mut Context<Self>) {
+        if !self.multiline {
+            cx.propagate();
+        }
     }
 
     fn word_left(&mut self, _: &WordLeft, _: &mut Window, cx: &mut Context<Self>) {

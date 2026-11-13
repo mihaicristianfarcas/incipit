@@ -125,7 +125,7 @@ and the vault reads and writes it itself (`Vault::profile`,
 | `interests` | a list |
 | `dailyNew` | new cards a day, 0 to 200 (default 20) |
 | `retention` | the recall a card is scheduled to fall to when it comes due, 0.7 to 0.97 (default 0.9) |
-| `fittedSchedule` | `true` (default): the cards' schedule is fitted to the learner's own reviews once there are enough; `false`: always the standard schedule |
+| `fittedSchedule` | `true` (default): the cards' schedule is fitted to the learner's own reviews once there are enough (see Generated files); `false`: always the standard schedule |
 | `onboarded` | `true` once the first run is done |
 
 The body is the learner's own words about how they learn; until they write
@@ -217,6 +217,34 @@ vault opens was cut short by the app quitting, and is written down as
 
 Fields with nothing in them are left out. The earlier app's `started` is
 `at` here, and its `tier` and `activity` are not kept.
+
+## Generated files
+
+`.incipit/` holds what the app derives from the vault's files. Nothing in
+it is a source of truth: deleting it, or any file in it, only means the
+app makes it again. History leaves it out and its changes are not
+announced. The vault writes these files whole (`Vault::write_generated`).
+
+`fitted-schedule.json` is the flashcards' schedule fitted to the learner's
+own reviews: FSRS-6's 21 weights, fitted by the `fsrs` crate's optimizer
+to `log/reviews.jsonl` ([architecture.md](architecture.md),
+`incipit_learn::fit`).
+
+| Field | |
+|---|---|
+| `weights` | the 21 weights, in FSRS-6's order |
+| `reviews` | how many reviews the fit learnt from: those made on a later day than the card's review before |
+| `fitted` | when, as an RFC 3339 time |
+
+A fit is made when the vault opens and when a review sitting ends, once at
+least 400 reviews can be learnt from, and again only when that number has
+grown by a fifth since the last fit (or is smaller, when the log was cut).
+A fit that fails, or is stopped because another vault opened, leaves the
+file as it was. A file that cannot be read, or whose weights are outside
+the bounds the optimizer keeps, is passed over and fitted again. The cards
+are scheduled with these weights when the profile's `fittedSchedule` is
+`true` and the file is there; the log is replayed with them, so they change
+when cards come due and nothing of what was reviewed.
 
 ## Changes
 

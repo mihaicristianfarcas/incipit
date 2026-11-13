@@ -21,6 +21,7 @@ mod figure;
 mod figures;
 mod find;
 mod first_run;
+mod fitted;
 mod journey;
 mod learning;
 mod library;
@@ -166,11 +167,13 @@ impl Root {
         }
         let workspace = cx.new(workspace::Workspace::new);
         let models = cx.new(models::Models::new);
+        let fitting = cx.new(|cx| fitted::Fitting::new(workspace.clone(), cx));
         let reader = cx.new(|cx| reader::ReaderView::new(workspace.clone(), models.clone(), cx));
         // Reading counts while the window is the one in use.
         reader.update(cx, |reader, cx| reader.watch_window(window, cx));
-        let settings =
-            cx.new(|cx| settings::SettingsView::new(workspace.clone(), models.clone(), cx));
+        let settings = cx.new(|cx| {
+            settings::SettingsView::new(workspace.clone(), models.clone(), fitting.clone(), cx)
+        });
         let first_run =
             cx.new(|cx| first_run::FirstRun::new(workspace.clone(), models.clone(), cx));
         // The app opens, or the first run comes back, as what it waits on changes.
@@ -239,7 +242,9 @@ impl Root {
             cx.notify();
         })
         .detach();
-        let review = cx.new(|cx| review::ReviewView::new(workspace.clone(), models.clone(), cx));
+        let review = cx.new(|cx| {
+            review::ReviewView::new(workspace.clone(), models.clone(), fitting.clone(), cx)
+        });
         let cards = cx.new(|cx| cards::CardsView::new(workspace.clone(), models.clone(), cx));
         // The page of all cards is reached from Review, and goes back to it.
         cx.subscribe(&review, |this: &mut Self, _, _: &review::Browse, cx| {

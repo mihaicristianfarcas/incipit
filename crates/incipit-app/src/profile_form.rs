@@ -8,16 +8,22 @@
 //! The earlier app's three sliders are choices here (a little, some, a lot; 80, 85, 90 or 95 per
 //! cent), since the app has no slider; a value kept in the file that none of them is stays as it
 //! is until the learner picks another.
+//!
+//! In Settings, beside the target recall, a line says whether the flashcards' schedule is fitted
+//! to the learner's reviews, from how many and when (`crate::fitted`), with a switch back to the
+//! standard schedule; like every choice here it is kept when the form is saved. The first run
+//! leaves it out: there are no reviews yet.
 
 use gpui::{
     div, prelude::*, px, AnyElement, Context, Entity, EventEmitter, FontWeight, SharedString,
     Subscription, Window,
 };
 use incipit_ui::{
-    button, card, field, footnote, segmented, select, setting, TextField, Theme, Type,
+    button, card, field, footnote, segmented, select, setting, switch, TextField, Theme, Type,
 };
 use incipit_vault::{Level, Profile, Role};
 
+use crate::fitted::{self, Fitting};
 use crate::workspace::{Happened, Workspace};
 
 /// The profile was saved.
@@ -101,6 +107,8 @@ pub struct ProfileForm {
     submit: SharedString,
     /// How the last save went, in words.
     said: Option<(SharedString, bool)>,
+    /// The fitted schedule, for its line; none on the first run.
+    fitting: Option<Entity<Fitting>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -123,8 +131,12 @@ impl ProfileForm {
     pub fn new(
         workspace: Entity<Workspace>,
         submit: impl Into<SharedString>,
+        fitting: Option<Entity<Fitting>>,
         cx: &mut Context<Self>,
     ) -> Self {
+        if let Some(fitting) = &fitting {
+            cx.observe(fitting, |_, _, cx| cx.notify()).detach();
+        }
         let subscriptions =
             vec![
                 cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
@@ -163,6 +175,7 @@ impl ProfileForm {
             ),
             submit: submit.into(),
             said: None,
+            fitting,
             _subscriptions: subscriptions,
         };
         form.load(cx);
@@ -217,6 +230,12 @@ impl ProfileForm {
         profile.onboarded = true;
         match vault.save_profile(&profile) {
             Ok(saved) => {
+                if saved.fitted_schedule {
+                    // Switched on again, or still on: fit now if a fit is due.
+                    if let Some(fitting) = &self.fitting {
+                        fitting.update(cx, |fitting, cx| fitting.check(cx));
+                    }
+                }
                 self.profile = saved;
                 self.said = Some(("Profile saved".into(), false));
                 self.load(cx);
@@ -370,7 +389,7 @@ impl Render for ProfileForm {
             })
             .collect();
 
-        let review = vec![
+        let mut review = vec![
             Self::asked(
                 "New flashcards per day",
                 Some("From 0 to 200."),
@@ -397,6 +416,31 @@ impl Render for ProfileForm {
             )
             .into_any_element(),
         ];
+
+        if let Some(fitting) = &self.fitting {
+            let fitting = fitting.read(cx);
+            let line = fitted::describe(
+                p.fitted_schedule,
+                fitting.status.as_ref(),
+                fitting.running(),
+                fitted::local_date,
+            );
+            review.push(
+                setting(
+                    "Schedule fitted to your reviews",
+                    Some(line.into()),
+                    switch("profile-fitted", p.fitted_schedule, t).on_toggle({
+                        let me = me.clone();
+                        move |on, _, cx| {
+                            let _ = me
+                                .update(cx, |this, cx| this.choose(|p| p.fitted_schedule = on, cx));
+                        }
+                    }),
+                    t,
+                )
+                .into_any_element(),
+            );
+        }
 
         let more = vec![Self::asked(
             "Anything else about how you learn",

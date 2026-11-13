@@ -1,8 +1,9 @@
 //! The review page: the cards that are due, one at a time. The front, then (Space or the button)
 //! the back and four ways to say how well it was recalled, each showing when the card would come
 //! back; 1 to 4 on the keyboard rate it. Above, what is left today. Cards are made
-//! here too, from a front and a back. INCIPIT_PAGE=review opens the page; INCIPIT_BACK=1 shows the
-//! first card's back.
+//! here too, from a front and a back. A menu in the header picks one deck or every deck
+//! interleaved (INCIPIT_DECK=name starts on a deck). INCIPIT_PAGE=review opens the page;
+//! INCIPIT_BACK=1 shows the first card's back.
 //!
 //! A card's `{{hidden words}}` are a blank until its answer is shown, and stand out after
 //! (`incipit_ui::markdown_cloze`), whatever the card's type, as in the earlier app.
@@ -35,7 +36,8 @@ use gpui::{
 use incipit_learn::{format_interval, Rating, Sitting};
 use incipit_llm::{Cancel, Update};
 use incipit_ui::{
-    button, card, field, markdown_cloze, page, Cloze, FieldEvent, TextField, Theme, Type,
+    button, card, field, markdown_cloze, page, select, Choice, Cloze, FieldEvent, TextField, Theme,
+    Type,
 };
 use incipit_vault::{Concept, DocId, Kind, Vault};
 
@@ -55,6 +57,8 @@ pub struct ReviewView {
     workspace: Entity<Workspace>,
     models: Entity<Models>,
     deck: Option<Deck>,
+    /// The one deck being reviewed; none reviews every deck, interleaved.
+    chosen: Option<String>,
     /// The new-way questions written and not yet used.
     written: Written,
     /// The question the card on screen is asked by; none when it shows its face.
@@ -123,6 +127,7 @@ impl ReviewView {
             workspace,
             models,
             deck: None,
+            chosen: std::env::var("INCIPIT_DECK").ok().filter(|d| !d.is_empty()),
             written: Written::default(),
             asked: None,
             writing: None,
@@ -153,10 +158,20 @@ impl ReviewView {
     /// sitting.
     pub fn begin(&mut self, cx: &mut Context<Self>) {
         self.deck = self.vault(cx).map(|vault| Deck::load(&vault));
+        // A deck that is gone (another vault's, or emptied) is not reviewed: all decks are.
+        if let Some(deck) = &self.deck {
+            if !deck
+                .decks()
+                .iter()
+                .any(|(name, _)| Some(name) == self.chosen.as_ref())
+            {
+                self.chosen = None;
+            }
+        }
         let queue = self
             .deck
             .as_ref()
-            .map(|deck| deck.queue(now(), &Local).cards)
+            .map(|deck| deck.queue_in(self.chosen.as_deref(), now(), &Local).cards)
             .unwrap_or_default();
         self.sitting = Sitting::new(queue);
         // The switch is for the first card there is, so it waits for a vault to be open.
@@ -168,6 +183,17 @@ impl ReviewView {
             self.mixed_quiz(cx);
         }
         cx.notify();
+    }
+
+    /// Reviews one deck, or every deck interleaved (`None`): a new sitting over that pool, as the
+    /// earlier app's deck menu starts a new queue.
+    fn choose_deck(&mut self, name: Option<String>, cx: &mut Context<Self>) {
+        if name == self.chosen {
+            return;
+        }
+        self.chosen = name;
+        self.written.clear();
+        self.begin(cx);
     }
 
     /// A mixed review quiz across the concepts known least, with the earlier app's count.
@@ -278,9 +304,14 @@ impl ReviewView {
             cx.notify();
             return;
         };
+        let chosen = self.chosen.as_deref();
+        self.sitting.keep(|id| {
+            deck.get(id).is_some_and(|entry| {
+                !entry.card.suspended && chosen.is_none_or(|name| entry.card.deck == name)
+            })
+        });
         self.sitting
-            .keep(|id| deck.get(id).is_some_and(|entry| !entry.card.suspended));
-        self.sitting.join(deck.queue(now(), &Local).cards);
+            .join(deck.queue_in(chosen, now(), &Local).cards);
         if self.sitting.current() != on_screen.as_ref() {
             self.revealed = false;
             self.shown = Instant::now();
@@ -374,7 +405,7 @@ impl ReviewView {
 
     /// What is left today, in one quiet line.
     fn summary(&self, deck: &Deck) -> String {
-        let counts = deck.counts(now(), &Local);
+        let counts = deck.counts_in(self.chosen.as_deref(), now(), &Local);
         let mut parts = vec![match counts.due_now {
             0 => "Nothing due".to_string(),
             1 => "1 card due".to_string(),
@@ -387,6 +418,32 @@ impl ReviewView {
             parts.push(format!("{} done today", counts.done_today));
         }
         parts.join("  ·  ")
+    }
+
+    /// The deck to review: every deck interleaved, or one, each with its card count.
+    fn deck_menu(&self, deck: &Deck, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let decks = deck.decks();
+        let mut choices = vec![Choice::new("All decks, interleaved")];
+        choices.extend(
+            decks
+                .iter()
+                .map(|(name, count)| Choice::new(format!("{name} ({count})"))),
+        );
+        let at = self
+            .chosen
+            .as_ref()
+            .and_then(|chosen| decks.iter().position(|(name, _)| name == chosen))
+            .map_or(0, |i| i + 1);
+        let names: Vec<String> = decks.into_iter().map(|(name, _)| name).collect();
+        select("review-deck", choices, Some(at), t)
+            .width(230.0)
+            .on_select({
+                let view = cx.entity().downgrade();
+                move |i, _, cx| {
+                    let name = i.checked_sub(1).and_then(|i| names.get(i).cloned());
+                    let _ = view.update(cx, |this, cx| this.choose_deck(name, cx));
+                }
+            })
     }
 
     fn composer(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -616,6 +673,7 @@ impl Render for ReviewView {
                         n => format!("{n} cards"),
                     }),
             )
+            .child(self.deck_menu(deck, t, cx))
             .child(button("card-new", "New card", t).on_click(cx.listener(
                 |this, _, window, cx| {
                     this.adding = true;

@@ -99,6 +99,8 @@ pub struct ReviewView {
     front: Entity<TextField>,
     back: Entity<TextField>,
     problem: Option<String>,
+    /// Something worth saying that is not a failure: a card was set aside for slipping.
+    notice: Option<String>,
     focus: FocusHandle,
     scroll: ScrollHandle,
     /// The sheet of a mixed review quiz.
@@ -178,6 +180,7 @@ impl ReviewView {
             front,
             back,
             problem: None,
+            notice: None,
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             quiz,
@@ -198,6 +201,7 @@ impl ReviewView {
     pub fn begin(&mut self, cx: &mut Context<Self>) {
         self.done = 0;
         self.again = 0;
+        self.notice = None;
         self.start(cx);
     }
 
@@ -388,8 +392,9 @@ impl ReviewView {
             None => deck.rate(&vault, &id, rating, at, Some(took)),
         };
         match kept {
-            Ok(()) => {
+            Ok(slipped) => {
                 self.problem = None;
+                self.notice = None;
                 if self.asked.is_some() {
                     // Asked once: the next time it is a new question.
                     self.written.forget(&id);
@@ -403,6 +408,15 @@ impl ReviewView {
                 self.revealed = false;
                 self.shown = Instant::now();
                 self.face(cx);
+                if slipped {
+                    // Forgotten again and again: it is set aside and leaves the sitting.
+                    self.notice = Some(
+                        "That card keeps slipping, so it is set aside. Rewrite it or bring it \
+                         back on the Cards page."
+                            .into(),
+                    );
+                    self.refresh(cx);
+                }
             }
             Err(e) => self.problem = Some(format!("The review was not kept: {e}")),
         }
@@ -823,6 +837,11 @@ impl Render for ReviewView {
                 self.problem
                     .clone()
                     .map(|p| div().text_color(t.danger).child(p)),
+            )
+            .children(
+                self.notice
+                    .clone()
+                    .map(|n| div().text_color(t.secondary).child(n)),
             )
             .when(self.adding, |body| body.child(self.composer(t, cx)))
             .child(self.sitting(deck, t, cx));

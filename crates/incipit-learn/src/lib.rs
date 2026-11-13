@@ -12,6 +12,7 @@
 //! - [`card`]: [`Card`], [`Rating`], [`State`] and the [`Review`] log record.
 //! - [`day`]: the learner's day, which starts at 4 am on their own clock.
 //! - [`journey`]: the days studied, recall over time and the streak, with its pause.
+//! - [`leech`]: cards forgotten again and again, and the lapse that sets one aside.
 //! - [`new_way`]: which reviews ask a card known for weeks a new way.
 //! - [`params`]: the 21 FSRS-6 weights, desired retention and the learning steps.
 //! - [`schedule`]: one review, the preview of the four buttons, recall probability.
@@ -25,6 +26,7 @@ pub mod answers;
 pub mod card;
 pub mod day;
 pub mod journey;
+pub mod leech;
 pub mod new_way;
 pub mod params;
 pub mod plan;
@@ -37,6 +39,7 @@ pub mod sittings;
 pub use answers::{evidence, rating_for, Evidence, Quizzed};
 pub use card::{Card, Rating, Review, State};
 pub use day::{day_number, day_start, Fixed, Zone};
+pub use leech::{is_leech, keeps_slipping, lapses, LEECH_LAPSES};
 pub use new_way::{asks_new_way, KNOWN_DAYS};
 pub use params::Params;
 pub use progress::{book_progress, fraction_of, last_touched, roughly, Length, Progress, Reading};

@@ -19,7 +19,10 @@
 //!   Anki counts the days of its reviews by its day cutoff the same way, and FSRS-6 takes whole
 //!   days. The earlier app counted fractional days and called anything under 24 hours the same
 //!   day. The probability of recall at a moment ([`retrievability`], for showing and ordering)
-//!   stays on the real clock, as the crate's and Anki's current retrievability does.
+//!   stays on the real clock, as the crate's and Anki's current retrievability does;
+//! - stability is held within the `fsrs` crate's bounds, which its optimizer fits the weights
+//!   within: a first review's is its weight down to 0.0001 days (the earlier app raised it to at
+//!   least 0.1), and no stability or interval goes past 36,500 days.
 
 use crate::card::{Card, Rating, Review, State};
 use crate::day::{days_between, Zone};
@@ -28,6 +31,15 @@ use crate::{DAY_MS, MINUTE_MS};
 
 fn clamp_d(d: f64) -> f64 {
     d.clamp(1.0, 10.0)
+}
+
+/// The least and the most a stability, and an interval, can be, in days: the `fsrs` crate's
+/// `S_MIN` and `S_MAX`. Its optimizer fits a first review's stability down to the least, so a
+/// learner who forgets new cards within hours keeps that weight; the most is a hundred years.
+const STABILITY: (f64, f64) = (0.0001, 36_500.0);
+
+fn clamp_s(s: f64) -> f64 {
+    s.clamp(STABILITY.0, STABILITY.1)
 }
 
 fn decay(p: &Params) -> f64 {
@@ -46,7 +58,7 @@ fn forgetting(days: f64, s: f64, p: &Params) -> f64 {
 
 /// Days until recall is expected to fall to the desired retention.
 fn interval_days(s: f64, p: &Params) -> f64 {
-    s / factor(p) * (p.desired_retention.powf(-1.0 / decay(p)) - 1.0)
+    (s / factor(p) * (p.desired_retention.powf(-1.0 / decay(p)) - 1.0)).min(STABILITY.1)
 }
 
 fn whole_days(s: f64, p: &Params) -> i64 {
@@ -54,7 +66,7 @@ fn whole_days(s: f64, p: &Params) -> i64 {
 }
 
 fn init_s(g: f64, p: &Params) -> f64 {
-    p.weights[(g as usize) - 1].max(0.1)
+    clamp_s(p.weights[(g as usize) - 1])
 }
 
 /// The difficulty a first review with grade `g` gives, before it is held within 1 to 10.
@@ -82,14 +94,21 @@ fn recall_s(s: f64, d: f64, r: f64, rating: Rating, p: &Params) -> f64 {
     let w = &p.weights;
     let hard = if rating == Rating::Hard { w[15] } else { 1.0 };
     let easy = if rating == Rating::Easy { w[16] } else { 1.0 };
-    s * (w[8].exp() * (11.0 - d) * s.powf(-w[9]) * ((w[10] * (1.0 - r)).exp() - 1.0) * hard * easy
-        + 1.0)
+    clamp_s(
+        s * (w[8].exp()
+            * (11.0 - d)
+            * s.powf(-w[9])
+            * ((w[10] * (1.0 - r)).exp() - 1.0)
+            * hard
+            * easy
+            + 1.0),
+    )
 }
 
 fn forget_s(s: f64, d: f64, r: f64, p: &Params) -> f64 {
     let w = &p.weights;
     let next = w[11] * d.powf(-w[12]) * ((s + 1.0).powf(w[13]) - 1.0) * (w[14] * (1.0 - r)).exp();
-    next.min(s / (w[17] * w[18]).exp())
+    clamp_s(next.min(s / (w[17] * w[18]).exp()))
 }
 
 /// A review on the day of the last one: stability changes a little, and never shrinks on a pass
@@ -100,7 +119,7 @@ fn short_term_s(s: f64, rating: Rating, p: &Params) -> f64 {
     if rating.grade() >= 2.0 {
         inc = inc.max(1.0);
     }
-    s * inc
+    clamp_s(s * inc)
 }
 
 /// A card that has been passed: back in days, with its new memory.
@@ -425,6 +444,27 @@ mod tests {
         let east = Fixed(360);
         let (_, line) = schedule(&known, Rating::Good, NOW + 15 * HOUR, &p, &east);
         assert_eq!(line.elapsed_days, 1.0);
+    }
+
+    #[test]
+    fn a_first_review_keeps_a_small_fitted_stability_and_none_passes_a_hundred_years() {
+        let mut p = Params::default();
+        p.weights[0] = 0.05;
+        let again = schedule(&Card::new(NOW), Rating::Again, NOW, &p, &UTC).0;
+        assert_eq!(again.stability, 0.05);
+        let known = Card {
+            state: State::Review,
+            stability: 30_000.0,
+            difficulty: 1.0,
+            last_review: Some(NOW),
+            due: NOW + 30_000 * DAY_MS,
+            step: 0,
+            reps: 20,
+            lapses: 0,
+        };
+        let (easy, _) = schedule(&known, Rating::Easy, NOW + 30_000 * DAY_MS, &p, &UTC);
+        assert_eq!(easy.stability, STABILITY.1);
+        assert!(easy.due - (NOW + 30_000 * DAY_MS) <= 36_500 * DAY_MS);
     }
 
     #[test]

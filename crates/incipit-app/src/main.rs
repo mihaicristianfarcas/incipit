@@ -10,6 +10,8 @@
 mod activity;
 mod agent;
 mod brain;
+mod cardlist;
+mod cards;
 mod concepts;
 mod demo;
 mod drafter;
@@ -53,6 +55,7 @@ enum Page {
     Reader,
     Notes,
     Review,
+    Cards,
     Brain,
     Journey,
     Math,
@@ -72,7 +75,7 @@ impl Page {
             Page::Brain => Some("brain"),
             Page::Journey => Some("journey"),
             Page::Settings => Some("settings"),
-            Page::Reader | Page::Math | Page::Figure => None,
+            Page::Reader | Page::Math | Page::Figure | Page::Cards => None,
         }
     }
 }
@@ -103,6 +106,7 @@ struct Root {
     math: Entity<math::MathView>,
     notes: Entity<notes::NotesView>,
     review: Entity<review::ReviewView>,
+    cards: Entity<cards::CardsView>,
     library: Entity<library::LibraryView>,
     brain: Entity<brain::BrainView>,
     today: Entity<today::TodayView>,
@@ -126,6 +130,7 @@ impl Root {
             Ok("math") => Page::Math,
             Ok("notes") => Page::Notes,
             Ok("review") => Page::Review,
+            Ok("cards") => Page::Cards,
             Ok("library") => Page::Library,
             Ok("brain") | Ok("concepts") => Page::Brain,
             Ok("journey") => Page::Journey,
@@ -230,6 +235,20 @@ impl Root {
         // A passage a concept came from opens in the reader, at its place.
         cx.subscribe(&brain, |this: &mut Self, _, read: &brain::Read, cx| {
             this.read(&read.0, cx);
+            cx.notify();
+        })
+        .detach();
+        let review = cx.new(|cx| review::ReviewView::new(workspace.clone(), models.clone(), cx));
+        let cards = cx.new(|cx| cards::CardsView::new(workspace.clone(), cx));
+        // The page of all cards is reached from Review, and goes back to it.
+        cx.subscribe(&review, |this: &mut Self, _, _: &review::Browse, cx| {
+            this.cards.update(cx, |cards, cx| cards.reload(cx));
+            this.page = Page::Cards;
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&cards, |this: &mut Self, _, _: &cards::Back, cx| {
+            this.go(Page::Review, cx);
             cx.notify();
         })
         .detach();
@@ -389,7 +408,8 @@ impl Root {
             figure,
             math: cx.new(math::MathView::new),
             notes,
-            review: cx.new(|cx| review::ReviewView::new(workspace.clone(), models.clone(), cx)),
+            review,
+            cards,
             reader,
             journey,
             settings,
@@ -510,10 +530,16 @@ impl Root {
     }
 
     fn sidebar(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
-        let at = PAGES.iter().position(|p| p.0 == self.page);
+        // The cards page belongs to Review.
+        let here = if self.page == Page::Cards {
+            Page::Review
+        } else {
+            self.page
+        };
+        let at = PAGES.iter().position(|p| p.0 == here);
         let mut list = incipit_ui::nav_list(&self.glide, at, t);
         for (index, (page, id, label, glyph)) in PAGES.into_iter().enumerate() {
-            let on = self.page == page;
+            let on = here == page;
             list = list.child(
                 incipit_ui::nav_row(id, label, glyph, on, index, &self.glide, false, t).when(
                     !on,
@@ -554,6 +580,7 @@ impl Render for Root {
             Page::Brain => self.brain.clone().into_any_element(),
             Page::Library => self.library.clone().into_any_element(),
             Page::Review => self.review.clone().into_any_element(),
+            Page::Cards => self.cards.clone().into_any_element(),
             Page::Reader => self.reader.clone().into_any_element(),
             Page::Settings => self.settings.clone().into_any_element(),
         };

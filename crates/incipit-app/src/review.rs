@@ -35,8 +35,8 @@ use std::time::Instant;
 
 use futures::StreamExt;
 use gpui::{
-    div, prelude::*, px, Context, Entity, FocusHandle, IntoElement, KeyDownEvent, Render,
-    ScrollHandle, Subscription, Window,
+    div, prelude::*, px, Context, Entity, EventEmitter, FocusHandle, IntoElement, KeyDownEvent,
+    Render, ScrollHandle, Subscription, Window,
 };
 use incipit_learn::{first_try_percent, format_interval, Rating, Sitting};
 use incipit_llm::{Cancel, Update};
@@ -57,6 +57,11 @@ use crate::workspace::{Happened, Workspace};
 
 /// The deck cards made of a mixed review's misses go into: the earlier app's.
 const MIXED: &str = "Mixed review";
+
+/// The learner asks for the page of all cards.
+pub struct Browse;
+
+impl EventEmitter<Browse> for ReviewView {}
 
 pub struct ReviewView {
     workspace: Entity<Workspace>,
@@ -766,6 +771,11 @@ impl Render for ReviewView {
             )
             .child(self.deck_menu(deck, t, cx))
             .child(self.type_switch(t, cx))
+            .child(
+                button("cards-browse", "All cards", t)
+                    .tooltip("Browse and edit every card")
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(Browse))),
+            )
             .child(button("card-new", "New card", t).on_click(cx.listener(
                 |this, _, window, cx| {
                     this.adding = true;

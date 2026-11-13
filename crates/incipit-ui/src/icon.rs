@@ -16,6 +16,7 @@ pub enum IconName {
     Check,
     CheckCircle,
     ChevronDown,
+    ChevronUp,
     ChevronLeft,
     ChevronRight,
     ChevronUpDown,
@@ -69,7 +70,7 @@ pub enum IconName {
 }
 
 impl IconName {
-    pub const ALL: [IconName; 59] = [
+    pub const ALL: [IconName; 60] = [
         IconName::Activity,
         IconName::Agent,
         IconName::ArrowRight,
@@ -79,6 +80,7 @@ impl IconName {
         IconName::Check,
         IconName::CheckCircle,
         IconName::ChevronDown,
+        IconName::ChevronUp,
         IconName::ChevronLeft,
         IconName::ChevronRight,
         IconName::ChevronUpDown,
@@ -142,6 +144,7 @@ impl IconName {
             IconName::Check => "icons/check.svg",
             IconName::CheckCircle => "icons/check-circle.svg",
             IconName::ChevronDown => "icons/chevron-down.svg",
+            IconName::ChevronUp => "icons/chevron-up.svg",
             IconName::ChevronLeft => "icons/chevron-left.svg",
             IconName::ChevronRight => "icons/chevron-right.svg",
             IconName::ChevronUpDown => "icons/chevron-up-down.svg",
@@ -262,6 +265,7 @@ fn embedded(path: &str) -> Option<&'static [u8]> {
         "icons/check.svg" => include_bytes!("../assets/icons/check.svg"),
         "icons/check-circle.svg" => include_bytes!("../assets/icons/check-circle.svg"),
         "icons/chevron-down.svg" => include_bytes!("../assets/icons/chevron-down.svg"),
+        "icons/chevron-up.svg" => include_bytes!("../assets/icons/chevron-up.svg"),
         "icons/chevron-left.svg" => include_bytes!("../assets/icons/chevron-left.svg"),
         "icons/chevron-right.svg" => include_bytes!("../assets/icons/chevron-right.svg"),
         "icons/chevron-up-down.svg" => include_bytes!("../assets/icons/chevron-up-down.svg"),

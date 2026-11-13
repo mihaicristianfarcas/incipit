@@ -10,3 +10,6 @@ serde.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+# Canonical FSRS-6, to check the scheduler's formulas against (tests/against_fsrs.rs). The version
+# Anki pins.
+fsrs = "=6.6.2"

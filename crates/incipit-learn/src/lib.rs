@@ -4,11 +4,12 @@
 //! result is the same on every run and on every machine.
 //!
 //! The scheduler is the earlier app's `shared/fsrs.ts` (its learning steps, rounding and credit)
-//! with canonical FSRS-6's formulas where that one departs from them (`schedule` lists where), not
-//! a binding to a Rust FSRS crate: the `fsrs` crate pulls in a machine-learning framework for the
-//! optimizer, which is not needed, and `rs-fsrs` schedules the learning steps and same-day reviews
-//! differently, which would change the intervals a learner already knows. Intervals are not
-//! fuzzed, as in the original.
+//! with canonical FSRS-6's formulas where that one departs from them (`schedule` lists where). It
+//! is not the `fsrs` crate's scheduler, which gives memory states and intervals but no learning
+//! steps; the tests check the formulas against that crate (the one Anki uses; its optimizer needs
+//! no machine-learning framework, only `ndarray` and `rayon`). `rs-fsrs` schedules the learning
+//! steps and same-day reviews differently, which would change the intervals a learner already
+//! knows. Intervals are not fuzzed, as in the original.
 //!
 //! - [`answers`]: quiz answers as evidence of how well a concept is known.
 //! - [`card`]: [`Card`], [`Rating`], [`State`] and the [`Review`] log record.

@@ -8,8 +8,8 @@
 //! two still share is checked here: at every step the card's phase, step, repetitions, lapses and
 //! last review, and the minute-long waits of the learning steps, exactly; the memory a first
 //! review gives and the recall it leaves for the next one, within a relative error of 1e-9; every
-//! `credit` call; and the labels. Stability, difficulty and the day-long intervals after a first
-//! review follow canonical FSRS-6 and are not compared here.
+//! `credit` call; and the labels. Stability, difficulty and the day-long intervals are checked
+//! against the `fsrs` crate's FSRS-6 on the same sequences (`against_fsrs.rs`).
 
 use incipit_learn::{credit, format_interval, preview, retrievability, schedule};
 use incipit_learn::{Card, Fixed, Params, Rating, State, DAY_MS};

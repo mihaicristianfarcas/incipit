@@ -3,7 +3,8 @@
 //! the paragraph, six at most; in an EPUB the first block of text the line reaches) and opens
 //! the selection's menu with the keyboard on its first button. With the menu open, its letters
 //! do what its buttons do (H highlight, N note, E explain, D define, A ask, V figure), the arrows
-//! go along its buttons, and Escape closes it and puts the keyboard back in the book.
+//! go round its buttons and Home and End to its ends, and Escape closes it and puts the keyboard
+//! back in the book.
 //!
 //! The keys reach the reader while the book has the keyboard (a click on the book gives it the
 //! keyboard back) or the menu does, never while a field is being typed in.
@@ -20,6 +21,8 @@ use super::{Compose, ReaderView, State, COLUMN, GAP, MARGIN, PAGE_GAP};
 /// How far under the passage the menu opens: as far as under the place where the mouse let go
 /// of a selection.
 const UNDER: f32 = 14.0;
+/// More than the selection menu has buttons: how far along them the keyboard looks for the last.
+const MENU_BUTTONS: usize = 16;
 
 impl ReaderView {
     /// A key pressed in the reader: S, and the menu's keys.
@@ -48,19 +51,29 @@ impl ReaderView {
                 self.focus.focus(window, cx);
                 cx.notify();
             }
+            // The arrows go round the menu's buttons, Home and End to its ends.
             "right" if in_menu => {
                 window.focus_next(cx);
-                // The arrows stay among the menu's buttons.
                 if !self.menu_focus.contains_focused(window, cx) {
-                    window.focus_prev(cx);
+                    self.menu_first(window, cx);
                 }
                 keyboard_moved();
             }
             "left" if in_menu => {
                 window.focus_prev(cx);
-                if !self.menu_focus.contains_focused(window, cx) {
-                    window.focus_next(cx);
+                if !self.menu_focus.contains_focused(window, cx)
+                    || self.menu_focus.is_focused(window)
+                {
+                    self.menu_last(window, cx);
                 }
+                keyboard_moved();
+            }
+            "home" if in_menu => {
+                self.menu_first(window, cx);
+                keyboard_moved();
+            }
+            "end" if in_menu => {
+                self.menu_last(window, cx);
                 keyboard_moved();
             }
             "h" | "n" | "e" | "d" if menu => {
@@ -104,6 +117,25 @@ impl ReaderView {
     pub(super) fn select_wanted(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.select_on_open && self.select_from_keyboard(window, cx) {
             self.select_on_open = false;
+        }
+    }
+
+    /// The keyboard to the menu's first button: the one after the menu itself.
+    fn menu_first(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.menu_focus.focus(window, cx);
+        window.focus_next(cx);
+    }
+
+    /// The keyboard to the menu's last button: along them from the first until the next is not
+    /// one of them.
+    fn menu_last(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.menu_first(window, cx);
+        for _ in 0..MENU_BUTTONS {
+            window.focus_next(cx);
+            if !self.menu_focus.contains_focused(window, cx) {
+                window.focus_prev(cx);
+                return;
+            }
         }
     }
 

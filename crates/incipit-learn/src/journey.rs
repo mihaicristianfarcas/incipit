@@ -522,7 +522,14 @@ mod tests {
     fn recall_counts_the_cards_seen_and_the_month() {
         let p = Params::default();
         let at = noon(TODAY);
-        let fresh = crate::schedule(&Card::new(0), crate::Rating::Easy, at - DAY_MS, &p).0;
+        let fresh = crate::schedule(
+            &Card::new(0),
+            crate::Rating::Easy,
+            at - DAY_MS,
+            &p,
+            &crate::Fixed(0),
+        )
+        .0;
         let mut old = fresh.clone();
         old.stability = 40.0;
         let rated: Vec<Rated> = [

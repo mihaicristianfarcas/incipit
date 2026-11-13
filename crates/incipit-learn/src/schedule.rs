@@ -12,9 +12,17 @@
 //! - a review on the day of the last one never lowers stability when it is a pass, and Hard is
 //!   a pass (the earlier app floored only Good and Easy);
 //! - difficulty reverts toward the Easy start as the formula gives it, which can be below 1; only
-//!   the result is held within 1 to 10 (the earlier app held the target too).
+//!   the result is held within 1 to 10 (the earlier app held the target too);
+//! - the time since the last review is counted in whole days, and they are the learner's days,
+//!   which start at 4 am on their clock (`crate::day`): a review in the same learner day as the
+//!   last is a same-day review, one in the next day is a day later, whatever the hours between.
+//!   Anki counts the days of its reviews by its day cutoff the same way, and FSRS-6 takes whole
+//!   days. The earlier app counted fractional days and called anything under 24 hours the same
+//!   day. The probability of recall at a moment ([`retrievability`], for showing and ordering)
+//!   stays on the real clock, as the crate's and Anki's current retrievability does.
 
 use crate::card::{Card, Rating, Review, State};
+use crate::day::{days_between, Zone};
 use crate::params::Params;
 use crate::{DAY_MS, MINUTE_MS};
 
@@ -133,14 +141,14 @@ fn first_review(rating: Rating, now: i64, p: &Params) -> Card {
     }
 }
 
-fn next_card(card: &Card, rating: Rating, now: i64, p: &Params) -> Card {
+fn next_card(card: &Card, rating: Rating, now: i64, p: &Params, zone: &impl Zone) -> Card {
     let Some(last) = card.last_review.filter(|_| card.state != State::New) else {
         return first_review(rating, now, p);
     };
-    let days = (now - last) as f64 / DAY_MS as f64;
-    let r = forgetting(days, card.stability, p);
+    let days = days_between(last, now, zone);
+    let r = forgetting(days as f64, card.stability, p);
     let d = next_d(card.difficulty, rating.grade(), p);
-    let same_day = days < 1.0;
+    let same_day = days == 0;
     let again = rating == Rating::Again;
     if card.state == State::Review {
         if again {
@@ -204,11 +212,18 @@ fn next_card(card: &Card, rating: Rating, now: i64, p: &Params) -> Card {
 }
 
 /// Applies one review. Returns the card as it is afterwards and the line for the review log.
-pub fn schedule(card: &Card, rating: Rating, now: i64, params: &Params) -> (Card, Review) {
-    let next = next_card(card, rating, now, params);
+/// `zone` is the learner's clock, by which the days since the last review are counted.
+pub fn schedule(
+    card: &Card,
+    rating: Rating,
+    now: i64,
+    params: &Params,
+    zone: &impl Zone,
+) -> (Card, Review) {
+    let next = next_card(card, rating, now, params, zone);
     let elapsed_days = match (card.state, card.last_review) {
         (State::New, _) | (_, None) => 0.0,
-        (_, Some(last)) => ((now - last) as f64 / DAY_MS as f64).max(0.0),
+        (_, Some(last)) => days_between(last, now, zone) as f64,
     };
     let review = Review {
         time: now,
@@ -242,8 +257,8 @@ impl Preview {
 }
 
 /// What each rating would give right now, for the labels on the buttons.
-pub fn preview(card: &Card, now: i64, params: &Params) -> Preview {
-    let wait = |r| next_card(card, r, now, params).due - now;
+pub fn preview(card: &Card, now: i64, params: &Params, zone: &impl Zone) -> Preview {
+    let wait = |r| next_card(card, r, now, params, zone).due - now;
     Preview {
         again: wait(Rating::Again),
         hard: wait(Rating::Hard),
@@ -252,7 +267,9 @@ pub fn preview(card: &Card, now: i64, params: &Params) -> Preview {
     }
 }
 
-/// Probability of recalling the card at `now`; zero for a card never reviewed.
+/// Probability of recalling the card at `now`; zero for a card never reviewed. The time since the
+/// last review is on the real clock here, in fractional days, so it falls smoothly through the
+/// day; a review's own step counts whole learner days instead.
 pub fn retrievability(card: &Card, now: i64, params: &Params) -> f64 {
     match card.last_review {
         Some(last) if card.state != State::New => {
@@ -268,16 +285,17 @@ pub const CREDIT_SHARE: f64 = 0.3;
 /// Part of a review for a memory used without being reviewed (the idea behind a card was needed to
 /// answer another): `share` of the stability a Good review would add now. The last-review time is
 /// not reset, so a card coming due is put off while one long overdue stays due. Only a card in
-/// review, and not on the day of its last review, is changed.
-pub fn credit(card: &Card, now: i64, share: f64, params: &Params) -> Card {
+/// review, and not on the learner day of its last review, is changed; the days are counted as a
+/// review counts them.
+pub fn credit(card: &Card, now: i64, share: f64, params: &Params, zone: &impl Zone) -> Card {
     let Some(last) = card.last_review else {
         return card.clone();
     };
-    let days = (now - last) as f64 / DAY_MS as f64;
-    if card.state != State::Review || days < 1.0 {
+    let days = days_between(last, now, zone);
+    if card.state != State::Review || days == 0 {
         return card.clone();
     }
-    let r = forgetting(days, card.stability, params);
+    let r = forgetting(days as f64, card.stability, params);
     let good = recall_s(card.stability, card.difficulty, r, Rating::Good, params);
     let s = card.stability + share * (good - card.stability).max(0.0);
     let due = last + whole_days(s, params) * DAY_MS;
@@ -311,8 +329,12 @@ pub fn format_interval(ms: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::day::Fixed;
 
+    /// 08:00 UTC.
     const NOW: i64 = 1_800_000_000_000;
+    const UTC: Fixed = Fixed(0);
+    const HOUR: i64 = 60 * MINUTE_MS;
 
     fn run(ratings: &[(i64, Rating)]) -> Card {
         let p = Params::default();
@@ -320,7 +342,7 @@ mod tests {
         let mut now = NOW;
         for &(gap, r) in ratings {
             now += gap;
-            card = schedule(&card, r, now, &p).0;
+            card = schedule(&card, r, now, &p, &UTC).0;
         }
         card
     }
@@ -328,12 +350,12 @@ mod tests {
     #[test]
     fn a_new_card_rated_good_waits_ten_minutes_and_easy_graduates() {
         let p = Params::default();
-        let good = schedule(&Card::new(NOW), Rating::Good, NOW, &p).0;
+        let good = schedule(&Card::new(NOW), Rating::Good, NOW, &p, &UTC).0;
         assert_eq!(
             (good.state, good.due - NOW),
             (State::Learning, 10 * MINUTE_MS)
         );
-        let easy = schedule(&Card::new(NOW), Rating::Easy, NOW, &p).0;
+        let easy = schedule(&Card::new(NOW), Rating::Easy, NOW, &p, &UTC).0;
         assert_eq!(easy.state, State::Review);
         assert_eq!(easy.due - NOW, 8 * DAY_MS);
     }
@@ -341,11 +363,11 @@ mod tests {
     #[test]
     fn the_log_line_records_the_state_before_and_the_wait() {
         let p = Params::default();
-        let (card, review) = schedule(&Card::new(NOW), Rating::Hard, NOW, &p);
+        let (card, review) = schedule(&Card::new(NOW), Rating::Hard, NOW, &p, &UTC);
         assert_eq!(review.state_before, State::New);
         assert_eq!(review.elapsed_days, 0.0);
         assert_eq!(review.scheduled_ms, card.due - NOW);
-        let (_, second) = schedule(&card, Rating::Good, NOW + DAY_MS, &p);
+        let (_, second) = schedule(&card, Rating::Good, NOW + DAY_MS, &p, &UTC);
         assert_eq!(second.state_before, State::Learning);
         assert_eq!(second.elapsed_days, 1.0);
     }
@@ -357,7 +379,7 @@ mod tests {
             (10 * MINUTE_MS, Rating::Good),
             (DAY_MS, Rating::Good),
         ]);
-        let (lapsed, _) = schedule(&card, Rating::Again, card.due, &Params::default());
+        let (lapsed, _) = schedule(&card, Rating::Again, card.due, &Params::default(), &UTC);
         assert_eq!((lapsed.state, lapsed.lapses), (State::Relearning, 1));
         assert_eq!(lapsed.due - card.due, 10 * MINUTE_MS);
         assert!(lapsed.stability < card.stability);
@@ -368,9 +390,9 @@ mod tests {
         let p = Params::default();
         let learning = run(&[(0, Rating::Good)]);
         let later = NOW + 10 * MINUTE_MS;
-        let hard = schedule(&learning, Rating::Hard, later, &p).0;
+        let hard = schedule(&learning, Rating::Hard, later, &p, &UTC).0;
         assert_eq!(hard.stability, learning.stability);
-        let again = schedule(&learning, Rating::Again, later, &p).0;
+        let again = schedule(&learning, Rating::Again, later, &p, &UTC).0;
         assert!(again.stability < learning.stability);
     }
 
@@ -387,13 +409,32 @@ mod tests {
     }
 
     #[test]
+    fn the_days_since_a_review_are_whole_learner_days() {
+        let p = Params::default();
+        let known = run(&[(0, Rating::Easy)]);
+        // At eleven at night it is still the day of the review; at five the next morning, after
+        // the day starts at four, it is a day later, as it is a whole day later.
+        let (_, evening) = schedule(&known, Rating::Good, NOW + 15 * HOUR, &p, &UTC);
+        assert_eq!(evening.elapsed_days, 0.0);
+        let (morning, line) = schedule(&known, Rating::Good, NOW + 21 * HOUR, &p, &UTC);
+        assert_eq!(line.elapsed_days, 1.0);
+        let (day_later, _) = schedule(&known, Rating::Good, NOW + DAY_MS, &p, &UTC);
+        assert_eq!(morning.stability, day_later.stability);
+        // On a clock six hours east the review was at 14:00, and eleven at night UTC is five the
+        // next morning there: a day later.
+        let east = Fixed(360);
+        let (_, line) = schedule(&known, Rating::Good, NOW + 15 * HOUR, &p, &east);
+        assert_eq!(line.elapsed_days, 1.0);
+    }
+
+    #[test]
     fn the_preview_gives_longer_waits_for_better_ratings() {
         let card = run(&[
             (0, Rating::Good),
             (10 * MINUTE_MS, Rating::Good),
             (DAY_MS, Rating::Good),
         ]);
-        let p = preview(&card, card.due, &Params::default());
+        let p = preview(&card, card.due, &Params::default(), &UTC);
         assert!(p.again < p.hard && p.hard < p.good && p.good < p.easy);
     }
 
@@ -415,8 +456,8 @@ mod tests {
             desired_retention: 0.97,
             ..Params::default()
         };
-        let a = schedule(&Card::new(NOW), Rating::Easy, NOW, &Params::default()).0;
-        let b = schedule(&Card::new(NOW), Rating::Easy, NOW, &strict).0;
+        let a = schedule(&Card::new(NOW), Rating::Easy, NOW, &Params::default(), &UTC).0;
+        let b = schedule(&Card::new(NOW), Rating::Easy, NOW, &strict, &UTC).0;
         assert!(b.due < a.due);
     }
 
@@ -425,18 +466,21 @@ mod tests {
         let p = Params::default();
         let learning = run(&[(0, Rating::Good)]);
         assert_eq!(
-            credit(&learning, NOW + 5 * DAY_MS, CREDIT_SHARE, &p),
+            credit(&learning, NOW + 5 * DAY_MS, CREDIT_SHARE, &p, &UTC),
             learning
         );
         let known = run(&[(0, Rating::Easy)]);
-        assert_eq!(credit(&known, NOW + MINUTE_MS, CREDIT_SHARE, &p), known);
+        assert_eq!(
+            credit(&known, NOW + MINUTE_MS, CREDIT_SHARE, &p, &UTC),
+            known
+        );
     }
 
     #[test]
     fn credit_puts_a_coming_due_card_off() {
         let p = Params::default();
         let known = run(&[(0, Rating::Easy)]);
-        let later = credit(&known, known.due - DAY_MS, CREDIT_SHARE, &p);
+        let later = credit(&known, known.due - DAY_MS, CREDIT_SHARE, &p, &UTC);
         assert!(later.stability > known.stability && later.due >= known.due);
         assert_eq!(later.last_review, known.last_review);
     }
@@ -451,7 +495,7 @@ mod tests {
 
     #[test]
     fn a_card_and_its_log_line_survive_a_round_trip_through_json() {
-        let (card, review) = schedule(&Card::new(NOW), Rating::Good, NOW, &Params::default());
+        let (card, review) = schedule(&Card::new(NOW), Rating::Good, NOW, &Params::default(), &UTC);
         let json = serde_json::to_string(&card).unwrap();
         assert!(json.contains("\"state\":\"learning\"") && json.contains("\"stability\""));
         assert_eq!(serde_json::from_str::<Card>(&json).unwrap(), card);

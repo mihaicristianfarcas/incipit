@@ -9,6 +9,7 @@
 //! already being learned again. The count is replayed from the review log, like all of a card's
 //! schedule, with the same scheduler, so it equals the `lapses` of the card's state.
 
+use crate::day::Fixed;
 use crate::schedule::schedule;
 use crate::{Card, Params, Rating, State};
 
@@ -27,7 +28,9 @@ pub fn lapses(reviews: &[(i64, Rating)], params: &Params) -> u32 {
         if *rating == Rating::Again && card.state == State::Review {
             count += 1;
         }
-        card = schedule(&card, *rating, *at, params).0;
+        // Which phase a card is in follows from its ratings alone, not from the days between
+        // them, so any clock gives the same count.
+        card = schedule(&card, *rating, *at, params, &Fixed(0)).0;
     }
     count
 }
@@ -99,7 +102,7 @@ mod tests {
         let log = forgotten(5);
         let mut card = Card::new(0);
         for (at, rating) in &log {
-            card = schedule(&card, *rating, *at, &params).0;
+            card = schedule(&card, *rating, *at, &params, &Fixed(0)).0;
         }
         assert_eq!(lapses(&log, &params), card.lapses);
     }

@@ -3,10 +3,12 @@
 //! milliseconds since the Unix epoch) go in, and the next card and a log record come out, so every
 //! result is the same on every run and on every machine.
 //!
-//! The scheduler is a port of the earlier app's `shared/fsrs.ts`, not a binding to a Rust FSRS
-//! crate: the `fsrs` crate pulls in a machine-learning framework for the optimizer, which is not
-//! needed, and `rs-fsrs` schedules the learning steps and same-day reviews differently, which would
-//! change the intervals a learner already knows. Intervals are not fuzzed, as in the original.
+//! The scheduler is the earlier app's `shared/fsrs.ts` (its learning steps, rounding and credit)
+//! with canonical FSRS-6's formulas where that one departs from them (`schedule` lists where), not
+//! a binding to a Rust FSRS crate: the `fsrs` crate pulls in a machine-learning framework for the
+//! optimizer, which is not needed, and `rs-fsrs` schedules the learning steps and same-day reviews
+//! differently, which would change the intervals a learner already knows. Intervals are not
+//! fuzzed, as in the original.
 //!
 //! - [`answers`]: quiz answers as evidence of how well a concept is known.
 //! - [`card`]: [`Card`], [`Rating`], [`State`] and the [`Review`] log record.
@@ -38,7 +40,7 @@ pub mod sittings;
 
 pub use answers::{evidence, rating_for, Evidence, Quizzed};
 pub use card::{Card, Rating, Review, State};
-pub use day::{day_number, day_start, Fixed, Zone};
+pub use day::{day_number, day_start, days_between, Fixed, Zone};
 pub use leech::{is_leech, keeps_slipping, lapses, LEECH_LAPSES};
 pub use new_way::{asks_new_way, KNOWN_DAYS};
 pub use params::Params;

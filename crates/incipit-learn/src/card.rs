@@ -95,7 +95,8 @@ pub struct Review {
     pub rating: Rating,
     /// The card's state before this rating. `New` marks the day a card was introduced.
     pub state_before: State,
-    /// Days since the previous review; zero for a new card.
+    /// Whole learner days since the previous review, as the scheduler counted them; zero for a
+    /// new card.
     pub elapsed_days: f64,
     /// How long after `time` the card was set to come due again, in ms.
     pub scheduled_ms: i64,

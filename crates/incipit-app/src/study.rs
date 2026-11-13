@@ -10,13 +10,17 @@
 //!
 //! A card known for weeks is now and then asked a new way (`incipit_learn::new_way`): the log
 //! says which reviews were, and the deck remembers for each card whether its last one was.
+//!
+//! The days since a card's last review are the learner's days, counted on this computer's clock
+//! (`Local`) as the scheduler counts them; a test gives a deck a clock of its own (`load_in`).
 
 use std::collections::{HashMap, HashSet};
 
 use incipit_learn::schedule::CREDIT_SHARE;
 use incipit_learn::{
-    asks_new_way, build_queue, credit, is_leech, new_today, preview, schedule, today_counts,
-    Candidate, Params, Preview, Queue, QueueOptions, Rating, State, TodayCounts, Zone, DAY_MS,
+    asks_new_way, build_queue, credit, days_between, is_leech, new_today, preview, schedule,
+    today_counts, Candidate, Params, Preview, Queue, QueueOptions, Rating, State, TodayCounts,
+    Zone, DAY_MS,
 };
 use incipit_vault::{Card, Doc, DocId, Kind, Review, Vault, REVIEWS};
 
@@ -56,7 +60,12 @@ pub struct Deck {
     credited: HashMap<DocId, i64>,
     /// The cards whose last review asked them a new way.
     new_way_last: HashSet<DocId>,
+    /// The learner's clock, by which the days between reviews are counted.
+    clock: Clock,
 }
+
+/// A learner's clock a deck keeps: any rule from a moment to its offset east of UTC.
+type Clock = Box<dyn Fn(i64) -> i32 + Send + Sync>;
 
 /// Milliseconds since the epoch of an RFC 3339 time; `None` when it is not one.
 fn millis(time: &str) -> Option<i64> {
@@ -99,6 +108,11 @@ impl Deck {
 
     /// The same, with the vault's ties to concepts already read.
     pub fn load_with(vault: &Vault, ties: &Ties) -> Deck {
+        Deck::load_in(vault, ties, Local)
+    }
+
+    /// The same, counting the days between reviews on `clock` instead of this computer's.
+    pub fn load_in(vault: &Vault, ties: &Ties, clock: impl Zone + Send + Sync + 'static) -> Deck {
         let profile = vault.profile();
         let params = Params {
             desired_retention: profile.retention,
@@ -142,6 +156,7 @@ impl Deck {
             foundations: foundations(ties),
             credited: HashMap::new(),
             new_way_last: HashSet::new(),
+            clock: Box::new(move |time| clock.offset_minutes(time)),
         };
         for (at, review) in reviews {
             let (Some(id), Some(rating)) = (by_id.get(&review.card), rating(review.rating)) else {
@@ -182,7 +197,7 @@ impl Deck {
             return;
         };
         let before = entry.state.clone();
-        let (state, line) = schedule(&before, rating, at, &self.params);
+        let (state, line) = schedule(&before, rating, at, &self.params, &self.clock);
         entry.state = state;
         self.log.push(line);
         // A known card recalled after a wait: what its ideas build on was used.
@@ -202,17 +217,17 @@ impl Deck {
             {
                 continue;
             }
-            // `credit` changes only a card in review, and not on the day of its last review; a
-            // card it leaves as it was is not counted as credited.
+            // `credit` changes only a card in review, and not on the learner day of its last
+            // review; a card it leaves as it was is not counted as credited.
             let changes = entry.state.state == State::Review
                 && entry
                     .state
                     .last_review
-                    .is_some_and(|last| at - last >= DAY_MS);
+                    .is_some_and(|last| days_between(last, at, &self.clock) > 0);
             if !changes {
                 continue;
             }
-            entry.state = credit(&entry.state, at, CREDIT_SHARE, &self.params);
+            entry.state = credit(&entry.state, at, CREDIT_SHARE, &self.params, &self.clock);
             self.credited.insert(other.clone(), at);
         }
     }
@@ -292,7 +307,12 @@ impl Deck {
 
     /// How long each rating would wait before the card comes back.
     pub fn preview(&self, id: &DocId, now: i64) -> Option<Preview> {
-        Some(preview(&self.cards.get(id)?.state, now, &self.params))
+        Some(preview(
+            &self.cards.get(id)?.state,
+            now,
+            &self.params,
+            &self.clock,
+        ))
     }
 
     /// Rate a card shown by its face: one line in the vault's log, and its new schedule here. True
@@ -711,6 +731,32 @@ mod tests {
         profile.daily_new = 0;
         vault.save_profile(&profile).unwrap();
         assert!(Deck::load(&vault).queue(start, &zone).cards.is_empty());
+    }
+
+    #[test]
+    fn the_days_between_reviews_are_counted_on_the_decks_clock() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        let card = add_card(&vault, "front", "back").unwrap();
+        let hour = 3_600_000;
+        // Easy at 22:00 UTC takes the card into review; Good comes seven hours later.
+        let evening = 20_000 * DAY + 22 * hour;
+        let ties = Ties::read(&vault);
+        let mut deck = Deck::load_in(&vault, &ties, UTC);
+        deck.rate(&vault, card.id(), Rating::Easy, evening, None)
+            .unwrap();
+        deck.rate(&vault, card.id(), Rating::Good, evening + 7 * hour, None)
+            .unwrap();
+        let state = |clock: Fixed| {
+            let deck = Deck::load_in(&vault, &ties, clock);
+            deck.get(card.id()).unwrap().state().clone()
+        };
+        // On UTC the second review is the next learner day (05:00, after four); on a clock eight
+        // hours west it is the same one (14:00 and 21:00), where a pass leaves the stability as
+        // it was.
+        let (utc, west) = (state(UTC), state(Fixed(-480)));
+        assert!(utc.stability > west.stability);
+        assert_eq!(utc.reps, west.reps);
     }
 
     #[test]

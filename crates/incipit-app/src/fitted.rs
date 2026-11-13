@@ -131,22 +131,30 @@ pub struct Status {
     pub failed: bool,
 }
 
-/// Fits the weights to the vault's log if a fit is due and the learner wants one, keeping them in
-/// the cache, and says where things stand. It blocks for as long as the fit takes: call it off the
-/// window's thread.
-pub fn refresh(vault: &Vault, now: i64, zone: &impl Zone, stop: &Stop) -> Status {
-    let log = logged(vault);
-    let usable = fit::usable(&log, zone);
+/// Where the fitted schedule stands, and whether a fit is due and wanted. Reading the log is
+/// quick, but it is a file of any length: call it off the window's thread.
+pub fn survey(vault: &Vault, zone: &impl Zone) -> (Status, bool) {
+    let usable = fit::usable(&logged(vault), zone);
     let before = cached(vault);
-    let mut status = Status {
+    let status = Status {
         fitted: before.as_ref().map(|c| (c.reviews, c.fitted)),
         usable,
         failed: false,
     };
-    if !vault.profile().fitted_schedule || !due(before.as_ref(), usable) {
-        return status;
-    }
-    match fit::fit(&log, zone, stop) {
+    let wanted = vault.profile().fitted_schedule && due(before.as_ref(), usable);
+    (status, wanted)
+}
+
+/// Fits the weights to the vault's log and keeps them in the cache, and says where things stand
+/// after. It blocks for as long as the fit takes: call it off the window's thread.
+fn fit_and_keep(
+    vault: &Vault,
+    mut status: Status,
+    now: i64,
+    zone: &impl Zone,
+    stop: &Stop,
+) -> Status {
+    match fit::fit(&logged(vault), zone, stop) {
         Ok(found) => {
             let made = Cached {
                 weights: found.weights,
@@ -164,6 +172,18 @@ pub fn refresh(vault: &Vault, now: i64, zone: &impl Zone, stop: &Stop) -> Status
     status
 }
 
+/// Fits the weights if a fit is due and the learner wants one, and says where things stand: the
+/// survey and the fit in one call.
+#[cfg(test)]
+pub fn refresh(vault: &Vault, now: i64, zone: &impl Zone, stop: &Stop) -> Status {
+    let (status, wanted) = survey(vault, zone);
+    if wanted {
+        fit_and_keep(vault, status, now, zone, stop)
+    } else {
+        status
+    }
+}
+
 /// A number as a person writes it: 1,234.
 fn grouped(n: usize) -> String {
     let digits = n.to_string();
@@ -178,7 +198,8 @@ fn grouped(n: usize) -> String {
 }
 
 /// The line beside the switch in Settings: whether the schedule is fitted, from how many reviews
-/// and when (`date` writes a time as a day).
+/// and when. `status` is none until the vault has been looked at, `running` says a fit is under
+/// way, and `date` writes a time as a day.
 pub fn describe(
     on: bool,
     status: Option<&Status>,
@@ -201,12 +222,13 @@ pub fn describe(
         Some(Status { failed: true, .. }) => {
             "The standard schedule: fitting it to your reviews did not work.".into()
         }
-        status => format!(
+        Some(Status { usable, .. }) => format!(
             "The standard schedule for now. It is fitted to you once {} reviews came on a later \
              day than the card's last ({} so far).",
             grouped(FIT_AFTER),
-            grouped(status.map_or(0, |s| s.usable))
+            grouped(*usable)
         ),
+        None => "The standard schedule for now.".into(),
     }
 }
 
@@ -230,9 +252,12 @@ const DEMO: [f64; 21] = [
 /// Fitting for the open vault: considered when a vault opens and when a sitting ends.
 pub struct Fitting {
     workspace: Entity<Workspace>,
-    /// Stops the fit under way, if one is.
+    /// Stops the check under way (its survey, then its fit), if one is.
     stop: Option<Stop>,
-    /// Counts the checks begun, so a check that ends after another began is not taken.
+    /// A fit is under way.
+    fitting: bool,
+    /// Counts the vaults opened and the checks begun, so a check that ends after another vault
+    /// opened, or another check began, is not taken.
     generation: u64,
     pub status: Option<Status>,
     _subscription: Subscription,
@@ -248,6 +273,7 @@ impl Fitting {
         let mut fitting = Fitting {
             workspace,
             stop: None,
+            fitting: false,
             generation: 0,
             status: None,
             _subscription: subscription,
@@ -258,7 +284,7 @@ impl Fitting {
 
     /// Whether a fit is under way.
     pub fn running(&self) -> bool {
-        self.stop.is_some()
+        self.fitting
     }
 
     /// Another vault (or none) is open: what was being fitted for the last one stops.
@@ -266,6 +292,8 @@ impl Fitting {
         if let Some(stop) = self.stop.take() {
             stop.stop();
         }
+        self.generation += 1;
+        self.fitting = false;
         self.status = None;
         if std::env::var("INCIPIT_FIT").as_deref() == Ok("demo") {
             if let Some(vault) = &self.workspace.read(cx).vault {
@@ -281,10 +309,10 @@ impl Fitting {
         cx.notify();
     }
 
-    /// Fits the open vault's schedule if a fit is due, off the window's thread. A check while a
-    /// fit is under way is left out: that fit reads the log as it is now.
+    /// Looks at the open vault's log off the window's thread and, if a fit is due, fits it there
+    /// too. A check while one is under way is left out: it reads the log as it is now.
     pub fn check(&mut self, cx: &mut Context<Self>) {
-        if self.running() {
+        if self.stop.is_some() {
             return;
         }
         let Some(vault) = self.workspace.read(cx).vault.clone() else {
@@ -294,21 +322,43 @@ impl Fitting {
         self.stop = Some(stop.clone());
         self.generation += 1;
         let generation = self.generation;
-        let task = cx
-            .background_executor()
-            .spawn(async move { refresh(&vault, crate::study::now(), &Local, &stop) });
         cx.spawn(async move |this, cx| {
-            let status = task.await;
+            let looked = vault.clone();
+            let (status, wanted) = cx
+                .background_executor()
+                .spawn(async move { survey(&looked, &Local) })
+                .await;
+            let go_on = this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return false;
+                }
+                this.status = Some(status.clone());
+                this.fitting = wanted;
+                if !wanted {
+                    this.stop = None;
+                }
+                cx.notify();
+                wanted
+            });
+            if !matches!(go_on, Ok(true)) {
+                return;
+            }
+            let status = cx
+                .background_executor()
+                .spawn(
+                    async move { fit_and_keep(&vault, status, crate::study::now(), &Local, &stop) },
+                )
+                .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation == generation {
                     this.stop = None;
+                    this.fitting = false;
                     this.status = Some(status);
                     cx.notify();
                 }
             });
         })
         .detach();
-        cx.notify();
     }
 }
 

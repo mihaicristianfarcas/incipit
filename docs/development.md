@@ -45,7 +45,8 @@ screenshots are taken:
 
 | Variable | Does |
 |---|---|
-| `INCIPIT_PAGE` | Opens on `today` (the default), `library`, `reader`, `notes`, `review`, `brain`, `concepts` (the Brain's list of concepts), `journey`, `math`, `figure` or `settings` |
+| `INCIPIT_PAGE` | Opens on `today` (the default), `library`, `reader`, `notes`, `review`, `cards` (all the cards, reached in the app from Review's "All cards"), `brain`, `concepts` (the Brain's list of concepts), `journey`, `math`, `figure` or `settings` |
+| `INCIPIT_DECK` | A deck's name: Review starts on that deck, and the Cards page lists only it (a name no card has is ignored) |
 | `INCIPIT_VAULT` | A folder: the vault there is opened (made, if it is not one yet) without asking. Use a temporary folder for checks, never a vault of your own |
 | `INCIPIT_FIRST_RUN` | `vault`, `model` or `you`: opens on that step of the first run (where the vault is kept, how to reach a model, who you are), whatever the state; going on from it follows the real state. Without it the first run is left out when `INCIPIT_VAULT`, `INCIPIT_PAGE` or `INCIPIT_BOOK` is set. To see the whole flow as a new person would, start with none of them and a throwaway `INCIPIT_HOME`. The profile form is also on `INCIPIT_PAGE=settings` |
 | `INCIPIT_HOME` | A folder for the app's own files (the list of vaults, and the place each book was left at, `places.json`), instead of the system's place for app data |

@@ -6,14 +6,16 @@
 //! The scheduler is the earlier app's `shared/fsrs.ts` (its learning steps, rounding and credit)
 //! with canonical FSRS-6's formulas where that one departs from them (`schedule` lists where). It
 //! is not the `fsrs` crate's scheduler, which gives memory states and intervals but no learning
-//! steps; the tests check the formulas against that crate (the one Anki uses; its optimizer needs
-//! no machine-learning framework, only `ndarray` and `rayon`). `rs-fsrs` schedules the learning
-//! steps and same-day reviews differently, which would change the intervals a learner already
-//! knows. Intervals are not fuzzed, as in the original.
+//! steps; the tests check the formulas against that crate (the one Anki uses), and its optimizer
+//! fits the weights to the learner's reviews (`fit`, needing no machine-learning framework, only
+//! `ndarray` and `rayon`). `rs-fsrs` schedules the learning steps and same-day reviews
+//! differently, which would change the intervals a learner already knows. Intervals are not
+//! fuzzed, as in the original.
 //!
 //! - [`answers`]: quiz answers as evidence of how well a concept is known.
 //! - [`card`]: [`Card`], [`Rating`], [`State`] and the [`Review`] log record.
 //! - [`day`]: the learner's day, which starts at 4 am on their own clock.
+//! - [`fit`] (the `fit` feature): FSRS-6 weights fitted to the learner's own reviews.
 //! - [`journey`]: the days studied, recall over time and the streak, with its pause.
 //! - [`leech`]: cards forgotten again and again, and the lapse that sets one aside.
 //! - [`new_way`]: which reviews ask a card known for weeks a new way.
@@ -28,6 +30,8 @@
 pub mod answers;
 pub mod card;
 pub mod day;
+#[cfg(feature = "fit")]
+pub mod fit;
 pub mod journey;
 pub mod leech;
 pub mod new_way;

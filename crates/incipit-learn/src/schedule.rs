@@ -10,7 +10,9 @@
 //! from them this one does not follow it:
 //!
 //! - a review on the day of the last one never lowers stability when it is a pass, and Hard is
-//!   a pass (the earlier app floored only Good and Easy).
+//!   a pass (the earlier app floored only Good and Easy);
+//! - difficulty reverts toward the Easy start as the formula gives it, which can be below 1; only
+//!   the result is held within 1 to 10 (the earlier app held the target too).
 
 use crate::card::{Card, Rating, Review, State};
 use crate::params::Params;
@@ -47,17 +49,25 @@ fn init_s(g: f64, p: &Params) -> f64 {
     p.weights[(g as usize) - 1].max(0.1)
 }
 
-fn init_d(g: f64, p: &Params) -> f64 {
+/// The difficulty a first review with grade `g` gives, before it is held within 1 to 10.
+fn raw_init_d(g: f64, p: &Params) -> f64 {
     let w = &p.weights;
-    clamp_d(w[4] - (w[5] * (g - 1.0)).exp() + 1.0)
+    w[4] - (w[5] * (g - 1.0)).exp() + 1.0
+}
+
+fn init_d(g: f64, p: &Params) -> f64 {
+    clamp_d(raw_init_d(g, p))
 }
 
 fn next_d(d: f64, g: f64, p: &Params) -> f64 {
     let w = &p.weights;
     let delta = -w[6] * (g - 3.0);
     // Changes shrink near 10 (linear damping), then pull back toward the Easy start (mean reversion).
+    // The target is the Easy start as the formula gives it, not held within 1 to 10: only the
+    // result is (py-fsrs's `_initial_difficulty(Easy, clamp=False)`, the fsrs crate's
+    // `mean_reversion`). For the default weights it is -4.77.
     let damped = d + delta * (10.0 - d) / 9.0;
-    clamp_d(w[7] * init_d(4.0, p) + (1.0 - w[7]) * damped)
+    clamp_d(w[7] * raw_init_d(4.0, p) + (1.0 - w[7]) * damped)
 }
 
 fn recall_s(s: f64, d: f64, r: f64, rating: Rating, p: &Params) -> f64 {
@@ -362,6 +372,18 @@ mod tests {
         assert_eq!(hard.stability, learning.stability);
         let again = schedule(&learning, Rating::Again, later, &p).0;
         assert!(again.stability < learning.stability);
+    }
+
+    #[test]
+    fn difficulty_reverts_toward_the_easy_start_as_the_formula_gives_it() {
+        let p = Params::default();
+        let target = raw_init_d(4.0, &p);
+        assert!(target < 1.0, "{target}");
+        // A Good review leaves the damped part as it was: what is left is the pull toward it.
+        let d = 5.0;
+        let expected = p.weights[7] * target + (1.0 - p.weights[7]) * d;
+        assert!((next_d(d, 3.0, &p) - expected).abs() < 1e-12);
+        assert!(next_d(d, 3.0, &p) < d);
     }
 
     #[test]

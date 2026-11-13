@@ -1,7 +1,7 @@
 //! A PDF through pdfium: each page as a picture at the width asked for, with where every character
 //! is on it, so a window can let text be selected over the picture; its table of contents, each
 //! line with the page it leads to and how far down that page; and the text of pages without
-//! drawing them.
+//! drawing them, whole or in its lines, each with how far down the page it is.
 //!
 //! A chapter can start or end part-way down a page, so the text of a run of pages can be cut at
 //! its ends (`Cut`): of the first page only the lines of text from a height down, of the last
@@ -59,6 +59,24 @@ pub struct Cut {
     pub bottom: Option<f32>,
 }
 
+/// A line of a page's text as pdfium ends its lines: its characters in the page's text
+/// (`start..end`, counted in characters, without the line end), and how far down the page its
+/// top is, as a share of the page's height (where `line_tops` puts it).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Line {
+    pub start: usize,
+    pub end: usize,
+    pub top: f32,
+}
+
+/// A page's text as `Pdf::text` gives it, with its lines. A line without a character placed on
+/// the page (only what pdfium added) is not one of them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PageText {
+    pub text: String,
+    pub lines: Vec<Line>,
+}
+
 /// Where a line of text is, as the earlier app had it. A character is on a line when its
 /// baseline is within `NEAR` points of the line's, or within `NEAR_SIZE` of the smaller of its
 /// type's size and the line's when that is more; a line's top is `ASCENT` of its largest type's
@@ -68,6 +86,10 @@ const NEAR_SIZE: f32 = 0.5;
 const ASCENT: f32 = 0.85;
 /// The size, in points, a character is taken to have when the PDF gives none: the earlier app's.
 const UNSIZED: f32 = 10.0;
+
+/// A character of a page, with its baseline (in points above the page's bottom) and its type's
+/// size when it has a place on the page, as `line_tops` takes them.
+type Placed = (char, Option<(f32, f32)>);
 
 /// How far down a page `height` points high a place `top` points above its bottom is, as a share
 /// of the height and kept within the page: how the earlier app read the place an outline's line
@@ -124,16 +146,22 @@ fn line_tops(placed: &[Option<(f32, f32)>], height: f32) -> Vec<Option<f32>> {
 /// page's text, so that the two stay the same characters (a quote taken from one is found in
 /// the other).
 fn plain_glyphs(glyphs: Vec<Glyph>) -> Vec<Glyph> {
-    let mut out = Vec::with_capacity(glyphs.len());
-    let mut glyphs = glyphs.into_iter().peekable();
-    while let Some(mut glyph) = glyphs.next() {
-        if glyph.c == '\r' {
-            if glyphs.peek().is_some_and(|next| next.c == '\n') {
+    plain(glyphs, |g| &mut g.c)
+}
+
+/// `items`, characters each with what goes with it, with each line ending in `\n` alone: a
+/// `\r` before a `\n` is dropped, any other becomes `\n`.
+fn plain<T>(items: Vec<T>, c: impl Fn(&mut T) -> &mut char) -> Vec<T> {
+    let mut out = Vec::with_capacity(items.len());
+    let mut items = items.into_iter().peekable();
+    while let Some(mut item) = items.next() {
+        if *c(&mut item) == '\r' {
+            if items.peek_mut().is_some_and(|next| *c(next) == '\n') {
                 continue;
             }
-            glyph.c = '\n';
+            *c(&mut item) = '\n';
         }
-        out.push(glyph);
+        out.push(item);
     }
     out
 }
@@ -162,6 +190,35 @@ fn text_between(
             (top.is_none_or(|top| y >= top) && bottom.is_none_or(|bottom| y < bottom)).then_some(*c)
         })
         .collect()
+}
+
+/// A page `height` points high as its text and its lines, from its characters each with its
+/// baseline and size as `line_tops` takes them. Lines end in `\n` alone, as `plain_lines` ends
+/// them; a line's top is that of its first character placed on the page.
+fn lines_of(chars: Vec<Placed>, height: f32) -> PageText {
+    let chars = plain(chars, |(c, _)| c);
+    let placed: Vec<Option<(f32, f32)>> = chars.iter().map(|(_, at)| *at).collect();
+    let tops = line_tops(&placed, height);
+    let mut lines = Vec::new();
+    let mut start = 0;
+    for (i, (c, _)) in chars.iter().enumerate() {
+        let last = i + 1 == chars.len();
+        if *c != '\n' && !last {
+            continue;
+        }
+        let end = if *c == '\n' { i } else { i + 1 };
+        let top = (start..end)
+            .find(|at| placed[*at].is_some())
+            .and_then(|at| tops[at]);
+        if let Some(top) = top {
+            lines.push(Line { start, end, top });
+        }
+        start = i + 1;
+    }
+    PageText {
+        text: chars.into_iter().map(|(c, _)| c).collect(),
+        lines,
+    }
 }
 
 pub struct Page {
@@ -352,27 +409,7 @@ impl Pdf {
             .pages()
             .get(index as _)
             .map_err(|e| anyhow!("page {index}: {e:?}"))?;
-        let text = page
-            .text()
-            .map_err(|e| anyhow!("page {index} has no text: {e:?}"))?;
-        let chars: Vec<(char, Option<(f32, f32)>)> = text
-            .chars()
-            .iter()
-            .map(|c| {
-                // What pdfium adds has no place of its own on the page.
-                let added = c.is_generated().unwrap_or(false);
-                let baseline = c.origin_y().ok().filter(|_| !added);
-                let at = baseline.map(|baseline| {
-                    // Its type's size as drawn, else the height of its box.
-                    let size = Some(c.scaled_font_size().value.abs())
-                        .filter(|size| *size > 0.0)
-                        .or_else(|| c.loose_bounds().ok().map(|r| r.height().value.abs()))
-                        .filter(|size| *size > 0.0);
-                    (baseline.value, size.unwrap_or(UNSIZED))
-                });
-                (c.unicode_char().unwrap_or(' '), at)
-            })
-            .collect();
+        let chars = placed_chars(&page, index)?;
         Ok(plain_lines(text_between(
             &chars,
             page.height().value,
@@ -380,6 +417,44 @@ impl Pdf {
             bottom,
         )))
     }
+
+    /// The text of page `index` (from 0) as `text` gives it, with its lines and how far down
+    /// the page each is, without drawing it.
+    pub fn page_text(&self, index: usize) -> Result<PageText> {
+        let page = self
+            .document
+            .pages()
+            .get(index as _)
+            .map_err(|e| anyhow!("page {index}: {e:?}"))?;
+        let chars = placed_chars(&page, index)?;
+        Ok(lines_of(chars, page.height().value))
+    }
+}
+
+/// Each character of a page with its baseline, in points above the page's bottom, and its
+/// type's size, as `line_tops` takes them; what pdfium added has neither.
+fn placed_chars(page: &PdfPage, index: usize) -> Result<Vec<Placed>> {
+    let text = page
+        .text()
+        .map_err(|e| anyhow!("page {index} has no text: {e:?}"))?;
+    Ok(text
+        .chars()
+        .iter()
+        .map(|c| {
+            // What pdfium adds has no place of its own on the page.
+            let added = c.is_generated().unwrap_or(false);
+            let baseline = c.origin_y().ok().filter(|_| !added);
+            let at = baseline.map(|baseline| {
+                // Its type's size as drawn, else the height of its box.
+                let size = Some(c.scaled_font_size().value.abs())
+                    .filter(|size| *size > 0.0)
+                    .or_else(|| c.loose_bounds().ok().map(|r| r.height().value.abs()))
+                    .filter(|size| *size > 0.0);
+                (baseline.value, size.unwrap_or(UNSIZED))
+            });
+            (c.unicode_char().unwrap_or(' '), at)
+        })
+        .collect())
 }
 
 impl Page {
@@ -554,6 +629,43 @@ mod tests {
         assert_eq!(cut(Some(0.169), Some(0.133)), "");
         assert_eq!(text_between(&[(' ', None)], 792.0, Some(0.0), None), "");
         assert_eq!(cut(None, None).len(), 43);
+    }
+
+    #[test]
+    fn a_pages_lines_are_where_pdfium_ends_them_each_with_the_top_of_its_first_character() {
+        let mut chars = page(&["Heading", "its text"]);
+        // pdfium ends a line in \r\n; and a line of only what it added is no line.
+        chars.insert(7, ('\r', None));
+        chars.insert(0, ('\n', None));
+        let text = lines_of(chars, 792.0);
+        assert_eq!(text.text, "\nHeading\nits text\n");
+        let line = |start, end, top| Line { start, end, top };
+        assert_eq!(text.lines, [line(1, 8, 0.116), line(9, 17, 0.133)]);
+        // A page whose last line has no line end.
+        let mut chars = page(&["one", "two"]);
+        chars.pop();
+        assert_eq!(
+            lines_of(chars, 792.0).lines,
+            [line(0, 3, 0.116), line(4, 7, 0.133)]
+        );
+        assert_eq!(lines_of(Vec::new(), 792.0), PageText::default());
+    }
+
+    #[test]
+    #[ignore = "requires pdfium in lib/ and the sample paper from tools/setup"]
+    fn a_pages_lines_are_its_text_as_drawn() {
+        let pdf = sample();
+        let text = pdf.page_text(1).unwrap();
+        assert_eq!(text.text, pdf.text(1).unwrap());
+        let chars: Vec<char> = text.text.chars().collect();
+        let background = text
+            .lines
+            .iter()
+            .find(|l| chars[l.start..l.end].iter().collect::<String>() == "2 Background")
+            .unwrap();
+        // Its top is 0.457 down the page (see the cut below).
+        assert!((background.top - 0.457).abs() < 1e-3);
+        assert!(text.lines.windows(2).all(|w| w[0].end < w[1].start));
     }
 
     #[test]

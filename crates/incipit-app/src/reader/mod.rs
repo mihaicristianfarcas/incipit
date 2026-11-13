@@ -15,7 +15,8 @@
 //! after (`studying`).
 //!
 //! A chapter can be mapped into concepts from the contents, and the concepts that came from the
-//! book's passages have cards in the margin beside them (`concepts`).
+//! book's passages have cards in the margin beside them (`concepts`). A phrase is found on
+//! every page with the find bar (`finding`).
 //!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =session for a tutor session with a made-up conversation),
@@ -26,10 +27,12 @@
 //! (the quiz sheet on the chapter on screen once the book is open: the choice, or a quiz or a
 //! pretest written by the model) or demo|done (a made-up quiz, at its start or finished),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block),
-//! INCIPIT_MAP=n (map line n of the contents, from 0, into concepts once the book is open).
+//! INCIPIT_MAP=n (map line n of the contents, from 0, into concepts once the book is open),
+//! INCIPIT_FIND_BOOK=words (the find bar on those words once the book is open).
 
 mod asking;
 mod concepts;
+mod finding;
 mod model;
 mod place;
 mod reading;
@@ -71,6 +74,8 @@ const GAP: f32 = 22.0;
 const CONTENTS: f32 = 240.0;
 /// A PDF page's width on screen at its smallest, largest and to start with; a step of zoom.
 const PAGE: (f32, f32, f32) = (420.0, 1100.0, 640.0);
+/// The space under each PDF page, between it and the next.
+const PAGE_GAP: f32 = 16.0;
 const ZOOM: f32 = 1.15;
 /// The text column of an EPUB, and its text's sizes.
 const COLUMN: f32 = 600.0;
@@ -175,6 +180,8 @@ pub struct ReaderView {
     drafter: Entity<crate::drafter::DrafterView>,
     /// The sheet where a passage or a concept is explained back.
     explain: Entity<crate::explain::ExplainView>,
+    /// Find in the book.
+    finding: finding::Finding,
     _draft_events: Subscription,
     _reply_events: Subscription,
     _vault_events: Subscription,
@@ -252,6 +259,7 @@ impl ReaderView {
             Ok("done") => quiz.update(cx, |quiz, cx| quiz.show_demo(true, cx)),
             _ => {}
         }
+        let finding = finding::Finding::new(cx);
         let mut view = ReaderView {
             workspace,
             models,
@@ -292,6 +300,7 @@ impl ReaderView {
             reading: reading::Reading::new(),
             drafter,
             explain,
+            finding,
             _draft_events: draft_events,
             _reply_events: reply_events,
             _vault_events: vault_events,
@@ -583,6 +592,7 @@ impl ReaderView {
             cancel.cancel();
         }
         self.composing = None;
+        self.finding.reset();
         self.close_session(cx);
         self.scale = if self.epub { TEXT.2 } else { PAGE.2 };
         let epub = self.epub;
@@ -634,6 +644,7 @@ impl ReaderView {
                         this.report(cx);
                         this.kept_notes(cx);
                         this.concept_notes(cx);
+                        this.finding.book_opened();
                         if let Some(entry) = this.map_on_open.take() {
                             this.contents = true;
                             this.map_chapter(entry, cx);
@@ -1393,6 +1404,7 @@ impl Render for ReaderView {
             self.list.remeasure();
         }
         self.restore_fraction();
+        self.find_wanted(window, cx);
         let body: AnyElement = match &self.state {
             State::Opening => div().into_any_element(),
             State::Closed => div()
@@ -1439,7 +1451,14 @@ impl Render for ReaderView {
                     .text_color(t.secondary)
                     .child(said)
             }))
-            .child(div().flex_1().min_h_0().child(body))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .relative()
+                    .child(body)
+                    .children(self.find_bar(t, cx)),
+            )
             .children(self.selection_menu(t, cx))
             .child(self.quiz.clone())
             .children(self.session_sheet(t, cx))

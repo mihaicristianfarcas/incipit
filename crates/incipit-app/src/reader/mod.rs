@@ -64,7 +64,8 @@ use crate::learning::answers::{self, Way};
 use crate::learning::quiz::Mode;
 use crate::models::Models;
 use crate::workspace::{Happened, Workspace};
-use model::{byte_of, find, rich, Doc, EpubDoc, Held, Note, Opened, PdfDoc, Place, Selection};
+pub(crate) use model::rich;
+use model::{byte_of, find, Doc, EpubDoc, Held, Note, Opened, PdfDoc, Place, Selection};
 
 /// The margin's width, and the gap between it and the book.
 const MARGIN: f32 = 250.0;
@@ -80,6 +81,11 @@ const ZOOM: f32 = 1.15;
 /// The text column of an EPUB, and its text's sizes.
 const COLUMN: f32 = 600.0;
 const TEXT: (f32, f32, f32) = (13.0, 26.0, 17.0);
+
+/// The folder `tools/setup` puts pdfium's library in.
+pub(crate) fn pdfium() -> PathBuf {
+    root().join("lib/lib")
+}
 
 fn root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
@@ -1497,34 +1503,42 @@ impl Raw {
 }
 
 fn open_pdf(file: PathBuf) -> Result<(PdfWorker, PdfInfo), String> {
-    PdfWorker::open(root().join("lib/lib"), file).map_err(|e| format!("{e:#}"))
+    PdfWorker::open(pdfium(), file).map_err(|e| format!("{e:#}"))
+}
+
+/// An EPUB's contents: its headings of the first three levels, each at its block.
+pub(crate) fn epub_contents(blocks: &[Block]) -> Vec<Entry> {
+    blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| match block {
+            Block::Heading { level, text } if *level <= 3 => Some(Entry {
+                title: text.text.clone(),
+                depth: (*level as usize).saturating_sub(1),
+                page: index,
+                y: None,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 fn open_epub(file: &std::path::Path) -> Result<(String, Vec<Entry>, EpubDoc), String> {
     let book = Book::open(file).map_err(|e| format!("{e:#}"))?;
-    let mut contents = Vec::new();
+    let contents = epub_contents(&book.blocks);
     let mut pictures = HashMap::new();
     let blocks: Vec<_> = book
         .blocks
         .into_iter()
         .enumerate()
         .map(|(index, block)| {
-            match &block {
-                Block::Heading { level, text } if *level <= 3 => contents.push(Entry {
-                    title: text.text.clone(),
-                    depth: (*level as usize).saturating_sub(1),
-                    page: index,
-                    y: None,
-                }),
-                Block::Image { name, bytes } => {
-                    if let Some(format) = rows::format_of(name) {
-                        pictures.insert(
-                            index,
-                            Arc::new(gpui::Image::from_bytes(format, bytes.clone())),
-                        );
-                    }
+            if let Block::Image { name, bytes } = &block {
+                if let Some(format) = rows::format_of(name) {
+                    pictures.insert(
+                        index,
+                        Arc::new(gpui::Image::from_bytes(format, bytes.clone())),
+                    );
                 }
-                _ => {}
             }
             let chars = rich(&block)
                 .map(|r| r.text.chars().collect())

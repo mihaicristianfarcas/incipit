@@ -1,9 +1,9 @@
-//! Finding words in a book, for the reader's find bar: every place a phrase occurs, in reading
-//! order, with where it is (a PDF's page and how far down it, or an EPUB's block), the text
-//! around it and the line of the contents it falls in. Matching ignores case, accents,
-//! ligatures and line breaks, and a word hyphenated across two lines is found whole, as the
-//! earlier app's find matched: so it finds what a reader sees, on every page, not only the
-//! pages drawn.
+//! A book's text made ready for finding words in, for the reader's find bar: every place a
+//! phrase occurs, in reading order, with where it is (a PDF's page and how far down it, or an
+//! EPUB's block), the text around it and the line of the contents it falls in. Case, accents,
+//! ligatures and line breaks do not matter, and a word hyphenated across two lines is found
+//! whole, as in the earlier app's find: so it finds what a reader sees, on every page, not only
+//! the pages drawn.
 //!
 //! A PDF's page is searched as its lines joined into one text, a line ending in a letter and a
 //! hyphen joined to a next line starting in a small letter without either; running heads and
@@ -12,8 +12,9 @@
 //! their baselines, so that a match is given as characters of the page's own text: the ones the
 //! reader holds for a drawn page, and marks.
 //!
-//! A book's text is made ready once (`BookText`), its parts folded for matching with a map back
-//! to their characters, and then each search only scans it.
+//! Here is how a book's text is made ready for finding in (`prepare_pages`, `prepare_blocks`)
+//! and the place a match is given as (`Hit`); the matching itself is the index's (`index`),
+//! made from that text.
 
 use unicode_normalization::char::is_combining_mark;
 use unicode_normalization::UnicodeNormalization;
@@ -41,14 +42,14 @@ pub struct Hit {
 }
 
 /// How many characters of the text around a match a hit keeps on each side: the earlier app's.
-const CONTEXT: usize = 32;
+pub(crate) const CONTEXT: usize = 32;
 /// The fewest characters a phrase is looked for with (after folding): the earlier app's.
-const SHORTEST: usize = 2;
+pub(crate) const SHORTEST: usize = 2;
 /// The most places a search gives: the earlier app's.
 pub const MOST: usize = 500;
 /// How much above its line a PDF's match is shown, as a share of the page's height: the earlier
 /// app's.
-const ABOVE: f32 = 0.02;
+pub(crate) const ABOVE: f32 = 0.02;
 /// A running head or a page number sits in the top `HEAD` or the bottom `1 - FOOT` of a page,
 /// and is a line that repeats there on at least `REPEATS` of the pages (and on three at least):
 /// the earlier app's.
@@ -57,120 +58,53 @@ const FOOT: f32 = 0.93;
 const REPEATS: f64 = 0.15;
 const REPEATS_AT_LEAST: f64 = 3.0;
 
-/// One part made ready: its text as searched, each of that text's characters' place in the
-/// part's own text, where each line starts in it (a PDF's) and its top, and the text folded,
-/// each byte of which knows the character of the searched text it came from.
-struct Prepared {
-    part: usize,
-    text: Vec<char>,
-    origin: Vec<usize>,
-    lines: Vec<(usize, f32)>,
-    folded: String,
-    at: Vec<u32>,
+/// A part's text as it is searched: its characters (a PDF page's kept lines joined), each
+/// one's place in the part's own text, and where each line starts in it with its top (a PDF's).
+pub(crate) struct Joined {
+    pub part: usize,
+    pub text: Vec<char>,
+    pub origin: Vec<usize>,
+    pub lines: Vec<(usize, f32)>,
 }
 
-/// A book's text, ready to be searched.
-pub struct BookText {
-    parts: Vec<Prepared>,
-    pdf: bool,
-}
-
-impl BookText {
-    /// A PDF's pages, the text of each as `Pdf::page_text` gives it, in page order from 0.
-    pub fn of_pages(pages: &[PageText]) -> BookText {
-        let kept = kept_lines(pages);
-        let parts = pages
-            .iter()
-            .zip(kept)
-            .enumerate()
-            .map(|(part, (page, lines))| {
-                let chars: Vec<char> = page.text.chars().collect();
-                let (text, origin, lines) = joined(&chars, &lines);
-                prepared(part, text, origin, lines)
-            })
-            .collect();
-        BookText { parts, pdf: true }
-    }
-
-    /// An EPUB's blocks with text, each with its index among the book's blocks.
-    pub fn of_blocks<'a>(blocks: impl IntoIterator<Item = (usize, &'a str)>) -> BookText {
-        let parts = blocks
-            .into_iter()
-            .map(|(part, text)| {
-                let text: Vec<char> = text.chars().collect();
-                let origin = (0..text.len()).collect();
-                prepared(part, text, origin, Vec::new())
-            })
-            .collect();
-        BookText { parts, pdf: false }
-    }
-
-    /// Every place `query` occurs, in reading order, at most `limit`, each with the line of
-    /// `contents` it falls in. A phrase shorter than two characters is not looked for.
-    pub fn find(&self, query: &str, limit: usize, contents: &[Entry]) -> Vec<Hit> {
-        let query: Vec<char> = query.trim().chars().collect();
-        let (needle, _) = fold(&query);
-        let mut hits = Vec::new();
-        if needle.chars().count() < SHORTEST {
-            return hits;
-        }
-        for part in &self.parts {
-            let mut from = 0;
-            while hits.len() < limit {
-                let Some(found) = part.folded[from..].find(&needle) else {
-                    break;
-                };
-                let first = from + found;
-                from = first + needle.len();
-                hits.push(part.hit(first, from - 1, contents, self.pdf));
+/// A PDF's pages, the text of each as `Pdf::page_text` gives it, in page order from 0, ready to
+/// be searched.
+pub(crate) fn prepare_pages(pages: &[PageText]) -> Vec<Joined> {
+    let kept = kept_lines(pages);
+    pages
+        .iter()
+        .zip(kept)
+        .enumerate()
+        .map(|(part, (page, lines))| {
+            let chars: Vec<char> = page.text.chars().collect();
+            let (text, origin, lines) = joined(&chars, &lines);
+            Joined {
+                part,
+                text,
+                origin,
+                lines,
             }
-            if hits.len() >= limit {
-                break;
+        })
+        .collect()
+}
+
+/// An EPUB's blocks with text, each with its index among the book's blocks, ready to be
+/// searched: each as it is.
+pub(crate) fn prepare_blocks<'a>(
+    blocks: impl IntoIterator<Item = (usize, &'a str)>,
+) -> Vec<Joined> {
+    blocks
+        .into_iter()
+        .map(|(part, text)| {
+            let text: Vec<char> = text.chars().collect();
+            Joined {
+                part,
+                origin: (0..text.len()).collect(),
+                text,
+                lines: Vec::new(),
             }
-        }
-        hits
-    }
-}
-
-impl Prepared {
-    /// The hit whose folded text runs from byte `first` to byte `last`, both included.
-    fn hit(&self, first: usize, last: usize, contents: &[Entry], pdf: bool) -> Hit {
-        let start = self.at[first] as usize;
-        let end = self.at[last] as usize + 1;
-        let span = |from: usize, to: usize| spaced(&self.text[from..to.min(self.text.len())]);
-        let top = pdf.then(|| {
-            let line = self.lines.partition_point(|(at, _)| *at <= start);
-            line.checked_sub(1).map_or(0.0, |line| self.lines[line].1)
-        });
-        let at = self.part as f64 + f64::from(top.unwrap_or(0.0));
-        Hit {
-            part: self.part,
-            y: top.map(|top| (top - ABOVE).max(0.0)),
-            start: self.origin[start],
-            end: self.origin[end - 1] + 1,
-            quote: span(start, end),
-            prefix: span(start.saturating_sub(CONTEXT), start),
-            suffix: span(end, end + CONTEXT),
-            chapter: chapter_at(contents, at),
-        }
-    }
-}
-
-fn prepared(
-    part: usize,
-    text: Vec<char>,
-    origin: Vec<usize>,
-    lines: Vec<(usize, f32)>,
-) -> Prepared {
-    let (folded, at) = fold(&text);
-    Prepared {
-        part,
-        text,
-        origin,
-        lines,
-        folded,
-        at,
-    }
+        })
+        .collect()
 }
 
 /// Text folded for matching: each run of white space one space (none at the start), each
@@ -204,17 +138,17 @@ pub fn fold(text: &[char]) -> (String, Vec<u32>) {
 }
 
 /// `text` with each run of white space one space.
-fn spaced(text: &[char]) -> String {
+pub(crate) fn spaced(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut space = false;
-    for c in text {
+    for c in text.chars() {
         if c.is_whitespace() {
             if !space {
                 out.push(' ');
             }
             space = true;
         } else {
-            out.push(*c);
+            out.push(c);
             space = false;
         }
     }
@@ -370,141 +304,6 @@ pub fn chapter_at(contents: &[Entry], at: f64) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pdf::Line;
-
-    /// A page whose lines are 0.05 of its height apart, the first 0.1 down, as the earlier
-    /// app's tests made them.
-    fn page(lines: &[&str]) -> PageText {
-        let mut text = String::new();
-        let mut placed = Vec::new();
-        for (n, line) in lines.iter().enumerate() {
-            let start = text.chars().count();
-            text.push_str(line);
-            placed.push(Line {
-                start,
-                end: start + line.chars().count(),
-                top: 0.1 + n as f32 * 0.05,
-            });
-            text.push('\n');
-        }
-        PageText {
-            text,
-            lines: placed,
-        }
-    }
-
-    fn pages() -> [PageText; 2] {
-        [
-            page(&[
-                "All through the calculus we are dealing with quantities that are grow-",
-                "ing, and with rates of growth.",
-            ]),
-            page(&["A ﬁnal word on Café Growth.", "Nothing here."]),
-        ]
-    }
-
-    fn book() -> BookText {
-        BookText::of_pages(&pages())
-    }
-
-    fn quotes(hits: &[Hit]) -> Vec<(usize, &str)> {
-        hits.iter().map(|h| (h.part, h.quote.as_str())).collect()
-    }
-
-    #[test]
-    fn a_word_hyphenated_across_two_lines_is_found_whole_with_the_line_it_starts_on() {
-        let hits = book().find("growing", MOST, &[]);
-        assert_eq!(quotes(&hits), [(0, "growing")]);
-        assert!((hits[0].y.unwrap() - 0.08).abs() < 1e-6);
-        assert!(hits[0].suffix.starts_with(", and with rates"));
-        // In the page's own text it runs over the hyphen and the line end.
-        let text: Vec<char> = pages()[0].text.chars().collect();
-        let marked: String = text[hits[0].start..hits[0].end].iter().collect();
-        assert_eq!(marked, "grow-\ning");
-    }
-
-    #[test]
-    fn case_accents_and_ligatures_do_not_matter() {
-        let book = book();
-        assert_eq!(
-            quotes(&book.find("cafe growth", MOST, &[])),
-            [(1, "Café Growth")]
-        );
-        assert_eq!(quotes(&book.find("final", MOST, &[])), [(1, "ﬁnal")]);
-        assert_eq!(book.find("GROWTH", MOST, &[]).len(), 2);
-        // A phrase runs over a line break, but not from one page to the next.
-        assert_eq!(
-            quotes(&book.find("growing, and", MOST, &[])),
-            [(0, "growing, and")]
-        );
-        assert_eq!(quotes(&book.find("growth. a", MOST, &[])), []);
-        assert_eq!(
-            quotes(&book.find("rates of   growth", MOST, &[])),
-            [(0, "rates of growth")]
-        );
-    }
-
-    #[test]
-    fn a_phrase_needs_two_letters_and_the_places_stop_at_the_limit() {
-        let book = book();
-        assert_eq!(book.find("a", MOST, &[]), []);
-        assert_eq!(book.find("  ", MOST, &[]), []);
-        assert_eq!(book.find("th", 2, &[]).len(), 2);
-    }
-
-    #[test]
-    fn a_reflowable_books_blocks_are_found_in() {
-        let book = BookText::of_blocks([
-            (0, "Replication means keeping a copy."),
-            (2, "Leaders and followers keep copies too."),
-        ]);
-        let hits = book.find("cop", MOST, &[]);
-        let found: Vec<(usize, &str, &str)> = hits
-            .iter()
-            .map(|h| (h.part, h.quote.as_str(), h.prefix.as_str()))
-            .collect();
-        assert_eq!(
-            found,
-            [
-                (0, "cop", "Replication means keeping a "),
-                (2, "cop", "Leaders and followers keep "),
-            ]
-        );
-        assert_eq!((hits[0].start, hits[0].end), (28, 31));
-        assert_eq!(hits[0].y, None);
-    }
-
-    #[test]
-    fn the_text_around_a_place_is_thirty_two_characters_each_side() {
-        let text = "a".repeat(40) + " needle " + &"b".repeat(40);
-        let hits = BookText::of_blocks([(0, text.as_str())]).find("needle", MOST, &[]);
-        assert_eq!(hits[0].prefix, format!("{} ", "a".repeat(31)));
-        assert_eq!(hits[0].suffix, format!(" {}", "b".repeat(31)));
-    }
-
-    #[test]
-    fn running_heads_and_page_numbers_are_not_found() {
-        // Four pages, each with the book's title at its top and its number at its foot.
-        let pages: Vec<PageText> = (1..=4)
-            .map(|n| {
-                let number = (10 + n).to_string();
-                let mut page = page(&["A Book of Growth", "The text on growth.", &number]);
-                page.lines[0].top = 0.03;
-                page.lines[2].top = 0.95;
-                page
-            })
-            .collect();
-        let book = BookText::of_pages(&pages);
-        assert_eq!(book.find("growth", MOST, &[]).len(), 4);
-        assert_eq!(book.find("book", MOST, &[]), []);
-        assert_eq!(book.find("12", MOST, &[]), []);
-        // A line near the top that does not repeat stays.
-        let mut once = pages.clone();
-        once[0].text = once[0]
-            .text
-            .replacen("A Book of Growth", "A Book of Plants", 1);
-        assert_eq!(BookText::of_pages(&once).find("plants", MOST, &[]).len(), 1);
-    }
 
     #[test]
     fn a_place_falls_in_the_last_line_of_the_contents_that_starts_at_or_before_it() {
@@ -519,13 +318,30 @@ mod tests {
         assert_eq!(chapter_at(&contents, 0.5), Some(0));
         assert_eq!(chapter_at(&contents, 1.1), Some(1));
         assert_eq!(chapter_at(&contents, 1.4), Some(2));
-        // A hit takes its line's top, not the place it is shown at, to find its chapter.
-        let book = BookText::of_pages(&[
-            page(&["x"]),
-            page(&["one", "two", "three", "four", "five", "six", "seven"]),
-        ]);
-        // "seven" is 0.4 down the second page and "five" 0.3: after and before the third line.
-        assert_eq!(book.find("seven", MOST, &contents)[0].chapter, Some(2));
-        assert_eq!(book.find("five", MOST, &contents)[0].chapter, Some(1));
+    }
+
+    #[test]
+    fn folding_takes_case_accents_and_ligatures_away_and_knows_where_each_byte_came_from() {
+        let text: Vec<char> = "  Café\n ﬁne".chars().collect();
+        let (folded, at) = fold(&text);
+        assert_eq!(folded, "cafe fine");
+        // "é" folds to one byte, from character 5; the ligature to two, both from character 8.
+        assert_eq!(at[3], 5);
+        assert_eq!(at[4], 6);
+        assert_eq!((at[5], at[6]), (8, 8));
+    }
+
+    #[test]
+    fn a_pages_lines_are_joined_and_a_hyphenated_word_runs_on() {
+        let chars: Vec<char> = "grow-\ning,\nand -\nAnd".chars().collect();
+        let (text, origin, starts) = joined(
+            &chars,
+            &[(0, 5, 0.1), (6, 10, 0.2), (11, 16, 0.3), (17, 20, 0.4)],
+        );
+        let text: String = text.into_iter().collect();
+        // A hyphen before a capital, or after a space, stays.
+        assert_eq!(text, "growing, and - And ");
+        assert_eq!(origin[4], 6);
+        assert_eq!(starts[1], (4, 0.2));
     }
 }

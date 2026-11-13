@@ -226,12 +226,22 @@ impl Deck {
     }
 
     /// The cards to review now, in order. `zone` is the learner's clock, for the day's allowance
-    /// of new cards.
+    /// of new cards. (Over every deck; the app asks for a deck's by `queue_in`.)
+    #[cfg(test)]
     pub fn queue(&self, now: i64, zone: &impl Zone) -> Queue<DocId> {
+        self.queue_in(None, now, zone)
+    }
+
+    /// The same for one deck, or for every deck interleaved when none is named: as in the earlier
+    /// app, the deck is picked before the queue is built, so the day's allowance of new cards and
+    /// the sitting's limit are spent on that deck's cards alone (the new cards already begun
+    /// today are counted over every deck).
+    pub fn queue_in(&self, deck: Option<&str>, now: i64, zone: &impl Zone) -> Queue<DocId> {
         let candidates: Vec<Candidate<DocId>> = self
             .order
             .iter()
             .filter_map(|id| Some((id, self.cards.get(id)?)))
+            .filter(|(_, entry)| deck.is_none_or(|deck| entry.card.deck == deck))
             .map(|(id, entry)| Candidate {
                 key: id.clone(),
                 card: entry.state.clone(),
@@ -250,7 +260,25 @@ impl Deck {
     }
 
     pub fn counts(&self, now: i64, zone: &impl Zone) -> TodayCounts {
-        today_counts(&self.queue(now, zone), &self.log, now, zone)
+        self.counts_in(None, now, zone)
+    }
+
+    /// The counts for one deck's queue, or every deck's when none is named.
+    pub fn counts_in(&self, deck: Option<&str>, now: i64, zone: &impl Zone) -> TodayCounts {
+        today_counts(&self.queue_in(deck, now, zone), &self.log, now, zone)
+    }
+
+    /// Every deck and how many cards it holds (the set-aside ones too), in the order each is first
+    /// met among the vault's cards: the earlier app's `deckCounts`.
+    pub fn decks(&self) -> Vec<(String, usize)> {
+        let mut decks: Vec<(String, usize)> = Vec::new();
+        for entry in self.order.iter().filter_map(|id| self.cards.get(id)) {
+            match decks.iter_mut().find(|(name, _)| *name == entry.card.deck) {
+                Some((_, count)) => *count += 1,
+                None => decks.push((entry.card.deck.clone(), 1)),
+            }
+        }
+        decks
     }
 
     /// Every card's memory, the vault's order, or none for a card never reviewed.
@@ -375,6 +403,37 @@ mod tests {
             .queue(later + 30 * DAY, &zone)
             .cards
             .contains(first.id()));
+    }
+
+    #[test]
+    fn a_deck_chosen_queues_its_own_cards_and_the_decks_are_counted() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(folder.path()).unwrap();
+        for (deck, front) in [("Maths", "a"), ("Poems", "b"), ("Maths", "c")] {
+            let mut doc = Doc::new(Kind::Card);
+            doc.set_fields(&Card {
+                front: front.into(),
+                back: "back".into(),
+                deck: deck.into(),
+                ..Card::default()
+            });
+            vault.add(doc).unwrap();
+        }
+        let deck = Deck::load(&vault);
+        let at = now();
+        assert_eq!(deck.queue(at, &UTC).cards.len(), 3);
+        let maths = deck.queue_in(Some("Maths"), at, &UTC);
+        assert_eq!(maths.cards.len(), 2);
+        assert!(maths
+            .cards
+            .iter()
+            .all(|id| deck.get(id).unwrap().card.deck == "Maths"));
+        assert_eq!(deck.counts_in(Some("Poems"), at, &UTC).new_available, 1);
+        assert!(deck.queue_in(Some("Nothing"), at, &UTC).cards.is_empty());
+        let counts = deck.decks();
+        assert_eq!(counts.len(), 2);
+        assert!(counts.contains(&("Maths".to_string(), 2)));
+        assert!(counts.contains(&("Poems".to_string(), 1)));
     }
 
     #[test]

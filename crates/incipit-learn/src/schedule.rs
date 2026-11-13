@@ -21,7 +21,7 @@
 //!   day. The probability of recall at a moment ([`retrievability`], for showing and ordering)
 //!   stays on the real clock, as the crate's and Anki's current retrievability does;
 //! - stability is held within the `fsrs` crate's bounds, which its optimizer fits the weights
-//!   within: a first review's is its weight down to 0.0001 days (the earlier app raised it to at
+//!   within: a first review's is its weight down to 0.001 days (the earlier app raised it to at
 //!   least 0.1), and no stability or interval goes past 36,500 days.
 
 use crate::card::{Card, Rating, Review, State};
@@ -34,9 +34,10 @@ fn clamp_d(d: f64) -> f64 {
 }
 
 /// The least and the most a stability, and an interval, can be, in days: the `fsrs` crate's
-/// `S_MIN` and `S_MAX`. Its optimizer fits a first review's stability down to the least, so a
-/// learner who forgets new cards within hours keeps that weight; the most is a hundred years.
-const STABILITY: (f64, f64) = (0.0001, 36_500.0);
+/// `S_MIN` and `S_MAX` at the version the workspace pins (6.6.2; py-fsrs's least is the same).
+/// Its optimizer fits a first review's stability down to the least, so a learner who forgets new
+/// cards within hours keeps that weight; the most is a hundred years.
+const STABILITY: (f64, f64) = (0.001, 36_500.0);
 
 fn clamp_s(s: f64) -> f64 {
     s.clamp(STABILITY.0, STABILITY.1)
@@ -452,6 +453,9 @@ mod tests {
         p.weights[0] = 0.05;
         let again = schedule(&Card::new(NOW), Rating::Again, NOW, &p, &UTC).0;
         assert_eq!(again.stability, 0.05);
+        p.weights[0] = 0.0001;
+        let again = schedule(&Card::new(NOW), Rating::Again, NOW, &p, &UTC).0;
+        assert_eq!(again.stability, STABILITY.0);
         let known = Card {
             state: State::Review,
             stability: 30_000.0,

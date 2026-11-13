@@ -3,7 +3,8 @@
 //! and a ring shows what has the keyboard only after a key moved it there; a
 //! click hides it, as in macOS, and a click on a button leaves the keyboard
 //! where it was. What the keyboard moves to is scrolled into view. And the
-//! scroll areas' bars, which GPUI does not draw.
+//! scroll areas' bars, which GPUI does not draw: a bar follows a scroll area,
+//! or anything else that can say how far along it is (`Scrolled`).
 
 use std::cell::{Cell, RefCell};
 
@@ -187,29 +188,65 @@ pub fn step(key: &str, at: Option<usize>, count: usize, across: bool) -> Option<
     })
 }
 
+/// How much a scrolled thing holds, how much of it shows, and how far along
+/// what shows starts, all in one measure (pixels, for a scroll area).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Span {
+    pub total: f32,
+    pub shown: f32,
+    pub start: f32,
+}
+
+/// What a scroll bar shows and moves: a scroll area, or anything else that
+/// scrolls through a length it can measure (a list that lays out only what
+/// is near the screen knows its length in its own terms).
+pub trait Scrolled: Clone + 'static {
+    /// Where it is now; `None` while that is not known.
+    fn span(&self) -> Option<Span>;
+    /// Scrolls so that what shows starts `start` along.
+    fn scroll_to(&self, start: f32, window: &mut Window, cx: &mut App);
+}
+
+impl Scrolled for ScrollHandle {
+    fn span(&self) -> Option<Span> {
+        let shown = f32::from(self.bounds().size.height);
+        let max = f32::from(self.max_offset().y);
+        Some(Span {
+            total: shown + max,
+            shown,
+            start: -f32::from(self.offset().y),
+        })
+    }
+
+    fn scroll_to(&self, start: f32, _: &mut Window, _: &mut App) {
+        self.set_offset(point(self.offset().x, px(-start)));
+    }
+}
+
 /// A scroll area's bar, beside it (in a parent with `relative()`, after it):
 /// a thin thumb as long as the part that shows, when there is more than
 /// shows. Dragged, it scrolls; a click beside it jumps there.
-pub fn scrollbar(id: impl Into<ElementId>, handle: &ScrollHandle, t: Theme) -> impl IntoElement {
-    let (handle, id) = (handle.clone(), id.into());
+pub fn scrollbar(id: impl Into<ElementId>, scrolled: &impl Scrolled, t: Theme) -> impl IntoElement {
+    let (scrolled, id) = (scrolled.clone(), id.into());
     canvas(
         |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
         move |bounds, hitbox, window, cx| {
-            let view = f32::from(handle.bounds().size.height);
-            let max = f32::from(handle.max_offset().y);
-            if max <= 0.5 || view <= 0.0 {
+            let Some(span) = scrolled.span() else {
+                return;
+            };
+            let max = span.total - span.shown;
+            if max <= 0.5 || span.shown <= 0.0 {
                 return;
             }
-            let length = px((view * (view / (view + max))).max(28.0)).min(bounds.size.height);
+            let length = px((f32::from(bounds.size.height) * (span.shown / span.total)).max(28.0))
+                .min(bounds.size.height);
             let room = bounds.size.height - length;
-            let thumb = |offset: Pixels| {
-                bounds.origin.y + room * (-f32::from(offset) / max).clamp(0.0, 1.0)
-            };
+            let thumb = |start: f32| bounds.origin.y + room * (start / max).clamp(0.0, 1.0);
             // Where the thumb was grabbed, from its top, while it is dragged.
             let grab = window.use_keyed_state(id.clone(), cx, |_, _| None::<Pixels>);
             let dragging = grab.read(cx).is_some();
             let hovered = hitbox.is_hovered(window) || dragging;
-            let top = thumb(handle.offset().y);
+            let top = thumb(span.start);
             let width = if hovered { px(7.0) } else { px(5.0) };
             let rect = Bounds::new(
                 point(bounds.right() - width - px(3.0), top + px(2.0)),
@@ -219,11 +256,11 @@ pub fn scrollbar(id: impl Into<ElementId>, handle: &ScrollHandle, t: Theme) -> i
             window.paint_quad(quad(rect, px(3.5), ink, px(0.0), ink, BorderStyle::Solid));
             // Scrolled to where the thumb's top goes.
             let scroll_to = {
-                let handle = handle.clone();
-                move |thumb_top: Pixels| {
+                let scrolled = scrolled.clone();
+                move |thumb_top: Pixels, window: &mut Window, cx: &mut App| {
                     let along = (f32::from(thumb_top - bounds.origin.y) / f32::from(room).max(1.0))
                         .clamp(0.0, 1.0);
-                    handle.set_offset(point(handle.offset().x, px(-(max * along))));
+                    scrolled.scroll_to(max * along, window, cx);
                 }
             };
             let (h, g, to) = (hitbox.clone(), grab.clone(), scroll_to.clone());
@@ -237,7 +274,7 @@ pub fn scrollbar(id: impl Into<ElementId>, handle: &ScrollHandle, t: Theme) -> i
                 let on_thumb = y >= top && y <= top + length;
                 let at = if on_thumb { y - top } else { length / 2.0 };
                 if !on_thumb {
-                    to(y - at);
+                    to(y - at, window, cx);
                 }
                 g.update(cx, |grab, _| *grab = Some(at));
                 cx.stop_propagation();
@@ -249,7 +286,7 @@ pub fn scrollbar(id: impl Into<ElementId>, handle: &ScrollHandle, t: Theme) -> i
                     if e.pressed_button.is_none() {
                         g.update(cx, |grab, _| *grab = None);
                     } else {
-                        to(e.position.y - at);
+                        to(e.position.y - at, window, cx);
                     }
                     window.refresh();
                 }

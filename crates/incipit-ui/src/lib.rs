@@ -36,7 +36,7 @@ pub use chrome::{
 pub use controls::*;
 pub use focus::{
     arrow_step, clicked, focus_handle, focus_ring, keep_focus, keyboard_focus, keyboard_moved,
-    ringed, scroll_areas, scroll_into_view, scrollbar, scrolled,
+    ringed, scroll_areas, scroll_into_view, scrollbar, scrolled, Scrolled, Span,
 };
 pub use icon::{icon, Assets, Icon, IconName, IconSize};
 pub use markdown::{markdown, markdown_cloze, Cloze};

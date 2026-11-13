@@ -41,6 +41,22 @@ const FOLDERS: [&str; 6] = ["notes", "concepts", "cards", "figures", "library", 
 /// from the files and which history ignores.
 pub const APP_FOLDER: &str = ".incipit";
 
+/// Refuses a generated file's name that is not one plain, visible file name.
+fn generated_name(name: &str) -> Result<()> {
+    let plain = !name.is_empty()
+        && !name.starts_with('.')
+        && !name.contains(['/', '\\', ':'])
+        && name.chars().all(|c| !c.is_control());
+    if plain {
+        Ok(())
+    } else {
+        Err(Error::InvalidPath {
+            path: name.to_owned(),
+            reason: "a generated file is named by a plain file name",
+        })
+    }
+}
+
 /// A file that could not be read as a document, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Problem {
@@ -194,6 +210,21 @@ impl Vault {
     /// never read as documents, and safe to delete.
     pub fn app_folder(&self) -> PathBuf {
         self.inner.root.join(APP_FOLDER)
+    }
+
+    /// A generated file in the app's folder, by its name; `None` when there is none (it was never
+    /// made, or was deleted) or it cannot be read.
+    pub fn read_generated(&self, name: &str) -> Option<Vec<u8>> {
+        generated_name(name).ok()?;
+        std::fs::read(self.app_folder().join(name)).ok()
+    }
+
+    /// Writes a generated file in the app's folder whole, making the folder again if it was
+    /// deleted. It is derived from the vault's files, so it is not announced and history leaves
+    /// it out. `name` is a plain file name, not a path.
+    pub fn write_generated(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        generated_name(name)?;
+        fsio::write_atomic(&self.app_folder().join(name), bytes)
     }
 
     /// Changes from now on, as they happen.

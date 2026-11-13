@@ -67,6 +67,35 @@ fn a_new_vault_has_its_folders_and_nothing_else() {
 }
 
 #[test]
+fn a_generated_file_is_kept_in_the_app_folder_and_made_again_when_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Vault::create(dir.path()).unwrap();
+    let changes = vault.subscribe();
+    assert_eq!(vault.read_generated("cache.json"), None);
+    vault.write_generated("cache.json", b"{}").unwrap();
+    assert_eq!(
+        vault.read_generated("cache.json").as_deref(),
+        Some(&b"{}"[..])
+    );
+    assert!(vault.app_folder().join("cache.json").is_file());
+    // Not a document and not announced.
+    assert_eq!(vault.count(None), 0);
+    assert!(changes.try_recv().is_err());
+    // The folder is safe to delete: the next write makes it again.
+    fs::remove_dir_all(vault.app_folder()).unwrap();
+    assert_eq!(vault.read_generated("cache.json"), None);
+    vault.write_generated("cache.json", b"[]").unwrap();
+    assert_eq!(
+        vault.read_generated("cache.json").as_deref(),
+        Some(&b"[]"[..])
+    );
+    for bad in ["", "../profile.md", "a/b.json", ".hidden", "c:\\x"] {
+        assert!(vault.write_generated(bad, b"x").is_err(), "{bad}");
+        assert_eq!(vault.read_generated(bad), None, "{bad}");
+    }
+}
+
+#[test]
 fn an_added_document_is_written_indexed_and_announced() {
     let (_dir, vault) = new_vault();
     let events = vault.subscribe();

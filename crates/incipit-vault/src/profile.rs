@@ -1,9 +1,10 @@
 //! The learner's profile: `profile.md` at the vault's root. Who they are and how they like to
 //! learn are its properties, in the earlier app's names (`name`, `role`, `goals`, `background`,
-//! `level`, `styles`, `interests`, `dailyNew`, `retention`, `onboarded`); their own words about
-//! how they learn are its body. It is not a document (it is not listed among the notes, and
-//! has no id): the vault reads and writes it here, and the app's model prompts and review
-//! settings read it from here.
+//! `level`, `styles`, `interests`, `dailyNew`, `retention`, `onboarded`), and one of Incipit's
+//! own (`fittedSchedule`, whether the flashcards' schedule is fitted to their reviews); their own
+//! words about how they learn are its body. It is not a document (it is not listed among the
+//! notes, and has no id): the vault reads and writes it here, and the app's model prompts and
+//! review settings read it from here.
 //!
 //! Reading is forgiving, as for every file in a vault: a missing file is the default profile, a
 //! value of the wrong type or outside its limits takes the default or the nearest limit, and
@@ -116,6 +117,9 @@ pub struct Profile {
     pub daily_new: u32,
     /// The recall a card is scheduled to fall to when it comes due, within `RETENTION`.
     pub retention: f64,
+    /// Whether the flashcards' schedule is fitted to the learner's own reviews once there are
+    /// enough of them (true), or always the standard one.
+    pub fitted_schedule: bool,
     /// Their own words, the file's body. Empty when they wrote none.
     pub notes: String,
     /// Whether the first run is done.
@@ -138,6 +142,7 @@ impl Default for Profile {
             interests: Vec::new(),
             daily_new: 20,
             retention: 0.9,
+            fitted_schedule: true,
             notes: String::new(),
             onboarded: false,
         }
@@ -202,6 +207,10 @@ impl Profile {
                 .and_then(Value::as_f64)
                 .filter(|r| r.is_finite())
                 .map_or(default.retention, clamp_retention),
+            fitted_schedule: props
+                .get("fittedSchedule")
+                .and_then(Value::as_bool)
+                .unwrap_or(default.fitted_schedule),
             notes: if notes == HINT {
                 String::new()
             } else {
@@ -258,6 +267,7 @@ impl Profile {
         props.set("interests", self.interests.clone());
         props.set("dailyNew", i64::from(self.daily_new));
         props.set("retention", self.retention);
+        props.set("fittedSchedule", self.fitted_schedule);
         props.set("onboarded", self.onboarded);
         let body = if self.notes.trim().is_empty() {
             HINT
@@ -322,6 +332,7 @@ mod tests {
         assert_eq!(profile.daily_new, 20);
         assert_eq!(profile.retention, 0.9);
         assert!(!profile.onboarded);
+        assert!(profile.fitted_schedule);
         assert_eq!(profile.role, Role::Curious);
         assert_eq!(profile.level, Level::Intermediate);
         assert_eq!(
@@ -352,6 +363,7 @@ mod tests {
             interests: vec!["knots".into(), "music".into()],
             daily_new: 35,
             retention: 0.85,
+            fitted_schedule: false,
             notes: "I like proofs first.".into(),
             onboarded: true,
         };

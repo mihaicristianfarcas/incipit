@@ -89,7 +89,7 @@ impl ReaderView {
                 let _ = send.send(Ok(gathered));
             }
             Doc::Pdf(document) => {
-                let (pages, cut) = (spanned.parts.clone(), spanned.cut);
+                let (pages, cut) = (spanned.parts.clone(), spanned.cut.clone());
                 document.worker.text(pages, cut, move |texts| {
                     let gathered = texts
                         .map(|texts| spanned.of_pages(texts))

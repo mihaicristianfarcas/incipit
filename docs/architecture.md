@@ -130,7 +130,11 @@ to the next line at its depth or above (`chapter` in the app's
 it starts and ends on, as in the earlier app: from its first page, the
 lines from where its line of the contents leads, when the PDF says how
 far down the page that is; from its last, the lines above where the next
-line leads, which is nothing when that is the top of a page. A concept's
+line leads, which is nothing when that is the top of a page. Where the
+contents name only the page the next line leads to, the earlier app took
+nothing from it; here the next line's title is looked for on that page
+where it stands as a heading (alone on its lines but for a number), and
+the page is cut above it, or taken whole when it is not there. A concept's
 quote is looked for in that text only. A chapter is sent in pieces of
 whole pages or blocks of at most 45,000 characters, the earlier app's
 size for one request, so a long chapter is read whole rather than cut

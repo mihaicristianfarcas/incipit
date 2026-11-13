@@ -5,7 +5,8 @@
 //!
 //! A chapter can start or end part-way down a page, so the text of a run of pages can be cut at
 //! its ends (`Cut`): of the first page only the lines of text from a height down, of the last
-//! only the lines above one. Where a line of text is follows the earlier app, so that its cuts
+//! only the lines above one, or above the line where the next chapter's title is found on it
+//! when the contents name only its page. Where a line of text is follows the earlier app, so that its cuts
 //! fall where they fell there: characters whose baselines are within half their type's size of
 //! each other (1.5 points at least) are one line, wherever across the page they are, and a
 //! line's top is 0.85 of its largest type above its baseline. What is kept of a page is its
@@ -21,6 +22,8 @@ use std::sync::OnceLock;
 
 use anyhow::{anyhow, Result};
 use pdfium_render::prelude::*;
+use unicode_normalization::char::is_combining_mark;
+use unicode_normalization::UnicodeNormalization;
 
 static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 
@@ -53,10 +56,16 @@ pub struct Entry {
 /// Where the text of a run of pages is cut, by the tops of its lines of text as shares of the
 /// page's height from the page's top: of the first page only the lines at or below `top` are
 /// taken, of the last only the lines above `bottom`. `None` takes the page whole.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+///
+/// Without a `bottom`, `before` is the title of what follows when the contents name only the
+/// page it starts on: it is looked for among the last page's lines (`title_top`), and the page
+/// is cut above the line it starts on, as though the contents had led there; where it is not
+/// found, the page is taken whole.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Cut {
     pub top: Option<f32>,
     pub bottom: Option<f32>,
+    pub before: Option<String>,
 }
 
 /// A line of a page's text as pdfium ends its lines: its characters in the page's text
@@ -86,6 +95,15 @@ const NEAR_SIZE: f32 = 0.5;
 const ASCENT: f32 = 0.85;
 /// The size, in points, a character is taken to have when the PDF gives none: the earlier app's.
 const UNSIZED: f32 = 10.0;
+/// A title found on a page is taken to start `HEADING` above the top of its line, as the earlier
+/// app placed a chapter's heading it found on a page; the page is cut `NEXT` above that, the
+/// allowance the earlier app (and the app's `chapter`) keeps above where the next chapter
+/// starts.
+const HEADING: f32 = 0.01;
+const NEXT: f32 = 0.005;
+/// The fewest letters and digits a title is looked for with, as the earlier app looked for a
+/// heading: fewer would be found in the text by chance.
+const SHORTEST_TITLE: usize = 6;
 
 /// A character of a page, with its baseline (in points above the page's bottom) and its type's
 /// size when it has a place on the page, as `line_tops` takes them.
@@ -139,9 +157,6 @@ fn line_tops(placed: &[Option<(f32, f32)>], height: f32) -> Vec<Option<f32>> {
         .collect()
 }
 
-/// The characters of a page `height` points high whose line of text has its top at or below
-/// `top` and above `bottom`, each a share of the height from the page's top. Each character
-/// comes with its baseline and size, as `line_tops` takes them.
 /// A drawn page's glyphs with each line ending in `\n` alone, as [`plain_lines`] ends the
 /// page's text, so that the two stay the same characters (a quote taken from one is found in
 /// the other).
@@ -175,6 +190,9 @@ fn plain_lines(text: String) -> String {
     }
 }
 
+/// The characters of a page `height` points high whose line of text has its top at or below
+/// `top` and above `bottom`, each a share of the height from the page's top. Each character
+/// comes with its baseline and size, as `line_tops` takes them.
 fn text_between(
     chars: &[(char, Option<(f32, f32)>)],
     height: f32,
@@ -219,6 +237,72 @@ fn lines_of(chars: Vec<Placed>, height: f32) -> PageText {
         text: chars.into_iter().map(|(c, _)| c).collect(),
         lines,
     }
+}
+
+/// A text's letters and digits, in small letters and without accents.
+fn squashed(text: impl Iterator<Item = char>) -> impl Iterator<Item = char> {
+    text.flat_map(|c| std::iter::once(c).nfkd())
+        .filter(|c| !is_combining_mark(*c))
+        .flat_map(char::to_lowercase)
+        .filter(|c| c.is_alphanumeric())
+}
+
+/// The top of the line where `title` starts among a page's lines, as the earlier app found a
+/// chapter's heading on its page: the title's letters and digits (small, without accents) in
+/// those of the page's lines run together, at the first place where they are a heading, as the
+/// earlier app took a line that is the title for its heading: alone on their line or lines,
+/// but for a number before them ("3", "IV", "Chapter 2"), so that the title's words in the text
+/// above it are passed over. `None` when there is no such place, or the title has fewer than
+/// `SHORTEST_TITLE` letters and digits.
+pub fn title_top(page: &PageText, title: &str) -> Option<f32> {
+    let needle: Vec<char> = squashed(title.chars()).collect();
+    if needle.len() < SHORTEST_TITLE {
+        return None;
+    }
+    let chars: Vec<char> = page.text.chars().collect();
+    let mut hay = Vec::new();
+    let mut starts = Vec::new();
+    for line in &page.lines {
+        starts.push(hay.len());
+        let (start, end) = (line.start.min(chars.len()), line.end.min(chars.len()));
+        hay.extend(squashed(chars[start..end.max(start)].iter().copied()));
+    }
+    // The line a letter is on, and where that line's letters end.
+    let line_of = |at: usize| {
+        starts
+            .partition_point(|start| *start <= at)
+            .saturating_sub(1)
+    };
+    let line_end = |line: usize| starts.get(line + 1).copied().unwrap_or(hay.len());
+    let last = hay.len().checked_sub(needle.len())?;
+    (0..=last)
+        .filter(|at| hay[*at..*at + needle.len()] == needle[..])
+        .find(|at| {
+            let (first, end) = (line_of(*at), *at + needle.len());
+            let before: String = hay[starts[first]..*at].iter().collect();
+            numbered(&before) && end == line_end(line_of(end - 1))
+        })
+        .map(|at| page.lines[line_of(at)].top)
+}
+
+/// Whether what comes before a title on its line, as letters and digits, is no more than a
+/// number: digits or a Roman numeral, after "chapter", "part", "section", "lecture", "book" or
+/// "appendix" or alone, or nothing.
+fn numbered(before: &str) -> bool {
+    let rest = ["chapter", "part", "section", "lecture", "book", "appendix"]
+        .iter()
+        .find_map(|word| before.strip_prefix(word))
+        .unwrap_or(before);
+    rest.chars().all(|c| c.is_ascii_digit())
+        || rest
+            .chars()
+            .all(|c| matches!(c, 'i' | 'v' | 'x' | 'l' | 'c' | 'd' | 'm'))
+}
+
+/// Where a page whose next part's title starts on a line with its top `top` is cut: above the
+/// place the title starts, as `Cut` says.
+fn above_title(top: f32) -> f32 {
+    (top - HEADING).max(0.0) - NEXT
 }
 
 pub struct Page {
@@ -392,7 +476,15 @@ impl Pdf {
             .clone()
             .map(|index| {
                 let top = cut.top.filter(|_| index == pages.start);
-                let bottom = cut.bottom.filter(|_| index == last);
+                let bottom = if index == last {
+                    cut.bottom.or_else(|| {
+                        let title = cut.before.as_deref()?;
+                        let top = title_top(&self.page_text(index).ok()?, title)?;
+                        Some(above_title(top))
+                    })
+                } else {
+                    None
+                };
                 self.text_within(index, top, bottom)
             })
             .collect()
@@ -652,6 +744,66 @@ mod tests {
     }
 
     #[test]
+    fn a_title_is_found_where_it_is_a_heading_whatever_its_case_accents_and_line_breaks() {
+        let text = lines_of(
+            page(&[
+                "the end of the relativity",
+                "chapter, on relativité.",
+                "CHAPTER 2",
+                "Relativité",
+                "3.1 Its text",
+            ]),
+            792.0,
+        );
+        // The tops are 0.116, 0.133, 0.151, 0.169 and 0.186 down the page.
+        assert_eq!(title_top(&text, "Chapter 2: Relativite"), Some(0.151));
+        assert_eq!(title_top(&text, "relativité"), Some(0.169));
+        assert_eq!(title_top(&text, "Its text"), Some(0.186));
+        // In the text, its words are not its heading: before or after them on their line is
+        // more than a number.
+        assert_eq!(title_top(&text, "relativity chapter"), None);
+        assert_eq!(title_top(&text, "the end of the"), None);
+        // Too short to look for, or not there.
+        assert_eq!(title_top(&text, "Its"), None);
+        assert_eq!(title_top(&text, "Chapter 3"), None);
+        assert_eq!(title_top(&PageText::default(), "Chapter 2"), None);
+        assert!(numbered("") && numbered("31") && numbered("chapteriv") && numbered("part2"));
+        assert!(!numbered("onrelativity") && !numbered("chapter2a"));
+        // The page is cut a little above the title's line, and never below its top.
+        assert!((above_title(0.151) - 0.136).abs() < 1e-6);
+        assert!((above_title(0.004) + 0.005).abs() < 1e-6);
+    }
+
+    #[test]
+    #[ignore = "requires pdfium in lib/ and the sample paper from tools/setup"]
+    fn a_run_is_cut_above_the_next_title_when_only_its_page_is_known() {
+        let pdf = sample();
+        // "3 Model Architecture" is on the paper's second page, 0.81 down.
+        let cut = |before: &str| Cut {
+            before: Some(before.into()),
+            ..Cut::default()
+        };
+        let text = &pdf.texts(1..2, cut("Model Architecture")).unwrap()[0];
+        assert!(text.starts_with("1 Introduction"));
+        assert!(text.ends_with("such as [17, 18] and [9].\n"), "{text}");
+        // A title not on the page takes it whole; a bottom that is known comes first.
+        let whole = pdf.text(1).unwrap();
+        assert_eq!(pdf.texts(1..2, cut("Not a title here")).unwrap()[0], whole);
+        let bottom = Cut {
+            bottom: Some(0.44),
+            ..Cut::default()
+        };
+        let known = Cut {
+            bottom: Some(0.44),
+            ..cut("Model Architecture")
+        };
+        assert_eq!(
+            pdf.texts(1..2, known).unwrap(),
+            pdf.texts(1..2, bottom).unwrap()
+        );
+    }
+
+    #[test]
     #[ignore = "requires pdfium in lib/ and the sample paper from tools/setup"]
     fn a_pages_lines_are_its_text_as_drawn() {
         let pdf = sample();
@@ -692,8 +844,9 @@ mod tests {
         let section = Cut {
             top: Some(0.44),
             bottom: Some(0.8),
+            before: None,
         };
-        let cut = &pdf.texts(1..2, section).unwrap()[0];
+        let cut = &pdf.texts(1..2, section.clone()).unwrap()[0];
         assert!(cut.starts_with("2 Background\nThe goal of reducing"));
         assert!(cut.ends_with("such as [17, 18] and [9].\n"));
         assert!(!whole.iter().any(|page| page.contains('\r')));
@@ -706,8 +859,8 @@ mod tests {
         assert!(both[1].ends_with("We also modify the self-attention\n"));
         // A bottom above the page takes nothing from the last page.
         let none = Cut {
-            top: None,
             bottom: Some(-0.005),
+            ..Cut::default()
         };
         assert_eq!(
             pdf.texts(1..3, none).unwrap(),

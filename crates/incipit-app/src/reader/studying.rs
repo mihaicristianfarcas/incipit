@@ -245,7 +245,7 @@ impl ReaderView {
             Some(entry) => {
                 let spanned = span(&opened.contents, entry, opened.parts(), pdf);
                 context.chapter = Some(opened.contents[entry].title.clone());
-                let text = self.gather(spanned.parts.clone(), spanned.cut);
+                let text = self.gather(spanned.parts.clone(), spanned.cut.clone());
                 (text, Some(spanned), CHAPTER)
             }
             None => (self.text_around(top), None, AROUND),

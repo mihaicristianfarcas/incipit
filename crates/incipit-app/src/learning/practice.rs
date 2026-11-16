@@ -409,7 +409,7 @@ pub fn record(
     )?;
     let id: DocId = made.id;
     let total = scores.len();
-    let score = (scores.iter().sum::<f64>() * 10.0).round() / 10.0;
+    let score = (scores.iter().fold(0.0, |sum, s| sum + s) * 10.0).round() / 10.0;
     let answers: Vec<(String, f64)> = scores
         .iter()
         .map(|s| (id.as_str().to_owned(), s.clamp(0.0, 1.0)))

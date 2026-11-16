@@ -15,6 +15,10 @@
 //! for the concepts they were on. Escape closes the sheet; Return goes on to the next question once one is
 //! answered.
 //!
+//! A quiz written in a note (a `quiz` block, `incipit_vault::quiz`) is played here too
+//! (`play`); once it is done the attempt can be added under it, with the corrections
+//! (`quiz/note.rs`).
+//!
 //! Without clicking: INCIPIT_QUIZ=demo opens the sheet on a made-up quiz, and =done on the same
 //! quiz finished with two questions missed, on the Reader or the Review page. Nothing is asked
 //! of a model and nothing is written: a short answer is "checked" with made-up words.
@@ -93,6 +97,8 @@ struct Status {
     /// The concepts the quiz builds on that the learner is forgetting: the chapter's before a
     /// pretest or a quiz is chosen, the missed questions' when the results show.
     fading: Vec<Brief>,
+    /// The note the quiz was written in, when it is played from one.
+    note: Option<note::ForNote>,
 }
 
 impl Open {
@@ -109,6 +115,7 @@ impl Open {
                 problem: None,
                 demo: false,
                 fading: Vec::new(),
+                note: None,
             },
         }
     }
@@ -133,6 +140,9 @@ pub struct QuizView {
 }
 
 mod foundations;
+mod note;
+
+pub use note::Added;
 
 impl EventEmitter<Closed> for QuizView {}
 
@@ -1131,6 +1141,7 @@ impl QuizView {
                                 .on_click(cx.listener(|this, _, _, cx| this.card_all(cx))),
                         )
                     })
+                    .children(Self::attempt_button(status, t, cx))
                     .child(
                         button("quiz-done", "Close", t)
                             .accent()

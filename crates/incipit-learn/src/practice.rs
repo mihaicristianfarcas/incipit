@@ -261,7 +261,7 @@ impl Flow {
 
     /// The points scored, to a tenth.
     pub fn score(&self) -> f64 {
-        let sum: f64 = self.scored().iter().map(|g| g.score).sum();
+        let sum = self.scored().iter().fold(0.0, |sum, g| sum + g.score);
         (sum * 10.0).round() / 10.0
     }
 

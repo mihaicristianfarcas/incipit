@@ -599,4 +599,44 @@ mod tests {
         let (folder, _) = agent.worked.lock().unwrap()[0].clone();
         assert!(!folder.exists());
     }
+
+    #[test]
+    #[ignore = "requires Claude Code signed in; makes one agent call with Haiku"]
+    fn claude_suggests_from_a_copy_it_cannot_write_live() {
+        let (dir, vault) = vault();
+        let quorums = note(
+            &vault,
+            "Quorums",
+            "A quorum is a majority of the nodes, so two quorums always share a node.\n",
+        );
+        note(
+            &vault,
+            "Consensus",
+            "Nodes agree on one value even when some fail. A vote is safe when a majority \
+             answers.\n",
+        );
+        concept(&vault, "Raft");
+        let before = std::fs::read_to_string(vault.root().join("notes/Quorums.md")).unwrap();
+        let made = suggest_connections(
+            &incipit_llm::Claude::new(),
+            &Request::new("").with_model("haiku"),
+            &vault,
+            &dir.path().join("runs"),
+            Some(quorums.id()),
+            &Cancel::new(),
+            &mut |_| {},
+        )
+        .unwrap();
+        for c in &made {
+            eprintln!("{} -> {}: {}", c.from, c.to, c.why);
+        }
+        assert!(made.iter().all(|c| c.from == "notes/Quorums.md"));
+        assert_eq!(vault.connections().unwrap(), made);
+        let after = std::fs::read_to_string(vault.root().join("notes/Quorums.md")).unwrap();
+        assert_eq!(before, after, "a suggestion changes no note");
+        let runs: Vec<_> = std::fs::read_dir(dir.path().join("runs"))
+            .map(|r| r.collect())
+            .unwrap_or_default();
+        assert!(runs.is_empty(), "the agent's copy is gone: {runs:?}");
+    }
 }

@@ -8,6 +8,11 @@
 //! - its cards (every card about it, suspended ones too, with when each is due);
 //! - the notes about it: those whose `concepts` name it and those that link to it anywhere;
 //! - the passages it came from, with their books' titles.
+//!
+//! What a set of concepts builds on that the learner is forgetting (`foundations`) is read from
+//! the same place.
+
+mod foundations;
 
 use std::collections::{HashMap, HashSet};
 

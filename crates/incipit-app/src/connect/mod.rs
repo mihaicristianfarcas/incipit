@@ -27,6 +27,7 @@ use incipit_vault::{rfc3339, DocId};
 
 pub mod builds_on;
 pub mod decide;
+pub mod demo;
 pub mod suggest;
 
 /// Held while the list of connections is read, changed and written.

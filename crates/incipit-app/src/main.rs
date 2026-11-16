@@ -25,6 +25,7 @@ mod figures;
 mod find;
 mod first_run;
 mod fitted;
+mod foundations;
 mod journey;
 mod learning;
 mod library;
@@ -170,6 +171,15 @@ impl Root {
         }
         let workspace = cx.new(workspace::Workspace::new);
         let models = cx.new(models::Models::new);
+        // A sheet that names a document asks for it to be shown where documents are shown.
+        cx.subscribe(
+            &workspace,
+            |this: &mut Self, _, show: &workspace::Show, cx| {
+                this.open(show.0, &show.1, cx);
+                cx.notify();
+            },
+        )
+        .detach();
         let fitting = cx.new(|cx| fitted::Fitting::new(workspace.clone(), cx));
         let reader = cx.new(|cx| reader::ReaderView::new(workspace.clone(), models.clone(), cx));
         // Reading counts while the window is the one in use.

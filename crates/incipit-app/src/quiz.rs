@@ -9,7 +9,10 @@
 //!
 //! The reader offers a pretest or a quiz on the chapter on screen (`offer`), with the earlier
 //! app's words for each; the Review page starts a mixed review across the concepts known least
-//! (`start_review`). Escape closes the sheet; Return goes on to the next question once one is
+//! (`start_review`). Where what the quiz is on builds on concepts the learner is forgetting, a line
+//! names them (`crate::foundations`): above the choice of a pretest or a quiz, for the chapter's
+//! concepts, with a button that starts a refresher on just those, and above the questions missed,
+//! for the concepts they were on. Escape closes the sheet; Return goes on to the next question once one is
 //! answered.
 //!
 //! Without clicking: INCIPIT_QUIZ=demo opens the sheet on a made-up quiz, and =done on the same
@@ -30,6 +33,7 @@ use incipit_ui::{
 };
 use incipit_vault::DocId;
 
+use crate::concepts::view::Brief;
 use crate::learning::context::BookContext;
 use crate::learning::quiz::{
     self, card_of, least_known, verdict, Asked, Graded, Mode, Question, Quiz, Run, ToGrade, RIGHT,
@@ -86,6 +90,9 @@ struct Status {
     problem: Option<String>,
     /// A made-up quiz: nothing is asked of a model and nothing is written.
     demo: bool,
+    /// The concepts the quiz builds on that the learner is forgetting: the chapter's before a
+    /// pretest or a quiz is chosen, the missed questions' when the results show.
+    fading: Vec<Brief>,
 }
 
 impl Open {
@@ -101,6 +108,7 @@ impl Open {
                 carded: HashSet::new(),
                 problem: None,
                 demo: false,
+                fading: Vec::new(),
             },
         }
     }
@@ -122,6 +130,8 @@ pub struct QuizView {
     focus_reply: bool,
     _events: Subscription,
 }
+
+mod foundations;
 
 impl EventEmitter<Closed> for QuizView {}
 
@@ -165,7 +175,10 @@ impl QuizView {
     pub fn offer(&mut self, offer: Offer, cx: &mut Context<Self>) {
         self.stop();
         let deck = offer.deck.clone();
-        self.open = Some(Open::new(Stage::Choose(offer), deck));
+        let fading = self.chapter_foundations(&offer, cx);
+        let mut open = Open::new(Stage::Choose(offer), deck);
+        open.status.fading = fading;
+        self.open = Some(open);
         self.focus_sheet = true;
         cx.notify();
     }
@@ -367,6 +380,9 @@ impl QuizView {
         open.status.demo = true;
         open.status.recorded = done;
         self.open = Some(open);
+        if done {
+            self.missed_foundations(cx);
+        }
         cx.notify();
     }
 
@@ -547,6 +563,7 @@ impl QuizView {
         if finished {
             status.recorded = true;
             self.record(cx);
+            self.missed_foundations(cx);
         }
         self.begin_question(cx);
         cx.notify();
@@ -648,7 +665,21 @@ impl QuizView {
             .child(text.into())
     }
 
-    fn choose_part(&self, offer: &Offer, t: Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn choose_part(
+        &self,
+        offer: &Offer,
+        t: Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let foundations = self.foundations_line(
+            "quiz-foundations",
+            "This chapter builds on",
+            Some(Self::refresh_foundations),
+            t,
+            window,
+            cx,
+        );
         let option = |id: &'static str, mode: Mode, title: &'static str, words: &'static str| {
             div()
                 .flex()
@@ -697,6 +728,7 @@ impl QuizView {
                             .child(chapter),
                     ),
             )
+            .children(foundations)
             .child(option(
                 "quiz-pretest",
                 Mode::Pretest,
@@ -978,10 +1010,23 @@ impl QuizView {
         run: &Run,
         status: &Status,
         t: Theme,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let total = run.total();
         let missed = run.missed();
+        let foundations = if missed.is_empty() {
+            None
+        } else {
+            self.foundations_line(
+                "quiz-missed-foundations",
+                "What you missed builds on",
+                None,
+                t,
+                window,
+                cx,
+            )
+        };
         let rows = missed.iter().map(|&index| {
             let question = &run.quiz.questions[index];
             let made = status.carded.contains(&index);
@@ -1034,6 +1079,7 @@ impl QuizView {
                     })
                     .child(div().flex_1().text_color(t.secondary).child(run.closing())),
             )
+            .children(foundations)
             .when(!missed.is_empty(), |done| {
                 done.child(
                     div()
@@ -1096,7 +1142,7 @@ impl Render for QuizView {
             return div().into_any_element();
         };
         let content: AnyElement = match &open.stage {
-            Stage::Choose(offer) => self.choose_part(offer, t, cx),
+            Stage::Choose(offer) => self.choose_part(offer, t, window, cx),
             Stage::Writing(mode) => div()
                 .flex()
                 .flex_col()
@@ -1132,7 +1178,7 @@ impl Render for QuizView {
                     ),
                 )
                 .into_any_element(),
-            Stage::Taking(run) if run.done() => self.done_part(run, &open.status, t, cx),
+            Stage::Taking(run) if run.done() => self.done_part(run, &open.status, t, window, cx),
             Stage::Taking(run) => self.question_part(run, &open.status, t, window, cx),
         };
         let content = div()

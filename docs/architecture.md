@@ -135,6 +135,13 @@ nothing. A finished practice is a `quiz` line of mode `practice`, so it counts
 toward its concept like a quiz, and can be kept as a note of exercises with the
 solutions folded.
 
+**A quiz can be written in a note.** A fenced `quiz` block of YAML
+(`incipit_vault::quiz`, [vault.md](vault.md)) is listed under the note's text
+and played in the same quiz sheet as a chapter's quiz, as a check on no book;
+it is logged when done with the concepts its questions name. The attempt can
+be added to the note with its corrections. The checks an agent's change passes
+read the blocks too, so one that cannot be read waits for the learner's OK.
+
 **A card known for weeks is asked a new way.** Every other review of a
 card whose stability is three weeks or more asks a fresh question on the
 same idea in place of the card's front, as in the earlier app, so the

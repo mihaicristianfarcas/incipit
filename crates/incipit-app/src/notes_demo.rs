@@ -9,6 +9,12 @@
 //!   gradient) with a width and one without, and a figure kept on its own (a sequence), so the
 //!   Notes page (INCIPIT_PAGE=notes) shows both under the note's text.
 //!
+//! - `quiz` or `play`: a note, "Replication", with two `quiz` blocks, one that reads (two
+//!   multiple-choice questions and one answered in words) and one that does not (a question with
+//!   no model answer), so the Notes page lists a quiz to start and one it cannot read; `play`
+//!   also starts the first quiz in the quiz sheet. A question answered in words is checked by a
+//!   model, so only the choices are played without one.
+//!
 //! Nothing is added to a vault that has notes. No model is called.
 
 use incipit_vault::{Doc, Kind, Vault};
@@ -22,6 +28,8 @@ pub fn asked() -> Option<String> {
 pub const LANDING: &str = "Waves";
 /// The note of `pictures`.
 pub const PICTURES: &str = "Light";
+/// The note of `quiz` and `play`.
+pub const QUIZ: &str = "Replication";
 
 /// Adds the made-up notes asked for to a vault that has none.
 pub fn add(vault: &Vault) {
@@ -31,8 +39,27 @@ pub fn add(vault: &Vault) {
     match asked().as_deref() {
         Some("versions" | "changes") => written_in_three_sittings(vault),
         Some("pictures") => with_a_picture_and_a_figure(vault),
+        Some("quiz" | "play") => with_quizzes(vault),
         _ => {}
     }
+}
+
+/// A note with a quiz that reads and one that does not.
+fn with_quizzes(vault: &Vault) {
+    let mut note = Doc::new(Kind::Note);
+    note.set_title(QUIZ);
+    note.set_body(
+        "Copies of the data live on several machines.\n\n```quiz\ntitle: Replication, check \
+         yourself\nquestions:\n  - q: Which setup lets any replica accept writes?\n    choices: \
+         [Single-leader, Multi-leader, Leaderless]\n    answer: 3\n    why: Leaderless stores \
+         send each write to several replicas directly.\n    concept: Leaderless replication\n  - \
+         q: Which setup has one machine take every write?\n    choices: [Single-leader, \
+         Leaderless]\n    answer: Single-leader\n  - q: In a sentence, what is replication \
+         lag?\n    answer: The delay before a write on the leader shows up on a follower.\n```\n\n\
+         A second quiz, with a mistake in it:\n\n```quiz\ntitle: Half written\nquestions:\n  - \
+         q: What is a quorum?\n```\n",
+    );
+    let _ = vault.add(note);
 }
 
 /// A gradient, as the PNG a person would paste.
@@ -102,6 +129,27 @@ fn written_in_three_sittings(vault: &Vault) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_made_up_note_has_a_quiz_that_reads_and_one_that_does_not() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(&folder.path().join("vault")).unwrap();
+        with_quizzes(&vault);
+        let note = vault
+            .list(Some(Kind::Note))
+            .into_iter()
+            .find(|n| n.title() == QUIZ)
+            .unwrap();
+        let found = crate::note_quizzes::read(note.body());
+        assert_eq!(found.len(), 2);
+        let quiz = found[0].quiz.as_ref().unwrap();
+        assert_eq!(quiz.questions.len(), 3);
+        assert_eq!(
+            crate::note_quizzes::size_of(quiz),
+            "3 questions, some in your own words"
+        );
+        assert!(found[1].quiz.is_err());
+    }
 
     #[test]
     fn the_made_up_note_embeds_a_picture_and_a_figure_that_resolve() {

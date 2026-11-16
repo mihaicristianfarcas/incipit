@@ -34,6 +34,7 @@ mod models;
 mod new_way;
 mod note_embeds;
 mod note_links;
+mod note_quizzes;
 mod notes;
 mod notes_demo;
 mod practice;

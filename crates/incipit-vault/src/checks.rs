@@ -1,8 +1,8 @@
 //! The checks an agent's change passes before it reaches the vault. Some files belong to the app
 //! and may never change: a run that changes one fails outright and nothing of it lands. Every
 //! changed file must still be readable by the app and by Obsidian (JSON, JSON Lines, a Markdown
-//! file's properties): one that is not waits for the learner's OK. Everything else lands at
-//! once, since every run can be undone.
+//! file's properties and quiz blocks): one that is not waits for the learner's OK. Everything
+//! else lands at once, since every run can be undone.
 //!
 //! What may never change can also be listed in a working copy before the agent starts
 //! (`forbidden_in`), so a sandbox that can keep paths read-only refuses those writes at once;
@@ -10,12 +10,13 @@
 //!
 //! The files are read in the agent's working copy, after its change is named and before the
 //! copy is deleted. A link there (a book's file linked in to read) is passed by: it is not the
-//! agent's. Quiz blocks in Markdown are not checked yet: there is no parser for them here.
+//! agent's. A Markdown file's quiz blocks (`quiz`) must read too, since the app plays them.
 
 use std::path::Path;
 
 use crate::frontmatter;
 use crate::history::{FileChange, FileStatus};
+use crate::quiz::{quiz_blocks, quiz_from_yaml};
 
 /// What is wrong with one file an agent changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,7 +124,7 @@ fn unreadable(path: &str, text: &str) -> Option<String> {
     }
     if path.ends_with(".md") {
         let split = frontmatter::split(text);
-        return match split.front {
+        let properties = match split.front {
             Some(front) => frontmatter::parse(front).err().map(first_line),
             None if text
                 .trim_start_matches('\u{feff}')
@@ -136,6 +137,11 @@ fn unreadable(path: &str, text: &str) -> Option<String> {
             }
             None => None,
         };
+        return properties.or_else(|| {
+            quiz_blocks(text)
+                .iter()
+                .find_map(|block| quiz_from_yaml(block).err())
+        });
     }
     None
 }
@@ -344,6 +350,48 @@ mod tests {
         let review = needs_review(&problems);
         assert!(review[1].starts_with("Can't be read: notes/Open.md: the properties"));
         assert!(review.iter().all(|line| !line.contains('\n')));
+    }
+
+    #[test]
+    fn a_quiz_block_an_agent_wrote_must_read_or_it_waits_for_the_learner() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let note =
+            |quiz: &str| format!("---\ntype: quiz\n---\nCheck yourself.\n\n```quiz\n{quiz}\n```\n");
+        write(
+            root,
+            "notes/Good.md",
+            &note("title: T\nquestions:\n  - q: Why?\n    answer: Because."),
+        );
+        write(
+            root,
+            "notes/NoAnswer.md",
+            &note("title: T\nquestions:\n  - q: Why?"),
+        );
+        write(
+            root,
+            "notes/Choice.md",
+            &note("questions:\n  - q: Which?\n    choices: [a, b]\n    answer: 5"),
+        );
+        write(root, "notes/Yaml.md", &note("title: [unclosed"));
+        write(root, "notes/Other.md", "```yaml\nnot: a quiz\n```\n");
+        let files: Vec<FileChange> = ["Good", "NoAnswer", "Choice", "Yaml", "Other"]
+            .iter()
+            .map(|name| changed(&format!("notes/{name}.md"), FileStatus::Added))
+            .collect();
+        let problems = problems_in(root, &files);
+        let said: Vec<String> = problems.iter().map(ToString::to_string).collect();
+        assert_eq!(said.len(), 3, "{said:?}");
+        assert_eq!(
+            said[0],
+            "notes/NoAnswer.md: question 1 needs a model answer (answer: …)"
+        );
+        assert_eq!(
+            said[1],
+            "notes/Choice.md: question 1: answer should be the right choice's number (1 to 2) or its text"
+        );
+        assert!(said[2].starts_with("notes/Yaml.md: "), "{said:?}");
+        assert!(problems.iter().all(|p| !p.is_forbidden()));
     }
 
     #[test]

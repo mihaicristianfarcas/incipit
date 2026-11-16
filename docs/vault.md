@@ -161,6 +161,47 @@ to 12 MB, whatever its name says (`Vault::add_picture`), and linked at the
 cursor as `![[name.png]]`. The Notes page shows what a note embeds under its
 text (`Vault::embeds`).
 
+## Quizzes in notes
+
+A note can hold a quiz: a fenced `quiz` block of YAML, which the Notes page
+lists under the note's text and plays one question at a time in the quiz
+sheet. People and agents write these blocks by hand.
+
+````markdown
+```quiz
+title: Replication, check yourself
+questions:
+  - q: Which setup lets any replica accept writes?
+    choices: [Single-leader, Multi-leader, Leaderless]
+    answer: 3        # the right choice, counting from 1, or its text
+    why: Leaderless stores send each write to several replicas directly.
+  - q: In a sentence or two, what is replication lag?
+    answer: The delay before a write on the leader shows up on a follower.
+```
+````
+
+A question with `choices` is multiple choice; one without is answered in the
+learner's own words and graded by the model against `answer`. Each question may
+also have `concept` (the concept it tests, which a finished quiz counts toward)
+and `quote`. `question` may be written for `q`, `explanation` for `why`, and
+`ideal` for a written question's `answer`; the block may be just the list of
+questions. YAML is read as version 1.2, so `Yes` and `no` are words. A block is
+closed by a line of just the fence it opened with, at the start of the line. A
+block that cannot be read is shown with why, and an agent's change that leaves
+one so waits for the learner's OK.
+
+After a try the learner can add the attempt under what the note holds, as a
+folded callout with the day, the score, each question marked `✓`, `✗` or `–`
+(not checked), and for each miss what was answered and the correction:
+
+```markdown
+> [!attempt]- 2026-11-16 · 1/2 · Replication, check yourself
+> 1. ✓ Which setup lets any replica accept writes?
+> 2. ✗ In a sentence or two, what is replication lag?
+>    - Mine: How late a follower is.
+>    - Correct: The delay before a write on the leader shows up on a follower
+```
+
 ## Connections
 
 `brain/connections.jsonl` holds the links an agent suggested between notes
@@ -352,7 +393,7 @@ checked (`checks`): a change to what the app keeps (`log/`, `.jj/`,
 and nothing of it lands (the agent's sandbox is also given these as
 read-only from the start, where it can keep them: [models.md](models.md));
 a JSON or JSON Lines file, or a Markdown file's
-properties, that can no longer be read waits for the learner's OK. Undo takes that one entry out of the
+properties or `quiz` blocks, that can no longer be read waits for the learner's OK. Undo takes that one entry out of the
 history and keeps what was written before and after it
 (`Vault::drop_change`); it is refused when later edits touched the same
 lines.

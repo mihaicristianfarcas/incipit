@@ -9,6 +9,8 @@
 //! its versions (`versions`): read one as it was, see what it changed, bring it back. The
 //! pictures and figures the note embeds are shown under its text (`note_embeds`); a picture
 //! pasted into it or dropped on it is kept in the vault's attachments and linked at the cursor.
+//! The `quiz` blocks written in the note are listed under its text and played in the quiz sheet
+//! (`note_quizzes`); the attempt can be added to the note.
 //! A file whose properties cannot be read is kept out of the vault's index, so it is listed
 //! apart at the top of the list, marked as one that cannot be read; opening it shows the reason
 //! in plain words and the file's text as it is, to mend and save, after which it is a note.
@@ -31,6 +33,8 @@ use incipit_vault::{Doc, DocId, Kind, Origin, Vault, VaultPath};
 use crate::models::Models;
 use crate::note_embeds::Embeds;
 use crate::note_links::LinksView;
+use crate::note_quizzes::{self, Found};
+use crate::quiz::{Added, QuizView};
 use crate::versions::{BroughtBack, VersionsView};
 use crate::workspace::{Happened, Workspace};
 
@@ -81,6 +85,10 @@ pub struct NotesView {
     versions: Entity<VersionsView>,
     /// The pictures and figures the open note embeds, shown under its text.
     embeds: Embeds,
+    /// The quizzes written in the open note (`quiz` blocks), listed under its text.
+    quizzes: Vec<Found>,
+    /// The sheet where a quiz of the note is played.
+    quiz: Entity<QuizView>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -117,7 +125,7 @@ impl NotesView {
                 this.heard(happened, cx)
             }),
         ];
-        let links = cx.new(|cx| LinksView::new(workspace.clone(), models, cx));
+        let links = cx.new(|cx| LinksView::new(workspace.clone(), models.clone(), cx));
         let versions = cx.new(|cx| VersionsView::new(workspace.clone(), cx));
         let mut subscriptions = subscriptions;
         subscriptions.push(cx.subscribe(
@@ -136,6 +144,15 @@ impl NotesView {
             window,
             |this: &mut Self, _, _: &Pasted, window, cx| this.pasted(window, cx),
         ));
+        let quiz = cx.new(|cx| QuizView::new(workspace.clone(), models.clone(), cx));
+        subscriptions.push(
+            cx.subscribe(&quiz, |this: &mut Self, _, added: &Added, cx| {
+                // The attempt was added to the note's file: show the note as it is now.
+                this.dirty = false;
+                this.show(Some(added.0.clone()), cx);
+            }),
+        );
+        subscriptions.push(cx.observe(&quiz, |_, _, cx| cx.notify()));
         let mut view = NotesView {
             workspace,
             notes: Vec::new(),
@@ -155,6 +172,8 @@ impl NotesView {
             links,
             versions,
             embeds: Embeds::default(),
+            quizzes: Vec::new(),
+            quiz,
             _subscriptions: subscriptions,
         };
         view.list(cx);
@@ -303,7 +322,30 @@ impl NotesView {
         let open = self.open.clone();
         self.links.update(cx, |links, cx| links.show(open, cx));
         self.read_embeds(cx);
+        self.read_quizzes(cx);
         cx.notify();
+    }
+
+    /// Reads the quizzes written in the open note's text.
+    fn read_quizzes(&mut self, cx: &mut Context<Self>) {
+        self.quizzes = if self.open.is_some() {
+            note_quizzes::read(self.body.read(cx).text())
+        } else {
+            Vec::new()
+        };
+    }
+
+    /// Plays quiz `ix` of the open note, after saving what is typed so the attempt can be
+    /// added to the note as it is.
+    fn play_quiz(&mut self, ix: usize, cx: &mut Context<Self>) {
+        self.save(cx);
+        let Some(Ok(quiz)) = self.quizzes.get(ix).map(|found| found.quiz.clone()) else {
+            return;
+        };
+        let Some(id) = self.open.clone() else {
+            return;
+        };
+        self.quiz.update(cx, |sheet, cx| sheet.play(quiz, id, cx));
     }
 
     /// Reads what the open note embeds, and the pictures among them not read yet, off the
@@ -492,6 +534,7 @@ impl NotesView {
             .update(&doc)
             .err()
             .map(|e| format!("The note was not saved: {e}"));
+        self.read_quizzes(cx);
         if first_words && self.problem.is_none() {
             let book = doc.source().map(|s| s.book);
             crate::activity::log(
@@ -523,6 +566,7 @@ impl NotesView {
         match crate::notes_demo::asked().as_deref() {
             Some("versions") => self.show_versions(Some((1, false)), cx),
             Some("changes") => self.show_versions(Some((1, true)), cx),
+            Some("play") => self.play_quiz(0, cx),
             _ => {}
         }
     }
@@ -848,6 +892,14 @@ impl Render for NotesView {
                                         ))
                                         .child(field(&self.body, t).bare().size(16.0).min_rows(14)),
                                 )
+                                .children(self.quizzes.iter().enumerate().map(|(ix, found)| {
+                                    note_quizzes::card(
+                                        ix,
+                                        found,
+                                        t,
+                                        cx.listener(move |this, _, _, cx| this.play_quiz(ix, cx)),
+                                    )
+                                }))
                                 .when(!self.embeds.is_empty(), |note| match self.vault(cx) {
                                     Some(vault) => note.child(self.embeds.view(&vault, t, window)),
                                     None => note,
@@ -889,6 +941,7 @@ impl Render for NotesView {
                     }),
             )
             .child(self.versions.clone())
+            .child(self.quiz.clone())
             .into_any_element()
     }
 }

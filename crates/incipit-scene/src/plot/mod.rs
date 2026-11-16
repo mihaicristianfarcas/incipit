@@ -1,12 +1,14 @@
-//! The plot figure: functions of x the learner plays with. Curves, shaded areas, points, tangents
-//! and guide lines are written as expressions (`expr`) over x and named parameters; each parameter
-//! is a slider, and a point whose coordinate is a parameter can be dragged. The engine samples the
-//! curves, breaks them where they are undefined or jump (an asymptote), clips them to the plot,
-//! chooses the ticks, and places every label. A distribution is a plot too: its density is a
-//! curve, a probability an area under it.
+//! The plot figure: functions of x and data the learner plays with. Curves, shaded areas, points,
+//! tangents, guide lines, paths traced by a parameter s, arrows and bars are written as
+//! expressions (`expr`) over x (or s) and named parameters; data from the text is a series of
+//! numbers. Each parameter is a slider, and a point whose coordinate is a parameter can be
+//! dragged. The engine samples the curves, breaks them where they are undefined or jump (an
+//! asymptote), clips them to the plot, chooses the ticks, and places every label. A distribution
+//! is a plot too: its density is a curve, a probability an area under it.
 
 mod axes;
 mod check;
+mod layers;
 mod layout;
 mod schema;
 
@@ -25,6 +27,9 @@ pub struct Plot {
     pub x: Axis,
     /// min equal to max lets the engine choose the range from what is drawn.
     pub y: Axis,
+    /// One unit is as long across as up, so circles stay round and angles true (geometry).
+    #[serde(default)]
+    pub equal: bool,
     pub params: Vec<Param>,
     pub layers: Vec<Layer>,
     pub steps: Vec<PlotStep>,
@@ -100,6 +105,47 @@ pub enum Layer {
         label: String,
         tone: Tone,
     },
+    /// The path of (x, y), both expressions in s, as s runs from `from` to `to`.
+    Parametric {
+        id: String,
+        x: String,
+        y: String,
+        from: String,
+        to: String,
+        label: String,
+        tone: Tone,
+        dashed: bool,
+    },
+    /// Numbers from the text, `[x, y]` each: joined by a line, marked with dots, or both.
+    Series {
+        id: String,
+        points: Vec<[f32; 2]>,
+        label: String,
+        tone: Tone,
+        dashed: bool,
+        dots: bool,
+        line: bool,
+    },
+    /// A bar at each of `xs` rising from 0 to its height in `heights`, `width` wide in x units,
+    /// with the names in `labels` under them in place of the x axis's numbers (or none).
+    Bars {
+        id: String,
+        xs: Vec<String>,
+        heights: Vec<String>,
+        width: f32,
+        labels: Vec<String>,
+        tone: Tone,
+    },
+    /// An arrow (or a plain line) from the point `from` to the point `to`, each `[x, y]`.
+    Vector {
+        id: String,
+        from: [String; 2],
+        to: [String; 2],
+        label: String,
+        tone: Tone,
+        arrow: bool,
+        dashed: bool,
+    },
 }
 
 /// Which way a point can be dragged. Dragging across sets the parameter its x is; up and down,
@@ -138,7 +184,11 @@ impl Layer {
             | Layer::Point { id, .. }
             | Layer::Tangent { id, .. }
             | Layer::Vline { id, .. }
-            | Layer::Hline { id, .. } => id,
+            | Layer::Hline { id, .. }
+            | Layer::Parametric { id, .. }
+            | Layer::Series { id, .. }
+            | Layer::Bars { id, .. }
+            | Layer::Vector { id, .. } => id,
         }
     }
 }

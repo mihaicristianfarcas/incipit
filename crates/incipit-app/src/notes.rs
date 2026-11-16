@@ -3,7 +3,9 @@
 //! when another note is opened; a new title renames the file, and the links to it follow (the
 //! vault does that). An edit made by another program shows here unless this window has changes
 //! of its own waiting. The concepts the open note links to, as its file has them, are buttons
-//! under its title that open each concept's page (the page emits `OpenConcept`).
+//! under its title that open each concept's page (the page emits `OpenConcept`). Beside the note
+//! is a column of what is said of its links (`note_links`): the notes that name it without
+//! linking it, and the links an agent suggests for it.
 //! A file whose properties cannot be read is kept out of the vault's index, so it is listed
 //! apart at the top of the list, marked as one that cannot be read; opening it shows the reason
 //! in plain words and the file's text as it is, to mend and save, after which it is a note.
@@ -19,6 +21,8 @@ use gpui::{
 use incipit_ui::{button, field, icon_button, FieldEvent, IconName, TextField, Theme, Type};
 use incipit_vault::{Doc, DocId, Kind, Origin, Vault, VaultPath};
 
+use crate::models::Models;
+use crate::note_links::LinksView;
 use crate::workspace::{Happened, Workspace};
 
 /// How long after the last keystroke a note is written to its file.
@@ -62,11 +66,17 @@ pub struct NotesView {
     problem: Option<String>,
     list_scroll: ScrollHandle,
     scroll: ScrollHandle,
+    /// What is said of the open note's links, beside it.
+    links: Entity<LinksView>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl NotesView {
-    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        workspace: Entity<Workspace>,
+        models: Entity<Models>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let title = cx.new(|cx| TextField::new(cx).placeholder("Title"));
         let body = cx.new(|cx| TextField::new(cx).markdown().placeholder("Write"));
         let find = cx.new(|cx| TextField::new(cx).placeholder("Find a note"));
@@ -93,6 +103,7 @@ impl NotesView {
                 this.heard(happened, cx)
             }),
         ];
+        let links = cx.new(|cx| LinksView::new(workspace.clone(), models, cx));
         let mut view = NotesView {
             workspace,
             notes: Vec::new(),
@@ -109,6 +120,7 @@ impl NotesView {
             problem: None,
             list_scroll: ScrollHandle::new(),
             scroll: ScrollHandle::new(),
+            links,
             _subscriptions: subscriptions,
         };
         view.list(cx);
@@ -234,6 +246,8 @@ impl NotesView {
         self.body.update(cx, |field, cx| field.set_text(body, cx));
         self.dirty = false;
         self.linked_concepts(cx);
+        let open = self.open.clone();
+        self.links.update(cx, |links, cx| links.show(open, cx));
         cx.notify();
     }
 
@@ -652,7 +666,10 @@ impl Render for NotesView {
                     .min_h_0()
                     .flex()
                     .child(self.rows(t, cx))
-                    .child(note),
+                    .child(note)
+                    .when(self.open.is_some() && self.mending.is_none(), |row| {
+                        row.child(self.links.clone())
+                    }),
             )
             .into_any_element()
     }

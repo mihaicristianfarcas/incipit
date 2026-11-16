@@ -80,7 +80,7 @@ pub struct LinksView {
     models: Entity<Models>,
     note: Option<DocId>,
     mentions: Vec<Mention>,
-    /// Counts the searches for mentions started, so one that finishes late is dropped.
+    /// Counts the reads, so a search for mentions that finishes after a later read is dropped.
     read: u64,
     waiting: Vec<Row>,
     accepted: Vec<Row>,
@@ -103,11 +103,12 @@ impl LinksView {
             cx.subscribe(
                 &workspace,
                 |this: &mut Self, _, happened: &Happened, cx| match happened {
+                    // The Notes page says which note is open in the vault now (`show`), before
+                    // or after this: the note is left to it.
                     Happened::Opened => {
                         if let Some((_, cancel)) = this.looking.take() {
                             cancel.cancel();
                         }
-                        this.note = None;
                         this.said = None;
                         this.trouble = None;
                         this.read(cx);
@@ -152,6 +153,7 @@ impl LinksView {
 
     /// Reads the note's suggestions, and looks for the notes that mention it.
     fn read(&mut self, cx: &mut Context<Self>) {
+        self.read += 1;
         let (Some(vault), Some(note)) = (self.vault(cx), self.note.clone()) else {
             self.mentions.clear();
             self.waiting.clear();
@@ -160,7 +162,6 @@ impl LinksView {
             return;
         };
         (self.waiting, self.accepted) = rows_for(&vault, &note);
-        self.read += 1;
         let reading = self.read;
         cx.spawn(async move |this, cx| {
             let found = cx

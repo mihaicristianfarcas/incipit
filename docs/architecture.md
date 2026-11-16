@@ -210,6 +210,26 @@ schema check and the secret store are in one place. Calls block on a thread
 of their own and report through a channel or a callback: the window's
 executor and a command line use them the same way, with no async runtime.
 
+**Suggested links wait for the learner, and the agent only reads.** The
+agent that suggests links between notes (`connect/suggest.rs` in the app) is
+run as every agent is, in a working copy of the vault of its own, but its
+sandbox has no write, and whatever it changes anyway is thrown away: a
+suggestion changes nothing until the learner accepts it. Its closing words
+are read leniently and each suggestion is checked before it is kept: both
+ends must be a note or a concept of the vault, the note must not link the
+target already, and the pair must not be in `brain/connections.jsonl`
+([vault.md](vault.md)) in any state, so nothing turned down comes back.
+What concepts build on is asked of a model that reads every concept's name
+and summary (`connect/builds_on.rs`), in groups of forty, and is kept the
+same way. Accepting puts the link in the document (`connect/decide.rs`), so
+Obsidian sees it; turning down only marks it. The notes and concepts, and
+the paths given to the agent, go as material apart from the instructions.
+Links that are only named, never linked, are found in the notes' text
+(`incipit_vault::mentions`) and become links with one press. The line that
+names what a chapter or a quiz builds on that the learner is forgetting
+(`foundations.rs`, over `Concepts::fading`) says nothing at all when no
+concept under it has fallen below 55% recall.
+
 **The agent is confined by the provider and undone by the history.** The
 agent's sheet (`agent/` in the app) hands the learner's words to
 `Models::act`, which runs the chosen command-line agent with the sandbox

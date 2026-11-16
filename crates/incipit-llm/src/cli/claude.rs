@@ -4,7 +4,7 @@
 //! Output is `stream-json`, so text arrives as it is written; the closing `result` line holds the
 //! answer, and with `--json-schema` the object in `structured_output`.
 //!
-//! Plain calls get no tools. Pictures are copied into the call's folder and read with the Read
+//! Plain calls get no tools, but the web search when the request asks for it. Pictures are copied into the call's folder and read with the Read
 //! tool, which is how Claude Code looks at one. Agents get Bash, Read, Grep and Glob (Edit and
 //! Write when they may write) under `--restricted` and the sandbox settings `sandbox` builds.
 //!
@@ -230,6 +230,13 @@ impl Claude {
             system: request.system(),
             model: request.model_name().map(String::from),
             effort: request.effort.map(|e| e.as_str().to_string()),
+            // The one tool a call that searches gets: the web search, nothing that reads a file
+            // or fetches a page.
+            tools: if request.search {
+                vec!["WebSearch".into()]
+            } else {
+                Vec::new()
+            },
             ..Run::default()
         }
     }
@@ -292,6 +299,7 @@ impl Provider for Claude {
             agent: true,
             images: true,
             streams: true,
+            search: true,
         }
     }
 
@@ -416,6 +424,19 @@ mod tests {
             &["--tools".to_string(), String::new()]
         );
         assert!(!args.contains(&"--restricted".to_string()));
+    }
+
+    #[test]
+    fn a_call_that_searches_gets_the_web_search_and_no_other_tool() {
+        let claude = Claude::at("/nowhere/claude");
+        let plain = claude.base(&Request::new("Find."));
+        assert!(plain.tools.is_empty());
+        let run = claude.base(&Request::new("Find.").with_search());
+        assert_eq!(run.tools, ["WebSearch"]);
+        let joined = Claude::args(&run).join(" ");
+        assert!(joined
+            .ends_with("--tools WebSearch --allowedTools WebSearch --permission-mode dontAsk"));
+        assert!(!joined.contains("--restricted"));
     }
 
     #[test]

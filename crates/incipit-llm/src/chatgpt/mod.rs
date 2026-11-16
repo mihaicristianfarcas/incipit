@@ -206,6 +206,7 @@ impl Provider for ChatGpt {
             agent: false,
             images: true,
             streams: true,
+            search: false,
         }
     }
 

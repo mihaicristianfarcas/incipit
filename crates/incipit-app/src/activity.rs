@@ -64,6 +64,8 @@ pub enum Passage {
     Defined,
     /// The learner's own question about it was put to the model.
     Asked,
+    /// Further reading for it was looked for on the web.
+    Resources,
 }
 
 /// A passage was highlighted, explained, defined or asked about. The quote is the passage's
@@ -74,6 +76,7 @@ pub fn passage(at: i64, book: &str, what: Passage, quote: &str) -> Activity {
         Passage::Explained => (ActivityType::Note, "Explained"),
         Passage::Defined => (ActivityType::Note, "Defined"),
         Passage::Asked => (ActivityType::Note, "Asked"),
+        Passage::Resources => (ActivityType::Note, "Resources for"),
     };
     Activity::new(kind, at, format!("{label}: “{}”", start(quote, 60))).book(book)
 }
@@ -232,6 +235,10 @@ mod tests {
             "Explained: “x”"
         );
         assert_eq!(passage(0, "b", Passage::Asked, "x").text, "Asked: “x”");
+        assert_eq!(
+            passage(0, "b", Passage::Resources, "x").text,
+            "Resources for: “x”"
+        );
         assert_eq!(cards_made(0, None, 1, &[]).text, "Made 1 card");
         assert_eq!(cards_made(0, Some("b"), 3, &[]).text, "Made 3 cards");
         assert_eq!(

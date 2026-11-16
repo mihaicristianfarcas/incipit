@@ -201,6 +201,7 @@ impl Provider for Anthropic {
             agent: false,
             images: true,
             streams: true,
+            search: false,
         }
     }
 

@@ -67,6 +67,8 @@ pub struct Abilities {
     pub images: bool,
     /// Its text arrives as it is written, not all at the end.
     pub streams: bool,
+    /// It can search the web for a call that asks (`Request::search`).
+    pub search: bool,
 }
 
 /// What an agent may touch besides reading its folder.

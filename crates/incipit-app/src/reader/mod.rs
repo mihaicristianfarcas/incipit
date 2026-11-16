@@ -23,7 +23,7 @@
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =math for one with math in it, =session for a tutor session
 //! with a made-up conversation),
-//! INCIPIT_ASK=explain|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
+//! INCIPIT_ASK=explain|resources|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
 //! INCIPIT_DRAFTS=demo (the drafter's sheet on made-up flashcards), INCIPIT_EXPLAIN=demo (the
 //! explaining sheet on a made-up explanation, graded), INCIPIT_EXPLAIN=write (with INCIPIT_NOTE:
 //! the sheet open to explain the selection back), INCIPIT_QUIZ=choose|check|pretest
@@ -563,6 +563,7 @@ impl ReaderView {
             Way::Explain => crate::activity::Passage::Explained,
             Way::Define => crate::activity::Passage::Defined,
             Way::Ask => crate::activity::Passage::Asked,
+            Way::Resources => crate::activity::Passage::Resources,
         };
         crate::activity::log(
             &vault,
@@ -707,7 +708,7 @@ impl ReaderView {
         .detach();
     }
 
-    /// INCIPIT_ASK=explain|define|note|cards|quiz|figure puts the demonstration's selection to the model, to
+    /// INCIPIT_ASK=explain|define|resources|note|cards|quiz|figure puts the demonstration's selection to the model, to
     /// see a real answer arrive without a mouse; INCIPIT_EXPLAIN=write opens the selection to
     /// explain back. INCIPIT_NOTE=session opens the demonstration's
     /// note as a tutor session, which asks no model.
@@ -721,6 +722,7 @@ impl ReaderView {
         match std::env::var("INCIPIT_ASK").as_deref() {
             Ok("explain") => self.explain(cx),
             Ok("define") => self.define(cx),
+            Ok("resources") => self.resources(cx),
             Ok("note") => self.note_passage(cx),
             Ok("cards") => self.make_cards(cx),
             Ok("quiz") => self.offer_quiz(Some(Mode::Check), cx),
@@ -1238,6 +1240,15 @@ impl ReaderView {
                     .tooltip("Say what the selected word or phrase means here")
                     .on_click(cx.listener(|this, _, _, cx| this.define(cx))),
             )
+            .when(self.models.read(cx).can_search(), |menu| {
+                menu.child(
+                    button("reader-resources", "Resources", t)
+                        .ghost()
+                        .icon(IconName::Globe)
+                        .tooltip("Find videos, articles and other further reading on the web")
+                        .on_click(cx.listener(|this, _, _, cx| this.resources(cx))),
+                )
+            })
             .child(
                 button("reader-ask", "Ask", t)
                     .ghost()

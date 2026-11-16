@@ -61,6 +61,7 @@ use here::Here;
 use run::{Job, Status};
 use turn::{status_word, undo_problem, Changes, Turn, DIFF_LINES};
 
+pub mod guide;
 pub mod here;
 pub mod prompt;
 pub mod run;

@@ -315,6 +315,24 @@ it is a source of truth: deleting it, or any file in it, only means the
 app makes it again. History leaves it out and its changes are not
 announced. The vault writes these files whole (`Vault::write_generated`).
 
+`agent/` holds the guide and the indexes an agent starts from, at the paths its
+guide names (`Vault::write_agent_files`, made by `incipit_vault::indexes`):
+
+| File | |
+|---|---|
+| `AGENTS.md`, `CLAUDE.md` | the guide (what is where, the shape of every document, how to make things for the learner, the rules); `CLAUDE.md` imports it, as Claude Code reads that and Codex reads `AGENTS.md` |
+| `INDEX.md` | the map: counts, the 20 documents changed last, where to look |
+| `notes/INDEX.md`, `concepts/INDEX.md` | every note (folder, type, tags, links out and in) and every concept (summary, how well it is known, cards, books) |
+| `library/INDEX.md`, `library/<book>/README.md` | every book, and for each its annotations by place, its sessions with the tutor, and the notes and concepts from it |
+| `brain/links.tsv`, `brain/unresolved.tsv` | every link (`from`, `to`, `kind`, `line`) and every link that reaches nothing yet |
+
+They are made from the documents just before an agent runs, so they are not
+out of date, and linked into the agent's working copy at those paths, where its
+sandbox lets it read them and not write them; they are taken out again before
+history looks, and a file of the learner's at one of those places is left as
+it is. The earlier app also listed each book's chapters and kept its text by
+chapter; a book's chapters are not kept in the vault here, so they are not.
+
 `text-<book>.idx`, one for each book, is the index of the book's text
 (`incipit_book::TextIndex`): its words, folded (case, accents and
 ligatures aside), each with where it is, the book's contents and the

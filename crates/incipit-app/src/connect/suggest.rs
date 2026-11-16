@@ -88,21 +88,19 @@ fn instructions(scope: &Scope) -> String {
         ),
     };
     format!(
-        "You are the learner's librarian, working in their knowledge vault (this folder). Its \
-         notes are in notes/ and its concepts in concepts/ (a note's or a concept's title is \
-         its file name), and the notes in the margins of their books are under \
-         library/<book>/annotations/. Every document starts with properties between --- lines, \
-         and documents link to each other as [[Title]]. Use rg to search them for related \
-         ideas; open only the files you need.\n\
+        "You are the learner's librarian, working in their knowledge vault (this folder). \
+         AGENTS.md explains the layout. Start from INDEX.md, notes/INDEX.md and \
+         concepts/INDEX.md; use rg to search notes/, concepts/ and the books' annotations \
+         (library/<book>/annotations/) for related ideas; open only the files you need.\n\
          \n\
          Task: suggest links from {from} to other notes or concepts that already exist in this \
          vault, where following the link would genuinely help the learner: the same idea in \
          another context, a prerequisite, a contrast, an application, an example of it.\n\
          \n\
          Rules:\n\
-         - Only link to notes and concepts that exist: use their exact titles.\n\
-         - Skip links the note already has (check the note itself: its text and its \
-         properties).\n\
+         - Only link to notes and concepts that exist: use their exact titles (from the \
+         indexes).\n\
+         - Skip links the note already has (check the note itself and brain/links.tsv).\n\
          - Skip anything in brain/connections.jsonl: it was already suggested or decided.\n\
          - At most {most} suggestions, the most useful first; none is better than a weak one.\n\
          - Each \"why\" is one sentence about the actual content, not \"both are about X\".\n\
@@ -298,6 +296,9 @@ pub fn suggest_connections(
     };
     let paragraph = learner::of(vault, crate::study::now());
     let request = request(chosen, &scope, &paragraph);
+    if let Err(e) = crate::agent::guide::refresh(vault, crate::study::now()) {
+        eprintln!("The guide for the agent was not made: {e}");
+    }
     let mut copy = vault
         .agent_copy(runs, &crate::agent::run::new_id())
         .map_err(|e| {
@@ -308,7 +309,7 @@ pub fn suggest_connections(
     on(Event::Activity("Reading your vault".into()));
     let sandbox = Sandbox {
         write: false,
-        read_also: vec![vault.root().join("library")],
+        read_also: crate::agent::guide::reads(vault),
         read_only: Vec::new(),
     };
     let answer = provider.agent(&request, copy.dir(), &sandbox, cancel, on);
@@ -424,11 +425,19 @@ mod tests {
         assert!(!folder.starts_with(vault.root()));
         assert!(!folder.exists(), "the copy is gone once the run ended");
         assert!(!sandbox.write);
-        assert_eq!(sandbox.read_also, [vault.root().join("library")]);
+        assert_eq!(
+            sandbox.read_also,
+            [vault.root().join("library"), vault.agent_folder()]
+        );
 
         // What it was told: the note and the learner as material, apart from the instructions.
         let told = agent.asked.lock().unwrap()[0].clone();
         assert!(told.instructions.contains("Don't modify any file."));
+        // It starts from the guide and the indexes, which are the app's words and not material.
+        for read in ["AGENTS.md", "INDEX.md", "notes/INDEX.md", "brain/links.tsv"] {
+            assert!(told.instructions.contains(read), "{read}");
+        }
+        assert!(!told.material.iter().any(|m| m.text.contains("INDEX.md")));
         assert!(told.instructions.contains("At most 6 suggestions"));
         let from = told
             .material

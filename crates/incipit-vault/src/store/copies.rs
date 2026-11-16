@@ -5,9 +5,10 @@
 //! works is never part of its change. What the agent writes there becomes that change, which is
 //! named, checked, and then landed or left out by the caller once the copy is gone.
 //!
-//! The vault's unversioned files an agent needs to read, the books' own PDF and EPUB files,
-//! are linked into the copy (read-only for the agent: the links lead into the vault, which its
-//! sandbox lets it read but not write) and taken out again before history looks at the copy. A
+//! The vault's unversioned files an agent needs to read, the books' own PDF and EPUB files and the
+//! guide and indexes made for it (`guide`), are linked into the copy (read-only for the agent:
+//! the links lead out of the copy, into places its sandbox lets it read but not write) and taken
+//! out again before history looks at the copy. A
 //! link the system refuses (Windows without the right to make them) is left out: the agent can
 //! still read the book in the vault.
 //!
@@ -92,12 +93,12 @@ fn unlink(dir: &Path, linked: &[String]) {
 }
 
 #[cfg(unix)]
-fn symlink(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(super) fn symlink(from: &Path, to: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(from, to)
 }
 
 #[cfg(windows)]
-fn symlink(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(super) fn symlink(from: &Path, to: &Path) -> std::io::Result<()> {
     std::os::windows::fs::symlink_file(from, to)
 }
 
@@ -126,7 +127,8 @@ impl Vault {
                 return Err(error);
             }
         };
-        let linked = self.link_books(&dir);
+        let mut linked = self.link_books(&dir);
+        linked.extend(self.link_guide(&dir));
         Ok(AgentCopy {
             vault: self.clone(),
             dir,

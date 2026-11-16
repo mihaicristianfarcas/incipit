@@ -140,6 +140,10 @@ pub fn execute(
     on: &mut dyn FnMut(Event),
 ) -> Outcome {
     let vault = &job.vault;
+    // The guide and the indexes are made now, so the agent reads the vault as it is.
+    if let Err(e) = super::guide::refresh(vault, crate::study::now()) {
+        eprintln!("The guide for the agent was not made: {e}");
+    }
     let mut copy = match vault.agent_copy(&job.runs, &job.id) {
         Ok(copy) => copy,
         Err(e) => {
@@ -154,10 +158,11 @@ pub fn execute(
     };
     on(Event::Activity("Reading your vault".into()));
     // The working copy holds the whole vault but for the books' files, which are links into the
-    // vault's `library`: that folder is readable, and nothing else of the vault.
+    // vault's `library`, and the guide and indexes, links into the generated folder: those are
+    // readable, and nothing else of the vault.
     let sandbox = Sandbox {
         write: true,
-        read_also: vec![vault.root().join("library")],
+        read_also: super::guide::reads(vault),
         read_only: forbidden_in(copy.dir())
             .into_iter()
             .map(PathBuf::from)
@@ -461,7 +466,10 @@ mod tests {
         let (folder, sandbox) = agent.seen.lock().unwrap().clone().unwrap();
         assert!(!folder.starts_with(vault.root()));
         assert!(sandbox.write);
-        assert_eq!(sandbox.read_also, [vault.root().join("library")]);
+        assert_eq!(
+            sandbox.read_also,
+            [vault.root().join("library"), vault.agent_folder()]
+        );
         assert!(!folder.exists(), "the copy is gone once the run ended");
 
         assert_eq!(outcome.status, Status::Merged);
@@ -505,6 +513,41 @@ mod tests {
             vault.read_log::<Review>(REVIEWS).unwrap().entries,
             [review()]
         );
+    }
+
+    #[test]
+    fn the_agent_starts_from_the_guide_and_the_indexes_and_they_are_never_part_of_its_change() {
+        let (_dir, job) = job("What have I written?");
+        job.vault
+            .add(note("Waves", "Waves carry energy.\n"))
+            .unwrap();
+        let read = std::sync::Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let seen = read.clone();
+        let agent = Standin::new(move |folder| {
+            for path in ["AGENTS.md", "CLAUDE.md", "INDEX.md", "notes/INDEX.md"] {
+                let text = std::fs::read_to_string(folder.join(path)).unwrap_or_default();
+                seen.lock().unwrap().push((path.to_owned(), text));
+            }
+            write(folder, "notes/Mine.md", "Made after reading the guide.\n");
+            Ok("Two notes mention it.".into())
+        });
+        let outcome = run(&agent, &job);
+        assert_eq!(outcome.status, Status::Merged);
+        let read = read.lock().unwrap();
+        assert!(
+            read[0].1.starts_with("# This is an Incipit vault"),
+            "{:?}",
+            read[0]
+        );
+        assert_eq!(read[1].1, "@AGENTS.md\n");
+        assert!(read[2].1.contains("| notes | 1 |"), "{:?}", read[2]);
+        assert!(read[3].1.contains("[[Waves]]"), "{:?}", read[3]);
+        let files: Vec<&str> = outcome.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(files, ["notes/Mine.md"]);
+        // Nothing of the guide is in the vault itself.
+        for path in ["AGENTS.md", "CLAUDE.md", "INDEX.md", "notes/INDEX.md"] {
+            assert!(!job.vault.root().join(path).exists(), "{path}");
+        }
     }
 
     #[test]

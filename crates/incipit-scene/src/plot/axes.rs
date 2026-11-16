@@ -1,13 +1,15 @@
 //! A plot's frame: the box the plot is drawn in, leaving room for the numbers and names around
-//! it (and with `equal`, ranges widened so a unit is as long both ways); the ticks along each axis, as many round numbers as fit with their labels apart; and the
-//! box, grid, numbers and names drawn behind everything else.
+//! it (and with `equal`, ranges widened so a unit is as long both ways); the ticks along each
+//! axis, as many round numbers as fit with their labels apart; and the box, grid, numbers and
+//! names drawn behind everything else.
 
 use super::layout::{Scale, LABEL, TICK};
 use super::Plot;
 use crate::draw::{Anchor, Fill, Item, Mark, Measure, Rect, Text, Tone, HEIGHT, WIDTH};
 use crate::ticks::{axis_label, nice_ticks, tick_step};
 
-/// The plot box: room on the left for the y ticks' numbers, below for the x ticks' and the x
+/// The plot box: room on the left for the y numbers `axes` will draw (as many ticks as fit, so
+/// halves when they fit: "−2.5" needs more room than "−3"), below for the x ticks' and the x
 /// axis's name, above for the y axis's name. With `equal`, the range that is tighter for its
 /// side of the box is widened about its middle until a unit is as long both ways; the box's left
 /// edge depends on the y numbers, so that is done twice.
@@ -28,9 +30,11 @@ pub(super) fn scale(plot: &Plot, (y0, y1): (f32, f32), m: &dyn Measure) -> Scale
         y1: y1 as f64,
     };
     for _ in 0..if plot.equal { 2 } else { 1 } {
-        let widest = nice_ticks(s.y0 as f32, s.y1 as f32, 8)
+        let yt = ticks(s.y0, s.y1, s.plot.h, false, m);
+        let step = tick_step(&yt);
+        let widest = yt
             .iter()
-            .map(|v| m.width(&axis_label(*v, 0.001), TICK, true))
+            .map(|v| m.width(&axis_label(*v, step), TICK, true))
             .fold(0.0, f32::max)
             .min(70.0);
         let left = 10.0 + widest + 8.0;

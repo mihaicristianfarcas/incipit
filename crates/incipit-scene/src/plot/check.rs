@@ -482,6 +482,19 @@ mod tests {
     }
 
     #[test]
+    fn the_y_numbers_have_room_when_they_tick_at_halves() {
+        let mut plot = plain(vec![curve("f", "x")], Vec::new());
+        plot.y.min = -3.0;
+        plot.y.max = 3.0;
+        let report = checked(plot.clone());
+        assert!(report.ok(), "{:#?}", report.errors);
+        plot.equal = true;
+        plot.y.max = 5.0;
+        let report = checked(plot);
+        assert!(report.ok(), "{:#?}", report.errors);
+    }
+
+    #[test]
     fn an_automatic_y_range_holds_the_curve_at_every_parameter_value() {
         let mut plot = plain(vec![curve("f", "a*x^2")], vec![param("a", 0.0, 3.0, 1.0)]);
         plot.y.min = 0.0;

@@ -22,6 +22,8 @@
 //! The links an agent suggests are listed in a card of their own, opened from a button in the
 //! find card, where each is linked or turned down, and the agent is asked for more
 //! (`suggestions`, with `crate::connect`). A card for a selected node lists those that touch it.
+//! A concept's page lists the notes that name it without linking it, each with a button that
+//! makes the link (`mentions`).
 //!
 //! Without clicking: INCIPIT_PAGE=brain opens the page, and INCIPIT_NODE=words types the words
 //! into the field and presses Enter once the picture is there. INCIPIT_PAGE=concepts opens the
@@ -33,6 +35,7 @@
 mod concept;
 mod concepts;
 mod draw;
+mod mentions;
 mod panel;
 mod picture;
 mod press;
@@ -133,6 +136,12 @@ pub struct BrainView {
     said: Option<String>,
     trouble: Option<String>,
     suggest_scroll: ScrollHandle,
+    /// The notes that name the concept whose page is shown without linking it, and the count of
+    /// searches for them started, so one that finishes late is dropped.
+    mentions: Vec<incipit_vault::Mention>,
+    mentioning: u64,
+    /// Why the last link was not made.
+    link_trouble: Option<String>,
     _subscriptions: [Subscription; 3],
 }
 
@@ -268,6 +277,9 @@ impl BrainView {
             said: None,
             trouble: None,
             suggest_scroll: ScrollHandle::new(),
+            mentions: Vec::new(),
+            mentioning: 0,
+            link_trouble: None,
             _subscriptions: [heard, typed, narrowed],
         };
         view.build(cx);
@@ -293,6 +305,7 @@ impl BrainView {
                 self.shown = self.back.clone();
             }
         }
+        self.read_mentions(cx);
         cx.notify();
     }
 

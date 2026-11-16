@@ -366,6 +366,7 @@ impl BrainView {
                 note_rows,
                 "No notes link to it yet.",
             ))
+            .children(self.mentions_section(t, cx))
             .child(listing(
                 "Where it comes from".to_owned(),
                 passage_rows,

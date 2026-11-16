@@ -518,13 +518,14 @@ fn where_found(part: usize, pdf: bool, parts: usize) -> String {
     }
 }
 
-/// The words before a place, cut at a word so the line starts cleanly: the earlier app's.
+/// The words before a place, cut at a word so the line starts cleanly: the earlier app's. A
+/// space it starts with is left out, as the earlier app's page left it out at a line's start.
 fn lead(prefix: &str) -> String {
     let text = collapse(prefix);
     let long = text.chars().count() >= 24;
     match text.find(' ') {
         Some(at) if at > 0 && at < text.len() - 1 && long => format!("…{}", &text[at + 1..]),
-        _ => text,
+        _ => text.trim_start().to_string(),
     }
 }
 
@@ -592,6 +593,11 @@ mod tests {
     fn the_words_around_a_place_are_cut_at_a_word_when_they_are_long() {
         assert_eq!(lead("Replication means keeping a "), "…means keeping a ");
         assert_eq!(lead("keeping a "), "keeping a ");
+        // Cut at a space: the line starts at the word after it, as the earlier app showed it.
+        assert_eq!(
+            lead(" encoder and decoder through an "),
+            "encoder and decoder through an "
+        );
         assert_eq!(
             tail(", and with rates of growth. Then"),
             ", and with rates of growth.…"

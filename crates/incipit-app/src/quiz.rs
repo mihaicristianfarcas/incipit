@@ -39,7 +39,7 @@ use crate::learning::quiz::{
     self, card_of, least_known, verdict, Asked, Graded, Mode, Question, Quiz, Run, ToGrade, RIGHT,
 };
 use crate::models::Models;
-use crate::workspace::Workspace;
+use crate::workspace::{Happened, Workspace};
 
 /// The sheet's width, and the most height a question with its feedback takes before it
 /// scrolls: with the head and the buttons, the sheet fits the smallest window.
@@ -129,6 +129,7 @@ pub struct QuizView {
     /// The short answer's field takes the keyboard when it is drawn next.
     focus_reply: bool,
     _events: Subscription,
+    _opened: Subscription,
 }
 
 mod foundations;
@@ -154,6 +155,18 @@ impl QuizView {
                 FieldEvent::Changed => {}
             },
         );
+        // INCIPIT_QUIZ=done shows its results before the vault has opened: what the missed
+        // questions build on is read once it has.
+        let opened = cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
+            let finished_demo = this
+                .open
+                .as_ref()
+                .is_some_and(|open| open.status.demo && open.status.recorded);
+            if matches!(happened, Happened::Opened) && finished_demo {
+                this.missed_foundations(cx);
+                cx.notify();
+            }
+        });
         QuizView {
             workspace,
             models,
@@ -164,6 +177,7 @@ impl QuizView {
             focus_sheet: false,
             focus_reply: false,
             _events: events,
+            _opened: opened,
         }
     }
 

@@ -12,6 +12,7 @@ notes/                       anything the learner writes, in any subfolder
 concepts/                    one page per idea
 cards/                       flashcards
 figures/                     figures kept on their own
+brain/connections.jsonl      links an agent suggested, and what was decided about each
 library/<book>/book.md       a book's record, beside the book's own file
 library/<book>/annotations/  highlights, notes and answers on passages
 library/<book>/sessions/     conversations with the tutor about the book
@@ -139,6 +140,34 @@ when it saves. An agent may not change the file (see Changes).
 Both of Obsidian's spellings are read: `[[Note]]`, `[[Note|shown]]`,
 `[[folder/Note#Heading]]` and `[shown](Note.md)`. Links in properties
 count too. Renaming a document rewrites the links that point at it.
+
+## Connections
+
+`brain/connections.jsonl` holds the links an agent suggested between notes
+and between concepts, and what the learner decided about each. It is one JSON
+object per line, the latest state of each suggestion: the file is written
+whole on every change, so an agent that reads it sees what was suggested,
+accepted or turned down before, and nothing turned down is suggested again.
+It is no document: it has no id and is listed among no notes. A missing file is
+an empty list; a line that cannot be read, or has no id, source or target, is
+passed over (and is gone when the file is next written).
+
+| Field | |
+|---|---|
+| `id` | the suggestion's id |
+| `kind` | `builds-on` when it says that the concept `from` needs the concept `to` first; left out when it says the two are related |
+| `from` | the vault path of the note (or concept) the link goes in |
+| `to` | the link's target as `[[…]]` would write it: a note's title, a concept's name |
+| `why` | one sentence: what following the link gives the learner |
+| `status` | `suggested` (waiting for the learner), `accepted`, `rejected` (not suggested again) or `removed` (accepted, then taken out) |
+| `by` | the `provider` and `model` that suggested it; left out when not known |
+| `created` | when it was suggested, as an RFC 3339 time |
+| `decided` | when the learner decided, as an RFC 3339 time; left out while it waits |
+
+Accepting a suggestion puts the link in the document, so that Obsidian and
+agents see it as any other: `[[to]]` in the `related` of the note or concept
+`from`, or, for `builds-on`, in the `builds-on` of the concept `from`.
+Removing an accepted one takes that link out again.
 
 ## Logs
 

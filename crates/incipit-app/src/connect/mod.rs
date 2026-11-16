@@ -101,6 +101,8 @@ pub(crate) mod testing {
         pub agent_says: Mutex<Vec<String>>,
         pub json_says: Mutex<Vec<String>>,
         pub agent_does: Mutex<Option<Work>>,
+        /// The agent is stopped before it answers.
+        pub agent_stopped: Mutex<bool>,
         pub asked: Mutex<Vec<Request>>,
         pub worked: Mutex<Vec<(PathBuf, Sandbox)>>,
     }
@@ -111,6 +113,7 @@ pub(crate) mod testing {
                 agent_says: Mutex::default(),
                 json_says: Mutex::default(),
                 agent_does: Mutex::default(),
+                agent_stopped: Mutex::default(),
                 asked: Mutex::default(),
                 worked: Mutex::default(),
             }
@@ -183,6 +186,9 @@ pub(crate) mod testing {
                 .push((workspace.to_path_buf(), sandbox.clone()));
             if let Some(work) = self.agent_does.lock().unwrap().as_ref() {
                 work(workspace);
+            }
+            if *self.agent_stopped.lock().unwrap() {
+                return Err(Error::Cancelled);
             }
             Ok(Answer {
                 text: self.agent_says.lock().unwrap().pop().unwrap_or_default(),

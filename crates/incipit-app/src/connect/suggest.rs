@@ -583,4 +583,20 @@ mod tests {
             .iter()
             .all(|v| !v.description.contains("connections")));
     }
+
+    #[test]
+    fn an_agent_that_is_stopped_leaves_no_copy_and_no_suggestion() {
+        let (dir, vault) = vault();
+        let raft = note(&vault, "Raft", "");
+        note(&vault, "Quorums", "");
+        let agent = Standin::new().agent(&reply(&[("notes/Raft.md", "Quorums", "Yes.")]));
+        *agent.agent_stopped.lock().unwrap() = true;
+        assert_eq!(
+            run(&dir, &vault, &agent, Some(raft.id())),
+            Err(Failure::Stopped)
+        );
+        assert!(vault.connections().unwrap().is_empty());
+        let (folder, _) = agent.worked.lock().unwrap()[0].clone();
+        assert!(!folder.exists());
+    }
 }

@@ -15,6 +15,7 @@
 //! layout on disk and the decisions behind it are in `docs/vault.md`.
 
 pub mod activity;
+pub mod attachments;
 pub mod checks;
 pub mod connections;
 pub mod doc;
@@ -53,5 +54,5 @@ pub use mentions::Mention;
 pub use path::VaultPath;
 pub use profile::{Level, Profile, Role, Styles};
 pub use search::{Hit, SearchIndex};
-pub use store::{AgentCopy, Problem, Vault, APP_FOLDER};
+pub use store::{AgentCopy, Embed, Problem, Vault, APP_FOLDER};
 pub use value::{Properties, Value};

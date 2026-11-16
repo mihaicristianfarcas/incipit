@@ -6,7 +6,9 @@
 //! under its title that open each concept's page (the page emits `OpenConcept`). Beside the note
 //! is a column of what is said of its links (`note_links`): the notes that name it without
 //! linking it, and the links an agent suggests for it. A button by its title opens the sheet of
-//! its versions (`versions`): read one as it was, see what it changed, bring it back.
+//! its versions (`versions`): read one as it was, see what it changed, bring it back. The
+//! pictures and figures the note embeds are shown under its text (`note_embeds`); a picture
+//! pasted into it or dropped on it is kept in the vault's attachments and linked at the cursor.
 //! A file whose properties cannot be read is kept out of the vault's index, so it is listed
 //! apart at the top of the list, marked as one that cannot be read; opening it shows the reason
 //! in plain words and the file's text as it is, to mend and save, after which it is a note.
@@ -17,13 +19,17 @@
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, Render, ScrollHandle,
-    Subscription, Task, Window,
+    div, prelude::*, px, ClipboardEntry, Context, Entity, EventEmitter, ExternalPaths, IntoElement,
+    Render, ScrollHandle, Subscription, Task, Window,
 };
-use incipit_ui::{button, field, icon_button, FieldEvent, IconName, TextField, Theme, Type};
+use incipit_ui::{
+    button, field, icon_button, FieldEvent, IconName, Pasted, TextField, Theme, Type,
+};
+use incipit_vault::attachments::{picture_type, MAX_PICTURE_BYTES};
 use incipit_vault::{Doc, DocId, Kind, Origin, Vault, VaultPath};
 
 use crate::models::Models;
+use crate::note_embeds::Embeds;
 use crate::note_links::LinksView;
 use crate::versions::{BroughtBack, VersionsView};
 use crate::workspace::{Happened, Workspace};
@@ -73,6 +79,8 @@ pub struct NotesView {
     links: Entity<LinksView>,
     /// The sheet of the open note's versions.
     versions: Entity<VersionsView>,
+    /// The pictures and figures the open note embeds, shown under its text.
+    embeds: Embeds,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -80,6 +88,7 @@ impl NotesView {
     pub fn new(
         workspace: Entity<Workspace>,
         models: Entity<Models>,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let title = cx.new(|cx| TextField::new(cx).placeholder("Title"));
@@ -121,6 +130,12 @@ impl NotesView {
             },
         ));
         subscriptions.push(cx.observe(&versions, |_, _, cx| cx.notify()));
+        // A picture pasted into the note is kept in the vault and linked where the cursor is.
+        subscriptions.push(cx.subscribe_in(
+            &body,
+            window,
+            |this: &mut Self, _, _: &Pasted, window, cx| this.pasted(window, cx),
+        ));
         let mut view = NotesView {
             workspace,
             notes: Vec::new(),
@@ -139,6 +154,7 @@ impl NotesView {
             scroll: ScrollHandle::new(),
             links,
             versions,
+            embeds: Embeds::default(),
             _subscriptions: subscriptions,
         };
         view.list(cx);
@@ -156,10 +172,11 @@ impl NotesView {
         self.notes
             .iter()
             .find(|n| demo && n.title == crate::connect::demo::LANDING)
-            .or(self
-                .notes
-                .iter()
-                .find(|n| waves && n.title == crate::notes_demo::LANDING))
+            .or(self.notes.iter().find(|n| {
+                waves
+                    && [crate::notes_demo::LANDING, crate::notes_demo::PICTURES]
+                        .contains(&n.title.as_str())
+            }))
             .or(self.notes.first())
             .map(|n| n.id.clone())
     }
@@ -239,6 +256,7 @@ impl NotesView {
             Happened::Opened => {
                 self.saving = None;
                 self.dirty = false;
+                self.embeds.clear();
                 self.list(cx);
                 let first = self.landing();
                 self.show(first, cx);
@@ -256,6 +274,7 @@ impl NotesView {
                 }
                 // A link written, or a concept named, renamed or removed.
                 self.linked_concepts(cx);
+                self.read_embeds(cx);
                 if shown
                     && self
                         .vault(cx)
@@ -283,6 +302,106 @@ impl NotesView {
         self.linked_concepts(cx);
         let open = self.open.clone();
         self.links.update(cx, |links, cx| links.show(open, cx));
+        self.read_embeds(cx);
+        cx.notify();
+    }
+
+    /// Reads what the open note embeds, and the pictures among them not read yet, off the
+    /// window's thread.
+    fn read_embeds(&mut self, cx: &mut Context<Self>) {
+        let Some(vault) = self.vault(cx) else {
+            self.embeds.clear();
+            return;
+        };
+        let open = self.open.clone();
+        for path in self.embeds.read(&vault, open.as_ref()) {
+            let vault = vault.clone();
+            cx.spawn(async move |this, cx| {
+                let at = path.clone();
+                let bytes = cx
+                    .background_executor()
+                    .spawn(async move { vault.picture(&at).ok() })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    this.embeds.keep(&path, bytes);
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    }
+
+    /// A picture or files were pasted into the note's text.
+    fn pasted(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(item) = self.body.update(cx, |field, _| field.take_pasted()) else {
+            return;
+        };
+        let mut files = Vec::new();
+        let mut plain = Vec::new();
+        for entry in &item.entries {
+            match entry {
+                ClipboardEntry::Image(image) => files.push((image.bytes.clone(), None)),
+                ClipboardEntry::ExternalPaths(paths) => {
+                    for path in paths.paths() {
+                        match read_picture(path) {
+                            Some(read) => files.push(read),
+                            None => plain.push(path.display().to_string()),
+                        }
+                    }
+                }
+                ClipboardEntry::String(_) => {}
+            }
+        }
+        self.keep_pictures(files, plain.join("\n"), window, cx);
+    }
+
+    /// Dropped files: the pictures among them are kept and linked; the rest is said.
+    fn dropped(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+        let mut files = Vec::new();
+        let mut refused = 0;
+        for path in paths.paths() {
+            match read_picture(path) {
+                Some(read) => files.push(read),
+                None => refused += 1,
+            }
+        }
+        self.keep_pictures(files, String::new(), window, cx);
+        if refused > 0 {
+            self.problem = Some(
+                "Only PNG, JPEG, GIF and WebP pictures of up to 12 MB can be dropped into a note."
+                    .to_owned(),
+            );
+            cx.notify();
+        }
+    }
+
+    /// Keeps each picture in the vault's attachments and puts its link at the cursor, then
+    /// `plain` as pasted text when it is not empty.
+    fn keep_pictures(
+        &mut self,
+        pictures: Vec<(Vec<u8>, Option<String>)>,
+        plain: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(vault) = self.vault(cx) else {
+            return;
+        };
+        let mut links = Vec::new();
+        for (bytes, name) in pictures {
+            match vault.add_picture(&bytes, name.as_deref()) {
+                Ok(place) => links.push(format!("![[{}]]", place.name())),
+                Err(e) => self.problem = Some(e.to_string()),
+            }
+        }
+        if !plain.is_empty() {
+            links.push(plain);
+        }
+        if !links.is_empty() {
+            let text = links.join("\n");
+            self.body
+                .update(cx, |field, cx| field.insert(&text, window, cx));
+        }
         cx.notify();
     }
 
@@ -541,6 +660,17 @@ impl NotesView {
     }
 }
 
+/// A picture file's bytes and name, for adding it to a note: a PNG, JPEG, GIF or WebP file of up
+/// to 12 MB (what else is a file's to say, `Vault::add_picture` checks by its bytes).
+fn read_picture(path: &std::path::Path) -> Option<(Vec<u8>, Option<String>)> {
+    let name = path.file_name()?.to_str()?.to_owned();
+    picture_type(&name).filter(|kind| *kind != "image/svg+xml")?;
+    if std::fs::metadata(path).ok()?.len() > MAX_PICTURE_BYTES as u64 {
+        return None;
+    }
+    Some((std::fs::read(path).ok()?, Some(name)))
+}
+
 /// What is wrong with a file, as a sentence that begins with a capital.
 fn plain(message: &str) -> String {
     let mut chars = message.trim().chars();
@@ -705,7 +835,23 @@ impl Render for NotesView {
                                         .text_color(t.danger)
                                         .child(p)
                                 }))
-                                .child(field(&self.body, t).bare().size(16.0).min_rows(14)),
+                                .child(
+                                    div()
+                                        .id("note-body")
+                                        .drag_over::<ExternalPaths>(move |style, _, _, _| {
+                                            style.bg(t.hover)
+                                        })
+                                        .on_drop(cx.listener(
+                                            |this, paths: &ExternalPaths, window, cx| {
+                                                this.dropped(paths, window, cx)
+                                            },
+                                        ))
+                                        .child(field(&self.body, t).bare().size(16.0).min_rows(14)),
+                                )
+                                .when(!self.embeds.is_empty(), |note| match self.vault(cx) {
+                                    Some(vault) => note.child(self.embeds.view(&vault, t, window)),
+                                    None => note,
+                                }),
                         ),
                 )
                 .into_any_element()

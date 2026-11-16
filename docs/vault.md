@@ -12,6 +12,7 @@ notes/                       anything the learner writes, in any subfolder
 concepts/                    one page per idea
 cards/                       flashcards
 figures/                     figures kept on their own
+attachments/                 pictures pasted or dropped into notes
 brain/connections.jsonl      links an agent suggested, and what was decided about each
 library/<book>/book.md       a book's record, beside the book's own file
 library/<book>/annotations/  highlights, notes and answers on passages
@@ -146,6 +147,19 @@ name, without linking it, is an unlinked mention of it (`Vault::unlinked_mention
 the name stands as a whole word, in any case, and is three characters or more.
 `Vault::link_mention` turns the first such mention in a note into a link,
 `[[Title]]`, or `[[Title|as written]]` when the words differ from the title.
+
+Two more targets are read, as the earlier app read them. `[[figure:<id>]]`
+(usually embedded, `![[figure:<id>]]`) is the figure with that id, so it
+follows the figure when its file moves; a name ending in `.png`, `.jpg`,
+`.jpeg`, `.gif`, `.webp` or `.svg` is a picture in `attachments/`
+(`![[picture.png]]`, `![[picture.png|300]]` for a width, `![shown](attachments/picture.png)`),
+if the file is there. Pictures are kept in `attachments/` and read from nowhere
+else, and only pictures are read from it. A picture pasted or dropped into a
+note is saved there whole, under the name it had or `Pasted <date and time>`,
+with a number added when the name is taken, as a PNG, JPEG, GIF or WebP of up
+to 12 MB, whatever its name says (`Vault::add_picture`), and linked at the
+cursor as `![[name.png]]`. The Notes page shows what a note embeds under its
+text (`Vault::embeds`).
 
 ## Connections
 

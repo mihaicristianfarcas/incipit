@@ -259,6 +259,15 @@ are listed in the Notes page's Versions sheet (`versions.rs` in the app),
 where one can be read as it was or as what it changed, and brought back as a
 change of its own (`Vault::bring_back`).
 
+**Pictures and figures in a note are listed under its text.** A note is
+written as Markdown in a field, so what it embeds is shown below the field
+(`note_embeds.rs` in the app): the pictures of `attachments/`, read off the
+window's thread, and the figures it names as `![[figure:<id>]]`, each drawn
+still at its first moment by the figure engine with this window's text widths.
+A picture pasted into the field, or dropped on it, is saved in `attachments/`
+by the vault (`Vault::add_picture`, which checks by the bytes that it is a
+PNG, JPEG, GIF or WebP of at most 12 MB) and linked at the cursor.
+
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,
 so that no code under a license of Zed's own is linked.

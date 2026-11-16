@@ -9,6 +9,7 @@
 //! keeps the index and the files in step, so a write and the watcher never interleave.
 
 mod copies;
+mod pictures;
 mod reconcile;
 mod sitting;
 mod timing;
@@ -16,6 +17,7 @@ mod unreadable;
 mod versions;
 
 pub use copies::AgentCopy;
+pub use pictures::Embed;
 mod write;
 
 use std::collections::{BTreeMap, HashMap};
@@ -130,6 +132,17 @@ impl Inner {
         // Each change to the state is made whole before the lock is let go, and the files on
         // disk are the truth anyway, so a panic elsewhere leaves nothing to repair.
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The picture a link written in the document at `from` names, when the file is there.
+    pub(crate) fn picture_of(
+        &self,
+        link: &crate::links::Link,
+        from: &VaultPath,
+    ) -> Option<VaultPath> {
+        crate::graph::picture_paths(link, from)
+            .into_iter()
+            .find(|p| self.locate(p).ok().is_some_and(|full| full.is_file()))
     }
 
     pub(crate) fn locate(&self, path: &VaultPath) -> Result<PathBuf> {
@@ -294,14 +307,41 @@ impl Vault {
         self.inner.lock().graph().backlinks(id)
     }
 
-    /// The links out of a document, each with what it reaches.
+    /// The links out of a document, each with what it reaches: a document, or a picture of
+    /// `attachments/` that is there.
     pub fn outlinks(&self, id: &DocId) -> Vec<Outlink> {
-        self.inner.lock().graph().outlinks(id)
+        let mut state = self.inner.lock();
+        let mut links = state.graph().outlinks(id);
+        if let Some(from) = state.docs.get(id).map(|d| d.path().clone()) {
+            for outlink in links.iter_mut().filter(|o| o.to.is_none()) {
+                outlink.picture = self.inner.picture_of(&outlink.link, &from);
+            }
+        }
+        links
     }
 
-    /// Links that point at nothing yet, with the document each is in.
+    /// Links that point at nothing yet, with the document each is in. A link to a picture that
+    /// is in `attachments/` is not one of them.
     pub fn unresolved(&self) -> Vec<(DocId, Link)> {
-        self.inner.lock().graph().unresolved()
+        let mut state = self.inner.lock();
+        let mut missing = state.graph().unresolved();
+        missing.retain(|(id, link)| {
+            let from = state.docs.get(id).map(|d| d.path().clone());
+            from.is_none_or(|from| self.inner.picture_of(link, &from).is_none())
+        });
+        missing
+    }
+
+    /// The picture in `attachments/` a `[[name.png]]` written in the document `from` shows:
+    /// the first place that has the file. Nothing for a name that is not a picture's, for a
+    /// place outside the folder, or when the file is not there.
+    pub fn resolve_picture(&self, target: &str, from: &DocId) -> Option<VaultPath> {
+        let state = self.inner.lock();
+        let from = state.docs.get(from)?.path().clone();
+        let link = crate::links::parse(&format!("[[{target}]]"))
+            .into_iter()
+            .next()?;
+        self.inner.picture_of(&link, &from)
     }
 
     /// The document a `[[target]]` written in `from` would open.

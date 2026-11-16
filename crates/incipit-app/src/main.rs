@@ -32,6 +32,7 @@ mod library;
 mod math;
 mod models;
 mod new_way;
+mod note_links;
 mod notes;
 mod profile_form;
 mod progress;
@@ -224,7 +225,7 @@ impl Root {
             },
         )
         .detach();
-        let notes = cx.new(|cx| notes::NotesView::new(workspace.clone(), cx));
+        let notes = cx.new(|cx| notes::NotesView::new(workspace.clone(), models.clone(), cx));
         // A concept a note links to opens on its page.
         cx.subscribe(
             &notes,

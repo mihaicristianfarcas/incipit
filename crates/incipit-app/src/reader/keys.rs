@@ -24,6 +24,25 @@ const UNDER: f32 = 14.0;
 /// More than the selection menu has buttons: how far along them the keyboard looks for the last.
 const MENU_BUTTONS: usize = 16;
 
+/// The passage at the reading line, as far as it is known.
+enum Found {
+    At(Selection, Point<gpui::Pixels>),
+    Nothing,
+    /// On a page not drawn yet.
+    Undrawn,
+}
+
+/// What pressing S came to.
+enum Pressed {
+    /// The passage at the reading line is selected and its menu open.
+    Selected,
+    /// There is no text at the reading line.
+    Nothing,
+    /// The page at the reading line has come but is not drawn yet, so where its menu goes is
+    /// not known: S is pressed again once it is.
+    Undrawn,
+}
+
 impl ReaderView {
     /// A key pressed in the reader: S, and the menu's keys.
     pub(super) fn key(
@@ -89,7 +108,10 @@ impl ReaderView {
             "a" if menu => self.start_writing(Compose::Ask, window, cx),
             "v" if menu => self.start_writing(Compose::Figure, window, cx),
             "s" if in_book => {
-                self.select_from_keyboard(window, cx);
+                if let Pressed::Undrawn = self.select_from_keyboard(window, cx) {
+                    self.select_on_open = true;
+                    window.refresh();
+                }
             }
             _ => return,
         }
@@ -97,10 +119,11 @@ impl ReaderView {
     }
 
     /// What S does: the passage at the reading line selected, and once the menu is drawn, the
-    /// keyboard on its first button. Whether there was a passage there.
-    fn select_from_keyboard(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if !self.select_at_line(cx) {
-            return false;
+    /// keyboard on its first button.
+    fn select_from_keyboard(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Pressed {
+        let pressed = self.select_at_line(cx);
+        if !matches!(pressed, Pressed::Selected) {
+            return pressed;
         }
         let menu = self.menu_focus.clone();
         window.on_next_frame(move |window, cx| {
@@ -108,15 +131,21 @@ impl ReaderView {
             window.focus_next(cx);
             keyboard_moved();
         });
-        true
+        Pressed::Selected
     }
 
-    /// INCIPIT_SELECT: S pressed once the book is open, laid out, and (a PDF) its page at the
-    /// reading line drawn. Called when drawing; each try is made by a page arriving or the list
-    /// being laid out, not by a timer.
+    /// INCIPIT_SELECT, or S pressed before its page was drawn: S pressed once the book is open,
+    /// laid out, and (a PDF) its page at the reading line drawn. Called when drawing; each try is
+    /// made by a page arriving, the list being laid out or the page being drawn, not by a timer.
     pub(super) fn select_wanted(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.select_on_open && self.select_from_keyboard(window, cx) {
-            self.select_on_open = false;
+        if !self.select_on_open {
+            return;
+        }
+        match self.select_from_keyboard(window, cx) {
+            Pressed::Selected => self.select_on_open = false,
+            // The page is drawn in this frame: try again in the next.
+            Pressed::Undrawn => window.request_animation_frame(),
+            Pressed::Nothing => {}
         }
     }
 
@@ -139,31 +168,32 @@ impl ReaderView {
         }
     }
 
-    /// Selects the passage at the reading line and opens the menu under it: whether there was
-    /// one.
-    fn select_at_line(&mut self, cx: &mut Context<Self>) -> bool {
+    /// Selects the passage at the reading line and opens the menu under it.
+    fn select_at_line(&mut self, cx: &mut Context<Self>) -> Pressed {
         let State::Open(opened) = &self.state else {
-            return false;
+            return Pressed::Nothing;
         };
         let view = self.list.viewport_bounds();
         let line = view.top() + view.size.height * LINE;
-        let Some((selection, at)) = self.passage_at(opened, line) else {
-            return false;
+        let (selection, at) = match self.passage_at(opened, line) {
+            Found::At(selection, at) => (selection, at),
+            Found::Nothing => return Pressed::Nothing,
+            Found::Undrawn => return Pressed::Undrawn,
         };
         self.selection = Some(selection);
         self.dragging = false;
         self.menu = Some(at);
         self.report(cx);
         cx.notify();
-        true
+        Pressed::Selected
     }
 
     /// The passage at a height of the window, and where its menu goes.
-    fn passage_at(
-        &self,
-        opened: &Opened,
-        line: gpui::Pixels,
-    ) -> Option<(Selection, Point<gpui::Pixels>)> {
+    fn passage_at(&self, opened: &Opened, line: gpui::Pixels) -> Found {
+        self.find_passage(opened, line).unwrap_or(Found::Nothing)
+    }
+
+    fn find_passage(&self, opened: &Opened, line: gpui::Pixels) -> Option<Found> {
         let top = self.list.logical_scroll_top().item_ix;
         let laid_out = (top..opened.parts())
             .map_while(|item| self.list.bounds_for_item(item).map(|bounds| (item, bounds)));
@@ -177,8 +207,13 @@ impl ReaderView {
                 let scale = self.scale.min(self.room) / held.page.width;
                 let (first, last) = held.page.lines_at((line - bounds.top()).as_f32() / scale)?;
                 let (x, y, _, h) = *held.page.boxes(first, last + 1).last()?;
-                let at = held.origin.get() + Point::new(px(x * scale), px((y + h) * scale + UNDER));
-                Some((
+                // Where the page is in the window is known once it is drawn.
+                let origin = held.origin.get();
+                if origin == Point::default() {
+                    return Some(Found::Undrawn);
+                }
+                let at = origin + Point::new(px(x * scale), px((y + h) * scale + UNDER));
+                Some(Found::At(
                     Selection {
                         anchor: Place {
                             part: item,
@@ -204,7 +239,7 @@ impl ReaderView {
                 // it sit in the middle of the row).
                 let beside = if self.margin { GAP + MARGIN } else { 0.0 };
                 let left = bounds.center().x - px((COLUMN.min(self.room) + beside) / 2.0);
-                Some((
+                Some(Found::At(
                     Selection {
                         anchor: Place { part: item, at: 0 },
                         head: Place {

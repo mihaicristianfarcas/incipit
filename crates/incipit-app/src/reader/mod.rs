@@ -155,7 +155,8 @@ pub struct ReaderView {
     menu_focus: FocusHandle,
     /// The book has just opened: it takes the keyboard.
     focus_book: bool,
-    /// S is to be pressed once the book is open (INCIPIT_SELECT).
+    /// S is to be pressed once the book is open (INCIPIT_SELECT), or again once the page it was
+    /// pressed on is drawn.
     select_on_open: bool,
     notes: Vec<Note>,
     next_id: u64,

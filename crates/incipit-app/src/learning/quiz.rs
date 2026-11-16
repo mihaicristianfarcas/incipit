@@ -655,6 +655,21 @@ pub fn record(vault: &Vault, run: &Run, now: i64) -> Result<Option<Activity>, St
     Ok(Some(entry))
 }
 
+/// The concepts the questions missed were on, as the vault has them (found by the names the
+/// questions carry), each once, in the order of the questions. Names the vault does not know
+/// are left out.
+pub fn missed_concepts(vault: &Vault, run: &Run) -> Vec<DocId> {
+    let mut on: Vec<DocId> = Vec::new();
+    for index in run.missed() {
+        if let Some(doc) = find(vault, &run.quiz.questions[index].concept) {
+            if !on.contains(doc.id()) {
+                on.push(doc.id().clone());
+            }
+        }
+    }
+    on
+}
+
 /// Makes a card of question `index` of a quiz, as the earlier app made one of a question
 /// missed: the question on the front, the model answer and the explanation on the back, in
 /// `deck` (the quiz's title when that is empty), about the question's concept, with the book,
@@ -1056,5 +1071,43 @@ mod tests {
         assert_eq!(other.concepts(), ["[[Heat engine]]"]);
         assert_eq!(other.fields::<Card>().unwrap().deck, "Entropy");
         assert_eq!(other.source().unwrap().quote, None);
+    }
+
+    #[test]
+    fn the_concepts_of_the_questions_missed_are_found_once_each() {
+        let (_folder, vault) = vault();
+        let heat = upsert(
+            &vault,
+            &Upsert {
+                name: "Heat engine".into(),
+                ..Upsert::default()
+            },
+        )
+        .unwrap();
+        let quiz = Quiz {
+            title: "Heat".into(),
+            mode: Mode::Check,
+            questions: questions_in(&json!({ "questions": [
+                mcq(1, &["a", "b"], "Entropy"),
+                mcq(1, &["a", "b"], "heat engine"),
+                mcq(1, &["a", "b"], "Heat Engine"),
+                mcq(1, &["a", "b"], "Not in the vault"),
+                short(""),
+            ]}))
+            .1,
+            book: None,
+            chapter: None,
+        };
+        let mut run = Run::new(quiz);
+        run.choose(1); // right
+        run.next();
+        for _ in 0..3 {
+            run.choose(0); // missed
+            run.next();
+        }
+        run.skip("");
+        run.next();
+        assert_eq!(run.missed(), [1, 2, 3]);
+        assert_eq!(missed_concepts(&vault, &run), [heat.id]);
     }
 }

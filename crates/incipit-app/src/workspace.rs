@@ -34,6 +34,12 @@ pub enum Happened {
 
 impl EventEmitter<Happened> for Workspace {}
 
+/// A document a sheet or a page asks the window to show, where the window shows such documents
+/// (a concept on its page in the Brain, a note in Notes). For what cannot open a page itself.
+pub struct Show(pub incipit_vault::Kind, pub incipit_vault::DocId);
+
+impl EventEmitter<Show> for Workspace {}
+
 /// The app's own folder: the system's place for app data, or INCIPIT_HOME.
 pub fn home() -> PathBuf {
     std::env::var_os("INCIPIT_HOME")
@@ -91,6 +97,9 @@ impl Workspace {
                     Ok(vault) => {
                         if std::env::var("INCIPIT_HISTORY").as_deref() == Ok("demo") {
                             crate::demo::reading_history(&vault, crate::study::now());
+                        }
+                        if crate::connect::demo::asked().as_deref() == Some("demo") {
+                            crate::connect::demo::add(&vault, crate::study::now());
                         }
                         this.remember(&vault);
                         this.listen(&vault, cx);

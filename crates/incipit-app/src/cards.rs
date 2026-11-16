@@ -27,12 +27,9 @@ use incipit_vault::{DocId, Kind, Vault};
 
 use crate::cardlist::{self, Edit, Listed};
 use crate::models::Models;
-use crate::quiz::QuizView;
+use crate::quiz::{QuizView, REFRESHER};
 use crate::study::now;
 use crate::workspace::{Happened, Workspace};
-
-/// How many questions a refresher has: the earlier app's, when it offers one before a chapter.
-const REFRESHER: usize = 3;
 
 /// The learner wants the Review page back.
 pub struct Back;

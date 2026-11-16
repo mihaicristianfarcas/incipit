@@ -16,6 +16,7 @@
 
 pub mod activity;
 pub mod checks;
+pub mod connections;
 pub mod doc;
 pub mod error;
 pub mod events;
@@ -36,6 +37,7 @@ pub mod value;
 mod watch;
 
 pub use activity::{rfc3339, Activity, ActivityType, ACTIVITY};
+pub use connections::{By, Connection, Meaning, Standing, CONNECTIONS};
 pub use doc::{Doc, DocId};
 pub use error::{Error, Result};
 pub use events::{Change, Event, Origin};

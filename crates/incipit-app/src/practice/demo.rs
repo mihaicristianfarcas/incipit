@@ -1,19 +1,21 @@
 //! A made-up practice, for looking at the sheet without a model: INCIPIT_PRACTICE (see the
-//! module above) opens it on the example, a problem, a problem missed or a finished practice.
+//! module above) opens it on the example, a problem, a problem missed, the easier problem or a finished
+//! practice.
 
 use incipit_learn::practice::Given;
 
 use super::*;
 
 impl PracticeView {
-    /// INCIPIT_PRACTICE=demo, problem, missed or done: a made-up practice, nothing asked of a
-    /// model and nothing written.
+    /// INCIPIT_PRACTICE=demo, problem, missed, easier or done: a made-up practice, nothing asked
+    /// of a model and nothing written.
     pub fn show_demo(&mut self, which: &str, cx: &mut Context<Self>) {
         self.open_on(
             About {
-                concept: Some("Self-attention".into()),
+                concept: Some("Attention".into()),
                 passage: Some(
-                    "Self-attention relates different positions of a single sequence.".into(),
+                    "An attention function maps a query and a set of key-value pairs to an output."
+                        .into(),
                 ),
                 ..About::default()
             },
@@ -34,15 +36,17 @@ impl PracticeView {
         };
         match which {
             "missed" => self.answered("0.6", given(0.0), wrong, cx),
-            "done" => {
+            "easier" | "done" => {
                 // Three misses bring the easier problem; two right answers then finish it.
                 for text in ["0.6", "0.7", "0.9"] {
                     self.answered(text, given(0.0), wrong, cx);
                     self.next(cx);
                 }
-                for text in ["1", "0.25"] {
-                    self.answered(text, given(1.0), "", cx);
-                    self.next(cx);
+                if which == "done" {
+                    for text in ["1", "0.25"] {
+                        self.answered(text, given(1.0), "", cx);
+                        self.next(cx);
+                    }
                 }
             }
             _ => {}
@@ -70,7 +74,7 @@ pub(super) fn made_up() -> Practice {
     };
     Practice {
         title: "Weighing positions by their scores".into(),
-        concept: "Self-attention".into(),
+        concept: "Attention".into(),
         example: problem(
             "Two positions score $1$ and $1$ against a query. What weight does each get?",
             "0.5",

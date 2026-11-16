@@ -14,9 +14,10 @@
 //!
 //! Without clicking: INCIPIT_PRACTICE=demo opens the sheet on a made-up worked example,
 //! `problem` on its first problem, `missed` on a problem answered wrongly (worked out beneath
-//! it) and `done` on a finished practice, on the Reader or the Brain page; no model is called
-//! and nothing is written. With INCIPIT_CONNECT=demo on a throwaway vault, the made-up practice
-//! is of a concept that builds on one the learner is forgetting.
+//! it), `easier` on the easier problem three misses bring, and `done` on a finished practice, on
+//! the Reader or the Brain page; no model is called and nothing is written. With
+//! INCIPIT_CONNECT=demo on a throwaway vault, the made-up practice is of a concept that builds on
+//! one the learner is forgetting, which `easier` names once the vault has opened.
 
 use futures::StreamExt;
 use gpui::{
@@ -34,7 +35,7 @@ use crate::explain::About;
 use crate::learning::practice::{self, Practice, Problem};
 use crate::learning::quiz::{self, ToGrade};
 use crate::models::Models;
-use crate::workspace::{Show, Workspace};
+use crate::workspace::{Happened, Show, Workspace};
 
 mod demo;
 mod parts;
@@ -118,15 +119,25 @@ impl PracticeView {
         cx: &mut Context<Self>,
     ) -> Self {
         let answer = cx.new(|cx| TextField::new(cx).placeholder("Your answer"));
-        let events =
-            vec![cx.subscribe(
+        let events = vec![
+            cx.subscribe(
                 &answer,
                 |this: &mut Self, _, event: &FieldEvent, cx| match event {
                     FieldEvent::Changed => cx.notify(),
                     FieldEvent::Submit => this.check(cx),
                     FieldEvent::Cancel => this.close(cx),
                 },
-            )];
+            ),
+            // INCIPIT_PRACTICE shows its made-up practice before the vault has opened: what it
+            // builds on is read once it has.
+            cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
+                let demo = this.open.as_ref().is_some_and(|open| open.demo);
+                if matches!(happened, Happened::Opened) && demo {
+                    this.read_fading(cx);
+                    cx.notify();
+                }
+            }),
+        ];
         PracticeView {
             workspace,
             models,

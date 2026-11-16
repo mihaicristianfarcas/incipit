@@ -3,10 +3,11 @@
 //! passage, edited and saved into the book's deck, each tied to its concept (`drafts`), and
 //! quizzes on a chapter, before one or across the concepts known least, with short answers
 //! graded by the model and every answer kept as evidence (`quiz`), and a concept explained back
-//! in the learner's own words, graded and kept as a note (`explain`). Each
-//! tool has the earlier app's instructions and form, sends the book's text as material
-//! (`context`) and writes to the vault only through `incipit-vault`. The model work blocks, so
-//! it runs on a call's own thread (`Models::work`). Nothing here draws.
+//! in the learner's own words, graded and kept as a note (`explain`), and a worked example with
+//! practice problems (`practice`). Each tool has the earlier app's instructions and form, sends
+//! the book's text as material (`context`) and writes to the vault only through `incipit-vault`.
+//! The model work blocks, so it runs on a call's own thread (`Models::work`). Nothing here
+//! draws.
 //!
 //! Like the earlier app's, each of them also tells the model about the learner (`learnerSummary`,
 //! here `learner`), as material apart from the instructions.
@@ -16,6 +17,7 @@ pub mod context;
 pub mod drafts;
 pub mod explain;
 pub mod learner;
+pub mod practice;
 pub mod quiz;
 pub mod reading_note;
 pub mod tutor;

@@ -109,6 +109,21 @@ app): its instructions, its form, and the book's text around the passage
 or the chapter's as material; what the model fills in is read from the
 form and becomes only text in files.
 
+**Practice is a worked example, then problems answered before anything is
+shown.** From a selected passage or a concept's page (`practice` in the app,
+`learning/practice.rs` for what the model is told and what is kept), the model
+writes one worked example, its solution in a few steps each under a label
+naming what it achieves, four problems with the same structure and an easier
+one, each with a short final answer and other ways of writing it. The earlier
+app's rules decide the session (`incipit_learn::practice`): an answer that is
+plainly the answer (the same words or number once case, spacing, `$…$`, a
+leading `x =` and the like are set aside) is right without a model, any other
+is graded by the model, two right in a row finish it, three misses bring the
+easier problem once, and an answer that could not be checked counts for
+nothing. A finished practice is a `quiz` line of mode `practice`, so it counts
+toward its concept like a quiz, and can be kept as a note of exercises with the
+solutions folded.
+
 **A card known for weeks is asked a new way.** Every other review of a
 card whose stability is three weeks or more asks a fresh question on the
 same idea in place of the card's front, as in the earlier app, so the

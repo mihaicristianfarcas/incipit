@@ -22,6 +22,7 @@
 //! - [`params`]: the 21 FSRS-6 weights, desired retention and the learning steps.
 //! - [`schedule`]: one review, the preview of the four buttons, recall probability.
 //! - [`plan`]: what Today suggests doing next.
+//! - [`practice`]: whether a practice answer is plainly the answer, and which problem comes next.
 //! - [`progress`]: how far through a book the learner is, and a rough finish at the recent pace.
 //! - [`queue`]: which cards to show now and in what order, and the counts for the Today page.
 //! - [`sittings`]: reading sittings, counted from the reader's reports.
@@ -37,6 +38,7 @@ pub mod leech;
 pub mod new_way;
 pub mod params;
 pub mod plan;
+pub mod practice;
 pub mod progress;
 pub mod queue;
 pub mod schedule;

@@ -199,6 +199,14 @@ impl BrainView {
                     )
                     .child({
                         let id = id.clone();
+                        button("concept-practise", "Practise it", t)
+                            .tooltip("A worked example, then problems to try")
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.practise_concept(&id, cx)),
+                            )
+                    })
+                    .child({
+                        let id = id.clone();
                         button("concept-explain", "Explain it back", t)
                             .accent()
                             .tooltip("Explain it in your own words, and see what you missed")

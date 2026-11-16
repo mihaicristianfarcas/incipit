@@ -819,8 +819,6 @@ impl Render for ReviewView {
                         n => format!("{n} cards"),
                     }),
             )
-            .child(self.deck_menu(deck, t, cx))
-            .child(self.type_switch(t, cx))
             .child(
                 button("cards-browse", "All cards", t)
                     .tooltip("Browse and edit every card")
@@ -838,6 +836,20 @@ impl Render for ReviewView {
                     .tooltip("A quiz across the concepts you know least")
                     .on_click(cx.listener(|this, _, _, cx| this.mixed_quiz(cx))),
             );
+        // The deck and typing first on a row of their own: with the buttons they are wider
+        // than the page's column.
+        let choices = div()
+            .flex()
+            .items_center()
+            .gap(px(16.0))
+            .child(self.deck_menu(deck, t, cx))
+            .child(self.type_switch(t, cx));
+        let header = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.0))
+            .child(header)
+            .child(choices);
         let body = div()
             .flex()
             .flex_col()

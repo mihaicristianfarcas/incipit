@@ -141,6 +141,12 @@ Both of Obsidian's spellings are read: `[[Note]]`, `[[Note|shown]]`,
 `[[folder/Note#Heading]]` and `[shown](Note.md)`. Links in properties
 count too. Renaming a document rewrites the links that point at it.
 
+A note that names a note or a concept in plain words, by its title or another
+name, without linking it, is an unlinked mention of it (`Vault::unlinked_mentions`):
+the name stands as a whole word, in any case, and is three characters or more.
+`Vault::link_mention` turns the first such mention in a note into a link,
+`[[Title]]`, or `[[Title|as written]]` when the words differ from the title.
+
 ## Connections
 
 `brain/connections.jsonl` holds the links an agent suggested between notes

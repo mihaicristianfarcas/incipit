@@ -19,11 +19,16 @@
 //! A concept can be explained back from its page or from its card beside the picture
 //! (`crate::explain`), with its summary and the book its first passage is in.
 //!
+//! The links an agent suggests are listed in a card of their own, opened from a button in the
+//! find card, where each is linked or turned down, and the agent is asked for more
+//! (`suggestions`, with `crate::connect`). A card for a selected node lists those that touch it.
+//!
 //! Without clicking: INCIPIT_PAGE=brain opens the page, and INCIPIT_NODE=words types the words
 //! into the field and presses Enter once the picture is there. INCIPIT_PAGE=concepts opens the
 //! list of concepts, and INCIPIT_CONCEPT=words the page of the concept whose title has the
 //! words, once the vault is open; with INCIPIT_EXPLAIN=write, the sheet to explain it back opens
-//! over it. INCIPIT_EXPLAIN=demo opens that sheet on a made-up explanation, graded.
+//! over it. INCIPIT_EXPLAIN=demo opens that sheet on a made-up explanation, graded. With
+//! INCIPIT_CONNECT set, the card of suggested links is open when the page is.
 
 mod concept;
 mod concepts;
@@ -32,6 +37,7 @@ mod panel;
 mod picture;
 mod press;
 mod search;
+mod suggestions;
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -116,6 +122,17 @@ pub struct BrainView {
     wanted: Option<String>,
     /// The sheet where a concept is explained back.
     explain: Entity<crate::explain::ExplainView>,
+    models: Entity<crate::models::Models>,
+    /// The suggested links waiting for the learner.
+    waiting: Vec<suggestions::Waiting>,
+    /// The card of suggested links is open.
+    suggesting: bool,
+    /// The agent is being asked for more.
+    looking: Option<suggestions::Looking>,
+    /// What the last request found, and why a request or a decision failed.
+    said: Option<String>,
+    trouble: Option<String>,
+    suggest_scroll: ScrollHandle,
     _subscriptions: [Subscription; 3],
 }
 
@@ -144,8 +161,10 @@ impl BrainView {
             match happened {
                 Happened::Opened => {
                     this.afresh = true;
+                    this.forget_asking();
                     this.build(cx);
                     this.read_concepts(cx);
+                    this.read_suggestions(cx);
                     if let Some(words) = this.wanted.take() {
                         this.open_named(&words, cx);
                         if std::env::var("INCIPIT_EXPLAIN").as_deref() == Ok("write") {
@@ -158,6 +177,11 @@ impl BrainView {
                 Happened::Changed(event) if event.path.is_markdown() => {
                     this.build(cx);
                     this.read_concepts(cx);
+                    this.heard_suggestions(event, cx);
+                }
+                // A suggestion made or decided.
+                Happened::Changed(event) if event.path.as_str() == incipit_vault::CONNECTIONS => {
+                    this.heard_suggestions(event, cx)
                 }
                 // A review changes how well its card's concepts are known.
                 Happened::Changed(_) => this.read_concepts(cx),
@@ -208,7 +232,8 @@ impl BrainView {
             Ok("concepts") => Shown::List,
             _ => Shown::Graph,
         };
-        let explain = cx.new(|cx| crate::explain::ExplainView::new(workspace.clone(), models, cx));
+        let explain =
+            cx.new(|cx| crate::explain::ExplainView::new(workspace.clone(), models.clone(), cx));
         if std::env::var("INCIPIT_EXPLAIN").as_deref() == Ok("demo") {
             explain.update(cx, |explain, cx| explain.show_demo(cx));
         }
@@ -236,10 +261,18 @@ impl BrainView {
             page_scroll: ScrollHandle::new(),
             wanted,
             explain,
+            models,
+            waiting: Vec::new(),
+            suggesting: crate::connect::demo::asked().is_some(),
+            looking: None,
+            said: None,
+            trouble: None,
+            suggest_scroll: ScrollHandle::new(),
             _subscriptions: [heard, typed, narrowed],
         };
         view.build(cx);
         view.read_concepts(cx);
+        view.read_suggestions(cx);
         view
     }
 
@@ -410,6 +443,7 @@ impl BrainView {
 
     /// Selects `node` and brings it to the middle of the picture.
     fn focus(&mut self, node: usize, cx: &mut Context<Self>) {
+        self.suggesting = false;
         self.selected = Some(node);
         self.centre = true;
         self.links_scroll.set_offset(Point::default());
@@ -496,6 +530,7 @@ impl BrainView {
                     self.links_scroll.set_offset(Point::default());
                 }
                 self.selected = node;
+                self.suggesting = self.suggesting && node.is_none();
             }
             Release::Dropped(node) => {
                 if let Some(picture) = &mut self.picture {
@@ -544,6 +579,20 @@ impl BrainView {
         }
     }
 
+    /// The card beside the picture: the suggested links when they are open, else the selected
+    /// node's.
+    fn side(
+        &self,
+        t: Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        if self.suggesting {
+            return Some(self.suggestions_card(t, window, cx).into_any_element());
+        }
+        self.panel(t, window, cx).map(IntoElement::into_any_element)
+    }
+
     /// The find field, and how many it found.
     fn finder(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let typed = !self.find.read(cx).text().trim().is_empty();
@@ -568,6 +617,7 @@ impl BrainView {
                     .gap(px(6.0))
                     .child(div().flex().child(self.switch(0, t, cx)))
                     .child(field(&self.find, t))
+                    .child(self.suggestions_button(t, cx))
                     .when(typed, |card| {
                         card.child(
                             div()
@@ -641,7 +691,7 @@ impl BrainView {
                 cx.listener(|this, event: &ScrollWheelEvent, _, cx| this.wheel(event, cx)),
             )
             .child(self.finder(t, cx))
-            .children(self.panel(t, window, cx));
+            .children(self.side(t, window, cx));
         div()
             .size_full()
             .flex()

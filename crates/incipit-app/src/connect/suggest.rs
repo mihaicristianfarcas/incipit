@@ -129,7 +129,7 @@ pub fn request(chosen: &Request, scope: &Scope, learner: &str) -> Request {
 /// The paths of the notes edited last, the most recent first.
 fn recent(vault: &Vault) -> Vec<String> {
     let mut notes = vault.list(Some(Kind::Note));
-    notes.sort_by(|a, b| b.updated().cmp(&a.updated()));
+    notes.sort_by_key(|n| std::cmp::Reverse(n.updated()));
     notes
         .iter()
         .take(RECENT)

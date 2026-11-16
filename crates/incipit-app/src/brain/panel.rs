@@ -69,6 +69,7 @@ impl BrainView {
             n => format!("{n} links"),
         };
         let id = picture.ids[node].clone();
+        let id_for_suggestions = id.clone();
         let rows: Vec<_> = links
             .iter()
             .map(|&other| {
@@ -154,6 +155,7 @@ impl BrainView {
                         ))
                     }),
             )
+            .children(self.node_suggestions(&id_for_suggestions, t, cx))
             .when(!links.is_empty(), |card| {
                 card.child(
                     div()

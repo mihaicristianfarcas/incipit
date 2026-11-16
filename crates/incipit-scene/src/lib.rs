@@ -10,6 +10,7 @@ pub mod draw;
 pub mod expr;
 pub mod figure;
 pub mod flow;
+pub mod graph;
 pub mod handles;
 pub mod labels;
 pub mod plot;
@@ -24,6 +25,7 @@ pub use draw::{
 };
 pub use figure::{layout, Figure, Kind, Pace, Sample, Spec, State};
 pub use flow::Flow;
+pub use graph::Graph;
 pub use handles::{grab, Drag, Handle, Setter, Slider, Target};
 pub use plot::Plot;
 pub use sequence::Sequence;

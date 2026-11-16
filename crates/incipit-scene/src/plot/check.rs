@@ -1,7 +1,8 @@
 //! What makes a plot's spec make sense on its own (axes with a range, parameters with one,
 //! expressions that read and use only the names they may, points dragged by a parameter they
-//! are), and the states its drawing is checked in: each step, and each parameter at its minimum,
-//! middle and maximum with the corners between them.
+//! are, bars with a height for each place, series that are drawn somehow), and the states its
+//! drawing is checked in: each step, and each parameter at its minimum, middle and maximum with
+//! the corners between them.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,6 +13,9 @@ use crate::figure::{describe_params, parameter_samples, Sample, State};
 
 const MOST_PARAMS: usize = 4;
 const MOST_LAYERS: usize = 8;
+/// The most points one series holds, and bars one layer holds: as many as the earlier app kept.
+const MOST_POINTS: usize = 2000;
+const MOST_BARS: usize = 60;
 /// Axis ends past this are a mistake, and far past what f32 stage arithmetic keeps exact.
 const LARGEST: f32 = 1.0e6;
 /// Steps up to this many are each sampled at every parameter combination; past it only the first
@@ -51,8 +55,12 @@ pub fn structure(plot: &Plot) -> Vec<String> {
         .map(|p| p.name.as_str())
         .chain(plot.layers.iter().map(Layer::id));
     unique_ids(ids, &mut errors);
+    let traces = plot
+        .layers
+        .iter()
+        .any(|l| matches!(l, Layer::Parametric { .. }));
     for p in &plot.params {
-        if p.name == "x" || reserved(&p.name) {
+        if p.name == "x" || (traces && p.name == "s") || reserved(&p.name) {
             errors.push(format!(
                 "parameter \"{}\" takes a name the expressions already use: pick another",
                 p.name
@@ -75,6 +83,7 @@ pub fn structure(plot: &Plot) -> Vec<String> {
     }
     let params: Vec<&str> = plot.params.iter().map(|p| p.name.as_str()).collect();
     let with_x: Vec<&str> = std::iter::once("x").chain(params.iter().copied()).collect();
+    let with_s: Vec<&str> = std::iter::once("s").chain(params.iter().copied()).collect();
     let mut read = |id: &str, field: &str, src: &str, names: &[&str]| -> Option<Expr> {
         match Expr::parse(src, names) {
             Ok(e) => Some(e),
@@ -135,6 +144,85 @@ pub fn structure(plot: &Plot) -> Vec<String> {
             }
             Layer::Vline { id, at, .. } | Layer::Hline { id, at, .. } => {
                 read(id, "at", at, &params);
+            }
+            Layer::Parametric {
+                id, x, y, from, to, ..
+            } => {
+                read(id, "x", x, &with_s);
+                read(id, "y", y, &with_s);
+                read(id, "from", from, &params);
+                read(id, "to", to, &params);
+            }
+            Layer::Series {
+                id,
+                points,
+                dots,
+                line,
+                ..
+            } => {
+                if points.is_empty() || points.len() > MOST_POINTS {
+                    drag_errors.push(format!(
+                        "series \"{id}\" has {} points: give 1 to {MOST_POINTS}",
+                        points.len()
+                    ));
+                }
+                if let Some(p) = points.iter().find(|p| !p.iter().all(|v| finite(*v))) {
+                    drag_errors.push(format!(
+                        "series \"{id}\" has the point ({}, {}): every number must be between −1000000 and 1000000",
+                        p[0], p[1]
+                    ));
+                }
+                if !dots && !line {
+                    drag_errors.push(format!(
+                        "series \"{id}\" has neither dots nor a line: set dots, line or both to true"
+                    ));
+                }
+            }
+            Layer::Bars {
+                id,
+                xs,
+                heights,
+                width,
+                labels,
+                ..
+            } => {
+                if xs.len() != heights.len() {
+                    drag_errors.push(format!(
+                        "bars \"{id}\" has {} xs but {} heights: give one height for each x",
+                        xs.len(),
+                        heights.len()
+                    ));
+                }
+                if xs.is_empty() || xs.len() > MOST_BARS {
+                    drag_errors.push(format!(
+                        "bars \"{id}\" has {} bars: give 1 to {MOST_BARS}",
+                        xs.len()
+                    ));
+                }
+                if !labels.is_empty() && labels.len() != xs.len() {
+                    drag_errors.push(format!(
+                        "bars \"{id}\" has {} labels for {} bars: give one name for each bar, or none",
+                        labels.len(),
+                        xs.len()
+                    ));
+                }
+                if !(finite(*width) && *width > 0.0) {
+                    drag_errors.push(format!(
+                        "bars \"{id}\" are {width} wide: give a width above 0, in x's units"
+                    ));
+                }
+                for (i, x) in xs.iter().enumerate() {
+                    read(id, &format!("x of bar {}", i + 1), x, &params);
+                }
+                for (i, h) in heights.iter().enumerate() {
+                    read(id, &format!("height of bar {}", i + 1), h, &params);
+                }
+            }
+            Layer::Vector { id, from, to, .. } => {
+                read(id, "from x", &from[0], &params);
+                read(id, "from y", &from[1], &params);
+                read(id, "to x", &to[0], &params);
+                read(id, "to y", &to[1], &params);
             }
         }
     }
@@ -235,6 +323,7 @@ mod tests {
                 min: -5.0,
                 max: 5.0,
             },
+            equal: false,
             params,
             layers,
             steps: Vec::new(),

@@ -98,33 +98,46 @@ change.
 
 ### Plot
 
-Functions of x the learner plays with: rates, growth, waves, and
-distributions (a density is a curve, a probability an area under it).
+Functions of x and data the learner plays with: rates, growth, waves,
+distributions (a density is a curve, a probability an area under it),
+paths and vectors, and the numbers a text gives.
 
 Spec: `x` and `y` axes (a label and a range; a `y` range of 0 to 0 lets
-the engine choose it from what is drawn), `params` (name, label, range and
-start: each is a slider), `layers` and `steps`. A layer is a `curve`, an
-`area` between two functions, a `point`, a `tangent` to a curve, or a
-vertical or horizontal line. A point whose x or y is one parameter's name
-can be dragged, which sets that parameter. A step may set parameters.
+the engine choose it from what is drawn), `equal` (one unit as long
+across as up, for geometry: the engine widens the tighter range),
+`params` (name, label, range and start: each is a slider), `layers` and
+`steps`. A layer is a `curve`, an `area` between two functions, a
+`point`, a `tangent` to a curve, a vertical or horizontal line, a
+`parametric` path (x and y as s runs between two values), a `series` of
+numbers from the text (dots, a line or both), `bars` (a height at each
+place, with names under them in place of x's numbers, or none), or a
+`vector` (an arrow between two points). A point whose x or y is one
+parameter's name can be dragged, which sets that parameter. A step may
+set parameters.
 
-Every number that moves is an expression over x and the parameters
-(`expr.rs`): arithmetic, comparisons and a fixed list of functions,
+Every number that moves is an expression over x (s in a path) and the
+parameters (`expr.rs`): arithmetic, comparisons and a fixed list of functions,
 parsed into a tree and evaluated. It is never run as code, it has no
 loops and no names but the ones the spec declares, and its length and
 nesting are limited.
 
-Layout (`plot/layout.rs`): curves are sampled across the plot, broken
+Layout (`plot/layout.rs`, with paths, series, bars and vectors in
+`plot/layers.rs`): curves and paths are sampled across the plot, broken
 where they are undefined or jump (an asymptote) and clipped to the plot;
-the ticks are chosen from the range (`plot/axes.rs`); labels are placed
-last, clear of each other.
+an automatic y range holds every data point, bar and arrow, and leaves
+out only the most extreme values of sampled curves; the ticks are chosen
+from the range (`plot/axes.rs`); labels are placed last, clear of each
+other.
 
 Checks: at most 4 parameters and 1 to 8 layers; ranges with a min below
 their max; expressions that parse and use only known names; a dragged
 point's coordinate that is one parameter; steps that set real parameters
-inside their range. The drawing is then looked at across the parameters'
-ranges and the steps, and a point that leaves the plot is an error that
-says where and with which values.
+inside their range; a series of 1 to 2000 points drawn as dots, a line or
+both; 1 to 60 bars with a height for each and a name for each or none.
+The drawing is then looked at across the parameters' ranges and the
+steps, and a point, a data point, a bar or an arrow's end that leaves
+the plot is an error that says where and with which values; names under
+bars that run into each other are refused like any text that overlaps.
 
 ## Steps
 

@@ -3,10 +3,12 @@
 //! through the middle of nothing (an asymptote: the value halfway is not between its neighbours),
 //! and clipped to the plot box so nothing can run off it. Ticks are round numbers spaced so their
 //! labels never touch. An automatic y range is taken over every parameter sample, not the state
-//! drawn, so the axes stay put while the learner drags. Labels go last, clear of the curves. The
-//! box, ticks and axes are drawn by `axes`.
+//! drawn, so the axes stay put while the learner drags; with `equal` the tighter range is widened
+//! so one unit is as long both ways. Labels go last, clear of the curves. The box, ticks and axes
+//! are drawn by `axes`; paths in s, arrows, series and bars by `layers`.
 
 use super::axes::{axes, scale};
+use super::layers::{self, Sink};
 use super::{Drag as Way, Layer, Plot};
 use crate::draw::{Anchor, Fill, Frame, Issue, Item, Mark, Measure, Rect, Text, Tone};
 use crate::expr::Expr;
@@ -20,8 +22,8 @@ use crate::ticks::{nice_extent, number};
 const SAMPLES: usize = 560;
 pub(super) const TICK: f32 = 10.0;
 pub(super) const LABEL: f32 = 11.0;
-const LINE: f32 = 1.8;
-const LIT_LINE: f32 = 2.6;
+pub(super) const LINE: f32 = 1.8;
+pub(super) const LIT_LINE: f32 = 2.6;
 /// Stage coordinates are held within this before clipping, so a value near infinity still gives
 /// a line that leaves the box in the right direction.
 const FAR: f32 = 1.0e5;
@@ -55,21 +57,45 @@ pub fn names(plot: &Plot) -> Vec<&str> {
         .collect()
 }
 
+/// The names a path's x and y may use: s, then the parameters. s takes x's place, so the same
+/// values evaluate both.
+pub fn path_names(plot: &Plot) -> Vec<&str> {
+    std::iter::once("s")
+        .chain(plot.params.iter().map(|p| p.name.as_str()))
+        .collect()
+}
+
 /// The y range drawn: the spec's, or one that holds what every parameter sample draws.
 pub fn y_range(plot: &Plot) -> (f32, f32) {
     if plot.y.min < plot.y.max {
         return (plot.y.min, plot.y.max);
     }
     let names = names(plot);
+    let in_s = path_names(plot);
     let ranges: Vec<(String, f32, f32, f32)> = plot
         .params
         .iter()
         .map(|p| (p.name.clone(), p.min, p.max, p.start))
         .collect();
     let mut seen: Vec<f64> = Vec::new();
+    // Data, bars and arrows are single values the learner must see, never trimmed as outliers.
+    let mut exact: Vec<f64> = Vec::new();
+    for layer in &plot.layers {
+        if let Layer::Series { points, .. } = layer {
+            exact.extend(points.iter().map(|p| p[1] as f64));
+        }
+    }
     for sample in parameter_samples(&ranges) {
         let mut values = vec![0.0f64];
         values.extend(plot.params.iter().map(|p| sample[&p.name] as f64));
+        // What the layers that are not functions of x give, added once `at` lets go of `seen`.
+        let fixed = values.clone();
+        let mut more: Vec<f64> = Vec::new();
+        let mut value = |src: &str| {
+            if let Ok(e) = Expr::parse(src, &names) {
+                exact.push(e.eval(&fixed));
+            }
+        };
         let mut at = |src: &str, along_x: bool| {
             let Ok(e) = Expr::parse(src, &names) else {
                 return;
@@ -92,17 +118,54 @@ pub fn y_range(plot: &Plot) -> (f32, f32) {
                     at(base, true);
                 }
                 Layer::Point { y, .. } | Layer::Hline { at: y, .. } => at(y, false),
-                Layer::Tangent { .. } | Layer::Vline { .. } => {}
+                Layer::Bars { heights, .. } => {
+                    value("0");
+                    for h in heights {
+                        value(h);
+                    }
+                }
+                Layer::Vector { from, to, .. } => {
+                    value(&from[1]);
+                    value(&to[1]);
+                }
+                Layer::Parametric { y, from, to, .. } => {
+                    let parsed = (
+                        Expr::parse(y, &in_s),
+                        Expr::parse(from, &names),
+                        Expr::parse(to, &names),
+                    );
+                    if let (Ok(y), Ok(from), Ok(to)) = parsed {
+                        let mut v = fixed.clone();
+                        let (a, b) = (from.eval(&v), to.eval(&v));
+                        for i in 0..=120 {
+                            v[0] = a + (b - a) * i as f64 / 120.0;
+                            let y = y.eval(&v);
+                            if y.is_finite() {
+                                more.push(y);
+                            }
+                        }
+                    }
+                }
+                Layer::Tangent { .. } | Layer::Vline { .. } | Layer::Series { .. } => {}
             }
         }
+        seen.extend(more);
     }
-    if seen.is_empty() {
+    exact.retain(|v| v.is_finite());
+    if seen.is_empty() && exact.is_empty() {
         return (-1.0, 1.0);
     }
     seen.sort_by(f64::total_cmp);
     // The few highest and lowest are left out: near an asymptote they would flatten the rest.
     let cut = seen.len() / 40;
-    let (mut lo, mut hi) = (seen[cut] as f32, seen[seen.len() - 1 - cut] as f32);
+    let (mut lo, mut hi) = match seen.len() {
+        0 => (f32::INFINITY, f32::NEG_INFINITY),
+        n => (seen[cut] as f32, seen[n - 1 - cut] as f32),
+    };
+    for v in &exact {
+        lo = lo.min(*v as f32);
+        hi = hi.max(*v as f32);
+    }
     let span = hi - lo;
     if lo > 0.0 && lo < span * 0.35 {
         lo = 0.0;
@@ -196,7 +259,7 @@ pub fn runs(f: &dyn Fn(f64) -> f64, from: f64, to: f64, s: &Scale) -> (Vec<Vec<(
 
 /// A label waiting to be placed once everything is drawn: the id of what it names, its text and
 /// tone, the places it could go, and the point it belongs to.
-type Pending = (String, String, Tone, Vec<(f32, f32, Anchor)>, (f32, f32));
+pub(super) type Pending = (String, String, Tone, Vec<(f32, f32, Anchor)>, (f32, f32));
 
 pub fn layout(plot: &Plot, state: &State, m: &dyn Measure) -> Frame {
     let steps = plot.plain_steps();
@@ -213,7 +276,11 @@ pub fn layout(plot: &Plot, state: &State, m: &dyn Measure) -> Frame {
     let mut back = Vec::new();
     let mut mid = Vec::new();
     let mut front = Vec::new();
-    axes(plot, &s, m, &mut back);
+    let categories = plot.layers.iter().any(|l| {
+        matches!(l, Layer::Bars { labels, .. } if labels.iter().any(|t| !t.is_empty()))
+            && at.shown(l.id())
+    });
+    axes(plot, &s, categories, m, &mut back);
     let mut labels = Labels::new(s.plot.grown(-2.0), m);
     let mut pending: Vec<Pending> = Vec::new();
 
@@ -439,6 +506,18 @@ pub fn layout(plot: &Plot, state: &State, m: &dyn Measure) -> Frame {
                     pending.push((id.into(), label.clone(), tone_of(*tone), spots, p));
                 }
             }
+            Layer::Parametric { .. }
+            | Layer::Series { .. }
+            | Layer::Bars { .. }
+            | Layer::Vector { .. } => {
+                let sink = Sink {
+                    back: &mut back,
+                    mid: &mut mid,
+                    pending: &mut pending,
+                    issues: &mut issues,
+                };
+                layers::draw(plot, layer, lit, &values, &s, &mut labels, sink);
+            }
             Layer::Point {
                 x,
                 y,
@@ -526,7 +605,7 @@ pub fn layout(plot: &Plot, state: &State, m: &dyn Measure) -> Frame {
 }
 
 /// Spots for a label along a line: near its right end first, then further in, above then below.
-fn along(line: &[(f32, f32)]) -> Vec<(f32, f32, Anchor)> {
+pub(super) fn along(line: &[(f32, f32)]) -> Vec<(f32, f32, Anchor)> {
     let mut spots = Vec::new();
     let n = line.len();
     let (fractions, points): (Vec<f32>, Vec<(f32, f32)>) = if n > 2 {

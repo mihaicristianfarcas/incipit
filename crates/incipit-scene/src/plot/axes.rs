@@ -1,5 +1,5 @@
 //! A plot's frame: the box the plot is drawn in, leaving room for the numbers and names around
-//! it; the ticks along each axis, as many round numbers as fit with their labels apart; and the
+//! it (and with `equal`, ranges widened so a unit is as long both ways); the ticks along each axis, as many round numbers as fit with their labels apart; and the
 //! box, grid, numbers and names drawn behind everything else.
 
 use super::layout::{Scale, LABEL, TICK};
@@ -8,29 +8,50 @@ use crate::draw::{Anchor, Fill, Item, Mark, Measure, Rect, Text, Tone, HEIGHT, W
 use crate::ticks::{axis_label, nice_ticks, tick_step};
 
 /// The plot box: room on the left for the y ticks' numbers, below for the x ticks' and the x
-/// axis's name, above for the y axis's name.
+/// axis's name, above for the y axis's name. With `equal`, the range that is tighter for its
+/// side of the box is widened about its middle until a unit is as long both ways; the box's left
+/// edge depends on the y numbers, so that is done twice.
 pub(super) fn scale(plot: &Plot, (y0, y1): (f32, f32), m: &dyn Measure) -> Scale {
-    let widest = nice_ticks(y0, y1, 8)
-        .iter()
-        .map(|v| m.width(&axis_label(*v, 0.001), TICK, true))
-        .fold(0.0, f32::max)
-        .min(70.0);
-    let left = 10.0 + widest + 8.0;
     let top = if plot.y.label.is_empty() { 12.0 } else { 26.0 };
     let bottom = HEIGHT - if plot.x.label.is_empty() { 22.0 } else { 36.0 };
     let right = WIDTH - 14.0;
-    Scale {
+    let mut s = Scale {
         plot: Rect {
-            x: left,
+            x: 0.0,
             y: top,
-            w: right - left,
+            w: 0.0,
             h: bottom - top,
         },
         x0: plot.x.min as f64,
         x1: plot.x.max as f64,
         y0: y0 as f64,
         y1: y1 as f64,
+    };
+    for _ in 0..if plot.equal { 2 } else { 1 } {
+        let widest = nice_ticks(s.y0 as f32, s.y1 as f32, 8)
+            .iter()
+            .map(|v| m.width(&axis_label(*v, 0.001), TICK, true))
+            .fold(0.0, f32::max)
+            .min(70.0);
+        let left = 10.0 + widest + 8.0;
+        s.plot.x = left;
+        s.plot.w = right - left;
+        if plot.equal {
+            let (x0, x1) = (plot.x.min as f64, plot.x.max as f64);
+            let (y0, y1) = (y0 as f64, y1 as f64);
+            let ux = (x1 - x0) / s.plot.w as f64;
+            let uy = (y1 - y0) / s.plot.h as f64;
+            (s.x0, s.x1, s.y0, s.y1) = (x0, x1, y0, y1);
+            if ux > uy {
+                let (mid, half) = ((y0 + y1) / 2.0, ux * s.plot.h as f64 / 2.0);
+                (s.y0, s.y1) = (mid - half, mid + half);
+            } else {
+                let (mid, half) = ((x0 + x1) / 2.0, uy * s.plot.w as f64 / 2.0);
+                (s.x0, s.x1) = (mid - half, mid + half);
+            }
+        }
     }
+    s
 }
 
 /// Ticks for one axis: as many as fit with their labels apart.
@@ -58,7 +79,9 @@ fn ticks(lo: f64, hi: f64, length: f32, across: bool, m: &dyn Measure) -> Vec<f3
     nice_ticks(lo as f32, hi as f32, 2)
 }
 
-pub(super) fn axes(plot: &Plot, s: &Scale, m: &dyn Measure, out: &mut Vec<Item>) {
+/// The box, the grid, the ticks' numbers and the axes' names. With `categories` the bars name the
+/// places along x, so the x numbers are left out.
+pub(super) fn axes(plot: &Plot, s: &Scale, categories: bool, m: &dyn Measure, out: &mut Vec<Item>) {
     let r = s.plot;
     out.push(Item::new(None, Mark::rect(r, 0.0, Fill::None, Tone::Faint)));
     let xt = ticks(s.x0, s.x1, r.w, true, m);
@@ -70,6 +93,9 @@ pub(super) fn axes(plot: &Plot, s: &Scale, m: &dyn Measure, out: &mut Vec<Item>)
             None,
             Mark::line(vec![(x, r.y), (x, r.y + r.h)], Tone::Faint, 1.0),
         ));
+        if categories {
+            continue;
+        }
         out.push(Item::new(
             None,
             Mark::Text(

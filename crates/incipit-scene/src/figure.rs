@@ -60,7 +60,8 @@ impl Kind {
                 "boxes and arrows: processes, causes, decisions, state machines, cycles, trees"
             }
             Kind::Plot => {
-                "functions of x with parameters to drag: rates, growth, waves, distributions"
+                "functions of x and data, with parameters to drag: rates, growth, waves, \
+                 distributions, paths and vectors, measurements and bars"
             }
         }
     }

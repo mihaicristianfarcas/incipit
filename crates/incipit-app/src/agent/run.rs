@@ -485,6 +485,14 @@ mod tests {
             "the change holds the agent's work alone"
         );
 
+        // "Show the changes" reads this from the run's commit: the agent's work alone.
+        let diff = vault
+            .history()
+            .diff(outcome.commit.as_deref().unwrap(), None)
+            .unwrap();
+        assert!(diff.contains("+++ b/notes/Summary.md"), "{diff}");
+        assert!(!diff.contains("Mine.md"), "{diff}");
+
         vault.drop_change(&change).unwrap();
         assert!(vault.at(&summary).is_none());
         assert!(!vault.root().join("notes/Summary.md").exists());

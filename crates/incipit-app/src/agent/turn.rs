@@ -6,7 +6,10 @@
 //! that changed nothing as a note, Try again after a failure; and, in Incipit, Stop one that
 //! works.
 //!
-//! Also the made-up runs that show the sheet without a model (INCIPIT_AGENT=demo, review,
+//! A run that changed files can show those changes as a diff of its change in the history
+//! ("Show the changes", `Changes`), as the earlier app's panel does.
+//!
+//! Also the made-up runs that show the sheet without a model (INCIPIT_AGENT=demo, diff, review,
 //! refused, thread, recent): their actions change no vault.
 
 use incipit_llm::{Cancel, Event};
@@ -82,6 +85,20 @@ pub fn status_word(status: Status) -> &'static str {
     }
 }
 
+/// The changes of a run, as a diff, on show under it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Changes {
+    #[default]
+    Hidden,
+    /// Being read from the history.
+    Reading,
+    /// The diff; empty when the history has none to show.
+    Shown(String),
+}
+
+/// The most lines of a diff the sheet draws: a run can touch a file of thousands of lines.
+pub const DIFF_LINES: usize = 400;
+
 /// One request and what became of it.
 #[derive(Debug)]
 pub struct Turn {
@@ -97,6 +114,7 @@ pub struct Turn {
     pub busy: bool,
     /// Made up: what is done with it changes no vault.
     pub made_up: bool,
+    pub changes: Changes,
 }
 
 impl Turn {
@@ -111,6 +129,7 @@ impl Turn {
             stop: None,
             busy: false,
             made_up: false,
+            changes: Changes::Hidden,
         };
         turn.finish(run, title);
         turn
@@ -153,6 +172,11 @@ impl Turn {
 
     pub fn can_undo(&self) -> bool {
         self.run.status == Status::Merged && (self.run.change.is_some() || self.made_up)
+    }
+
+    /// Whether its changes can be shown: it changed files and the history has its change.
+    pub fn can_show_changes(&self) -> bool {
+        self.run.commit.is_some() && !self.files.is_empty()
     }
 
     pub fn waits(&self) -> bool {
@@ -233,6 +257,30 @@ fn change(path: &str, status: FileStatus) -> FileChange {
     }
 }
 
+/// The changes of the made-up run that wrote a card and linked it from a note.
+pub const MADE_UP_DIFF: &str = "\
+diff --git a/cards/What attention weighs.md b/cards/What attention weighs.md
+new file mode 100644
+--- /dev/null
++++ b/cards/What attention weighs.md
+@@ -0,0 +1,6 @@
++---
++kind: card
++---
++## Front
++What do the weights in attention say?
++## Back
++How well each word's key matches the query.
+diff --git a/notes/Attention.md b/notes/Attention.md
+--- a/notes/Attention.md
++++ b/notes/Attention.md
+@@ -1,3 +1,5 @@
+ Each word asks a question of every other.
+ The answers are weights that add up to one.
++
++Cards: [[What attention weighs]]
+";
+
 /// The titles the made-up runs' files have.
 pub fn made_up_title(path: &str) -> Option<String> {
     match path {
@@ -243,7 +291,7 @@ pub fn made_up_title(path: &str) -> Option<String> {
 }
 
 /// Runs that never happened, to look at the sheet without a model, newest first: a landed
-/// change (`demo`), one waiting for the learner's OK (`review`), one refused for changing the
+/// change (`demo`, and `diff` with its changes shown), one waiting for the learner's OK (`review`), one refused for changing the
 /// app's own file (`refused`), a conversation of an answer and a follow-up that landed
 /// (`thread`), and four conversations, one of them working (`recent`).
 pub fn made_up(which: &str, now: i64) -> Vec<Turn> {
@@ -273,6 +321,7 @@ pub fn made_up(which: &str, now: i64) -> Vec<Turn> {
         - `notes/Attention.md`: a link to the new card under *Cards*."
         .into();
     cards.open = Some("cards/What attention weighs.md".into());
+    cards.commit = Some("0000000000000000".into());
     cards.files = vec![
         change("cards/What attention weighs.md", FileStatus::Added),
         change("notes/Attention.md", FileStatus::Modified),
@@ -334,6 +383,11 @@ pub fn made_up(which: &str, now: i64) -> Vec<Turn> {
                 turn(answered, &[]),
                 turn(undone, &[]),
             ]
+        }
+        "diff" => {
+            let mut shown = turn(cards, &steps);
+            shown.changes = Changes::Shown(MADE_UP_DIFF.to_owned());
+            vec![shown]
         }
         _ => vec![turn(cards, &steps)],
     }
@@ -527,6 +581,22 @@ mod tests {
         answered.status = Status::Merged;
         turn.finish(answered, no_title);
         assert_eq!(turn.to_open(), None);
+    }
+
+    #[test]
+    fn changes_can_be_shown_for_a_run_that_changed_files_and_has_its_change_in_the_history() {
+        let mut turn = going();
+        let files = [("notes/A.md", FileStatus::Modified)];
+        let mut run = ended(Status::Merged, "Done.", &files);
+        turn.finish(run.clone(), no_title);
+        assert!(!turn.can_show_changes(), "no change in the history yet");
+        run.commit = Some("abc123".into());
+        turn.finish(run.clone(), no_title);
+        assert!(turn.can_show_changes());
+        run.files.clear();
+        turn.finish(run, no_title);
+        assert!(!turn.can_show_changes(), "nothing changed, nothing to show");
+        assert!(made_up("demo", NOW)[0].can_show_changes());
     }
 
     #[test]

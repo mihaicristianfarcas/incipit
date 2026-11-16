@@ -341,7 +341,17 @@ a JSON or JSON Lines file, or a Markdown file's
 properties, that can no longer be read waits for the learner's OK. Undo takes that one entry out of the
 history and keeps what was written before and after it
 (`Vault::drop_change`); it is refused when later edits touched the same
-lines. Working copies of runs that were going when the app quit are
+lines.
+
+A document's versions are the closed sittings that changed its file
+(`Vault::versions_of`; the change in progress holds the file as it is now).
+`Vault::doc_at` reads the document as it was in one, `Vault::changes_in` gives
+what a version changed as a git-style unified diff (three lines of context; a
+file that is not text is named as changed and not shown), and
+`Vault::bring_back` brings the file back to a version after closing the
+sitting, so the text it replaces is a version of its own, and moves `updated`
+to now. The Notes page shows these as a note's Versions, and the agent's sheet
+shows a run's change as a diff (`History::diff`). Working copies of runs that were going when the app quit are
 cleaned up when the vault opens. A book's own PDF or EPUB file is not in
 the history, so deleting one cannot be undone this way.
 

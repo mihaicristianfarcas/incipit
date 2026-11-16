@@ -186,6 +186,26 @@ pub fn note_about(at: i64, book: Option<&str>, title: &str, concepts: &[String])
     }
 }
 
+/// Links were suggested between notes: `count` of them, for the note titled `title` when the
+/// learner asked about one.
+pub fn connections_suggested(at: i64, count: usize, title: Option<&str>) -> Activity {
+    let plural = if count == 1 { "" } else { "s" };
+    let words = match title {
+        Some(title) => format!("Suggested {count} connection{plural} for {title}"),
+        None => format!("Suggested {count} connection{plural}"),
+    };
+    Activity::new(ActivityType::Connect, at, words)
+}
+
+/// What concepts build on was suggested, for these concepts (their ids).
+pub fn builds_on_suggested(at: i64, concepts: &[String]) -> Activity {
+    let words = match concepts.len() {
+        1 => "Suggested what a concept builds on".to_owned(),
+        n => format!("Suggested what {n} concepts build on"),
+    };
+    Activity::new(ActivityType::Connect, at, words).concepts(concepts.iter().cloned())
+}
+
 /// The agent did what it was asked.
 pub fn agent_asked(at: i64, task: &str) -> Activity {
     Activity::new(
@@ -231,6 +251,25 @@ mod tests {
             "Mapped 2 concepts in Chapter 2"
         );
         assert_eq!(note_written(0, None, "Lenses").text, "Wrote: Lenses");
+        assert_eq!(
+            connections_suggested(0, 1, None).text,
+            "Suggested 1 connection"
+        );
+        assert_eq!(
+            connections_suggested(0, 3, Some("Lenses")).text,
+            "Suggested 3 connections for Lenses"
+        );
+        let one = ["c1".to_owned()];
+        assert_eq!(
+            builds_on_suggested(0, &one).text,
+            "Suggested what a concept builds on"
+        );
+        let two = ["c1".to_owned(), "c2".to_owned()];
+        assert_eq!(
+            builds_on_suggested(0, &two).text,
+            "Suggested what 2 concepts build on"
+        );
+        assert_eq!(builds_on_suggested(0, &two).concepts, two);
         assert_eq!(
             explained(0, None, "c1", "Refraction", 80).text,
             "Explained Refraction · 80/100"

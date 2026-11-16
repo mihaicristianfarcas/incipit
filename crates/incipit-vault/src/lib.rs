@@ -26,6 +26,7 @@ mod frontmatter;
 mod fsio;
 pub mod graph;
 pub mod history;
+pub mod indexes;
 pub mod kind;
 pub mod known;
 pub mod links;

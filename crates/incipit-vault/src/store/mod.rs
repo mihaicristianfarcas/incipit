@@ -9,6 +9,7 @@
 //! keeps the index and the files in step, so a write and the watcher never interleave.
 
 mod copies;
+mod guide;
 mod pictures;
 mod reconcile;
 mod sitting;

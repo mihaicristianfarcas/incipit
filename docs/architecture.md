@@ -301,6 +301,17 @@ A picture pasted into the field, or dropped on it, is saved in `attachments/`
 by the vault (`Vault::add_picture`, which checks by the bytes that it is a
 PNG, JPEG, GIF or WebP of at most 12 MB) and linked at the cursor.
 
+**An agent starts from a guide and small indexes.** Just before an agent
+runs (`agent/guide.rs` in the app), the vault's generated folder is given
+`AGENTS.md`, the earlier app's guide to how the vault is laid out (changed where
+Incipit's layout differs), and `INDEX.md`, an index of the notes, the concepts
+and the library, a page for each book and the tables of every link
+(`incipit_vault::indexes`, [vault.md](vault.md)). They are linked into the
+agent's working copy at the paths the guide names, read-only, so it reads a
+couple of kilobytes of index instead of opening a hundred files, and are taken
+out before its change is looked at. How well a concept is known is the app's to
+work out (`Concepts`), so it is given to the index.
+
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,
 so that no code under a license of Zed's own is linked.

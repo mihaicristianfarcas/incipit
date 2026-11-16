@@ -220,6 +220,11 @@ The vault's agent is given as read-only what the app keeps in its working
 copy (`incipit_vault::checks::forbidden_in`: the logs, `.obsidian/`,
 `AGENTS.md`, `CLAUDE.md`, `.gitignore`, each book's `book.md` and its own
 PDF or EPUB file), so it is refused at once rather than after the run.
+The folders it is given to read are the vault's `library` (the books' files
+are linked into its working copy from there) and the vault's `.incipit/agent`
+(the guide and indexes are, [vault.md](vault.md)); the agent that only suggests
+links is given the same, and may write nothing.
+
 Codex gets them as read-only entries in its permission profile; Claude Code
 as denied writes in its sandbox settings and denied `Edit` and `Write` rules
 for its file tools; OpenCode's shell as paths taken out of the writable

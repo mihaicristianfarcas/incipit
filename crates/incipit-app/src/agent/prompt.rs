@@ -6,8 +6,9 @@
 //! is their turn.
 //!
 //! The earlier app told the agent who the learner is (`learnerSummary`); so does this, as
-//! material (`learner`). Its vault had an `AGENTS.md` and indexes to start
-//! from; an Incipit vault has neither, so the instructions say what is where.
+//! material (`learner`). Like its agent's, this one's working folder has the guide `AGENTS.md`
+//! and the indexes to start from, linked in read-only (`guide`); the instructions point to them
+//! and still say what is where.
 //!
 //! The command-line agents take no schema for an agent's last words here, so the reply's form
 //! is asked for in words (`incipit_llm::schema::ask_for_json`) and read leniently: closing words
@@ -30,7 +31,12 @@ working folder is a copy of their vault, in a jj workspace of its own. Read and 
 that folder, by paths relative to it: what you change here lands in their vault the moment you \
 finish, and they can undo it with one click, so act rather than ask.
 
-What is in it (search with rg, and open only the files you need):
+Read AGENTS.md first: it explains the layout, the file formats (notes and their properties, \
+folders, quizzes, exercises, cards, concepts) and the rules. Start from INDEX.md and the folder \
+indexes, search with rg, and open only the files you need. The guide and the indexes are \
+read-only.
+
+What is in it:
 - notes/: anything the learner writes, in any subfolder. A Markdown file in no known folder is a \
 note too.
 - concepts/: one page per idea.
@@ -41,6 +47,9 @@ read-only.
 - library/<book>/annotations/: highlights, notes and answers on passages of that book, the \
 passage as a `> [!quote]` callout above the answer.
 - library/<book>/sessions/: conversations with the tutor, as `## You` and `## Tutor` turns.
+- brain/: the tables of every link (brain/links.tsv, brain/unresolved.tsv) and \
+brain/connections.jsonl, the links suggested between notes and what the learner decided about \
+each.
 - log/: the app's logs, such as log/reviews.jsonl, one line per flashcard review. Read-only: only \
 the app adds to them.
 - .jj/ is the history. Leave it alone.

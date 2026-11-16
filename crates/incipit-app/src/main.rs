@@ -16,6 +16,7 @@ mod cardlist;
 mod cards;
 mod cards_demo;
 mod concepts;
+mod connect;
 mod demo;
 mod drafter;
 mod explain;

@@ -93,7 +93,7 @@ pub fn find(vault: &Vault, name: &str) -> Option<Doc> {
 /// What a `[[link]]` points at, for comparing links, as the earlier app's `linkKey` compares
 /// them (a backslash read as `/`, a trailing `.md` left out), and with what follows `|` or `#`
 /// left out too.
-fn link_key(link: &str) -> String {
+pub(crate) fn link_key(link: &str) -> String {
     let inner = link.trim().trim_start_matches("[[").trim_end_matches("]]");
     let target = inner
         .split(['|', '#'])

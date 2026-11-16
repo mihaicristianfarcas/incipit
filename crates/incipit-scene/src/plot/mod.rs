@@ -5,6 +5,7 @@
 //! chooses the ticks, and places every label. A distribution is a plot too: its density is a
 //! curve, a probability an area under it.
 
+mod axes;
 mod check;
 mod layout;
 mod schema;

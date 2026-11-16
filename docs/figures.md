@@ -116,8 +116,8 @@ nesting are limited.
 
 Layout (`plot/layout.rs`): curves are sampled across the plot, broken
 where they are undefined or jump (an asymptote) and clipped to the plot;
-the ticks are chosen from the range; labels are placed last, clear of
-each other.
+the ticks are chosen from the range (`plot/axes.rs`); labels are placed
+last, clear of each other.
 
 Checks: at most 4 parameters and 1 to 8 layers; ranges with a min below
 their max; expressions that parse and use only known names; a dragged

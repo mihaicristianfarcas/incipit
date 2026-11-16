@@ -8,6 +8,7 @@
 pub mod chrome;
 pub mod controls;
 pub mod desktop;
+pub mod diff;
 pub mod focus;
 pub mod formula;
 pub mod glass;
@@ -35,6 +36,7 @@ pub use chrome::{
     page_strip, sidebar, sidebar_foot, sidebar_header,
 };
 pub use controls::*;
+pub use diff::diff;
 pub use focus::{
     arrow_step, clicked, focus_handle, focus_ring, keep_focus, keyboard_focus, keyboard_moved,
     ringed, scroll_areas, scroll_into_view, scrollbar, scrolled, Scrolled, Span,

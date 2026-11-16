@@ -253,7 +253,11 @@ learner wrote meanwhile (`Vault::land`), or not at all if it changes the app's o
 files, clashes with the learner's, or the agent failed or was stopped; one
 with a file that can no longer be read waits for the learner's OK. Undo
 takes that entry out of the history (`Vault::drop_change`), keeping what
-was written before and after it ([vault.md](vault.md)).
+was written before and after it ([vault.md](vault.md)). "Show the changes" reads the entry as a diff
+(`History::diff`). A note's own versions, the sittings that changed its file,
+are listed in the Notes page's Versions sheet (`versions.rs` in the app),
+where one can be read as it was or as what it changed, and brought back as a
+change of its own (`Vault::bring_back`).
 
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,

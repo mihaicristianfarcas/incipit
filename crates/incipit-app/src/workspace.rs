@@ -101,6 +101,7 @@ impl Workspace {
                         if crate::connect::demo::asked().as_deref() == Some("demo") {
                             crate::connect::demo::add(&vault, crate::study::now());
                         }
+                        crate::notes_demo::add(&vault);
                         this.remember(&vault);
                         this.listen(&vault, cx);
                         this.vault = Some(vault);

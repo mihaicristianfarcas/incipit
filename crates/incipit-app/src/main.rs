@@ -34,6 +34,7 @@ mod models;
 mod new_way;
 mod note_links;
 mod notes;
+mod notes_demo;
 mod profile_form;
 mod progress;
 mod providers;
@@ -44,6 +45,7 @@ mod settings;
 mod stage;
 mod study;
 mod today;
+mod versions;
 mod welcome;
 mod workspace;
 
@@ -377,12 +379,12 @@ impl Root {
             cx.notify();
         })
         .detach();
-        // INCIPIT_AGENT=demo, review, refused, thread or recent shows made-up runs, `open` opens
+        // INCIPIT_AGENT=demo, diff, review, refused, thread or recent shows made-up runs, `open` opens
         // the sheet as the key does; other words are run for real.
         let acting = match std::env::var("INCIPIT_AGENT") {
             Ok(words) if !words.trim().is_empty() => {
                 agent.update(cx, |agent, cx| match words.trim() {
-                    which @ ("demo" | "review" | "refused" | "thread" | "recent") => {
+                    which @ ("demo" | "diff" | "review" | "refused" | "thread" | "recent") => {
                         agent.show_demo(which, cx)
                     }
                     "open" => {}

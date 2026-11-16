@@ -23,6 +23,7 @@
 //! (`pollster`), so callers need no runtime. Every call takes the working copy's lock for its
 //! whole length, which also keeps another jj process from changing the files halfway.
 
+mod diff;
 mod rewrite;
 mod workspaces;
 
@@ -412,16 +413,28 @@ impl History {
     /// The history, newest first: the change in progress (once something is in it), then the
     /// sittings before it.
     pub fn log(&self, limit: usize) -> Result<Vec<Version>> {
-        self.walk(limit, None)
+        self.walk(limit, None, true)
     }
 
     /// The versions of one file, newest first: the changes that added, changed or removed it.
     pub fn versions(&self, path: &str, limit: usize) -> Result<Vec<Version>> {
         let path = repo_path(path)?;
-        self.walk(limit, Some(&path))
+        self.walk(limit, Some(&path), true)
     }
 
-    fn walk(&self, limit: usize, only: Option<&RepoPath>) -> Result<Vec<Version>> {
+    /// The saved versions of one file, newest first: the sittings that closed with a change to
+    /// it. The change in progress is left out, since the file as it is now is what it holds.
+    pub fn saved_versions(&self, path: &str, limit: usize) -> Result<Vec<Version>> {
+        let path = repo_path(path)?;
+        self.walk(limit, Some(&path), false)
+    }
+
+    fn walk(
+        &self,
+        limit: usize,
+        only: Option<&RepoPath>,
+        with_current: bool,
+    ) -> Result<Vec<Version>> {
         let workspace = self.workspace();
         let loader = Self::loader(&workspace);
         let name = workspace.workspace_name().to_owned();
@@ -441,6 +454,9 @@ impl History {
                     break;
                 }
                 let id = id.jj("reading the history")?;
+                if !with_current && id == *wc.id() {
+                    continue;
+                }
                 let commit = repo
                     .store()
                     .get_commit_async(&id)

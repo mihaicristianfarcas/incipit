@@ -344,3 +344,96 @@ fn a_working_copy_can_be_sent_to_another_thread() {
     fn sent<T: Send>() {}
     sent::<WorkingCopy>();
 }
+
+#[test]
+fn a_change_reads_as_a_unified_diff_with_three_lines_of_context() {
+    let (_dir, history) = new_history();
+    let root = history.root().to_path_buf();
+    let lines: Vec<String> = (1..=12).map(|n| format!("line {n}")).collect();
+    write(&root, "notes/A.md", &format!("{}\n", lines.join("\n")));
+    history.close_sitting("one").unwrap();
+    let mut edited = lines.clone();
+    edited[5] = "line six, changed".to_owned();
+    write(&root, "notes/A.md", &format!("{}\n", edited.join("\n")));
+    let two = history.close_sitting("two").unwrap().unwrap();
+    let diff = history.diff(&two.commit, None).unwrap();
+    assert_eq!(
+        diff,
+        "diff --git a/notes/A.md b/notes/A.md\n--- a/notes/A.md\n+++ b/notes/A.md\n\
+         @@ -3,7 +3,7 @@\n line 3\n line 4\n line 5\n-line 6\n+line six, changed\n line 7\n line 8\n line 9\n"
+    );
+}
+
+#[test]
+fn a_new_file_and_a_removed_one_are_diffed_against_nothing() {
+    let (_dir, history) = new_history();
+    let root = history.root().to_path_buf();
+    write(&root, "notes/Old.md", "going\naway\n");
+    let one = history.close_sitting("one").unwrap().unwrap();
+    fs::remove_file(root.join("notes/Old.md")).unwrap();
+    write(&root, "notes/New.md", "here\n");
+    let two = history.close_sitting("two").unwrap().unwrap();
+    let added = history.diff(&one.commit, None).unwrap();
+    assert!(added.contains("new file mode"), "{added}");
+    assert!(
+        added.contains("--- /dev/null\n+++ b/notes/Old.md\n@@ -0,0 +1,2 @@\n+going\n+away\n"),
+        "{added}"
+    );
+    let both = history.diff(&two.commit, None).unwrap();
+    assert!(both.contains("deleted file mode"), "{both}");
+    assert!(
+        both.contains("--- a/notes/Old.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-going\n-away\n"),
+        "{both}"
+    );
+    assert!(
+        both.contains("+++ b/notes/New.md\n@@ -0,0 +1 @@\n+here\n"),
+        "{both}"
+    );
+    // Limited to one file, the other is left out.
+    let only = history.diff(&two.commit, Some("notes/New.md")).unwrap();
+    assert!(!only.contains("Old.md"), "{only}");
+}
+
+#[test]
+fn a_file_that_is_not_text_is_named_and_not_shown() {
+    let (_dir, history) = new_history();
+    let root = history.root().to_path_buf();
+    fs::create_dir_all(root.join("attachments")).unwrap();
+    fs::write(
+        root.join("attachments/p.png"),
+        [0x89, b'P', b'N', b'G', 0, 1, 2],
+    )
+    .unwrap();
+    let one = history.close_sitting("one").unwrap().unwrap();
+    assert_eq!(
+        history.diff(&one.commit, None).unwrap(),
+        "diff --git a/attachments/p.png b/attachments/p.png\nBinary file attachments/p.png changed\n"
+    );
+}
+
+#[test]
+fn a_last_line_without_a_newline_is_marked() {
+    let (_dir, history) = new_history();
+    let root = history.root().to_path_buf();
+    write(&root, "notes/A.md", "one\ntwo");
+    let one = history.close_sitting("one").unwrap().unwrap();
+    let diff = history.diff(&one.commit, None).unwrap();
+    assert!(
+        diff.ends_with("+one\n+two\n\\ No newline at end of file\n"),
+        "{diff}"
+    );
+}
+
+#[test]
+fn a_saved_version_list_leaves_out_the_change_in_progress() {
+    let (_dir, history) = new_history();
+    let root = history.root().to_path_buf();
+    write(&root, "notes/A.md", "one\n");
+    history.close_sitting("first").unwrap();
+    write(&root, "notes/A.md", "one\ntwo\n");
+    history.snapshot().unwrap();
+    assert_eq!(history.versions("notes/A.md", 10).unwrap().len(), 2);
+    let saved = history.saved_versions("notes/A.md", 10).unwrap();
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].description, "first");
+}

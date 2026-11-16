@@ -5,12 +5,14 @@
 //! of its own waiting. The concepts the open note links to, as its file has them, are buttons
 //! under its title that open each concept's page (the page emits `OpenConcept`). Beside the note
 //! is a column of what is said of its links (`note_links`): the notes that name it without
-//! linking it, and the links an agent suggests for it.
+//! linking it, and the links an agent suggests for it. A button by its title opens the sheet of
+//! its versions (`versions`): read one as it was, see what it changed, bring it back.
 //! A file whose properties cannot be read is kept out of the vault's index, so it is listed
 //! apart at the top of the list, marked as one that cannot be read; opening it shows the reason
 //! in plain words and the file's text as it is, to mend and save, after which it is a note.
 //! INCIPIT_PAGE=notes opens the page; with INCIPIT_BROKEN set it opens on the first file that
-//! cannot be read, and with INCIPIT_CONNECT set on the note the made-up links are about.
+//! cannot be read, and with INCIPIT_CONNECT set on the note the made-up links are about;
+//! INCIPIT_NOTES makes up a note and opens a state of it (`notes_demo`).
 
 use std::time::Duration;
 
@@ -23,6 +25,7 @@ use incipit_vault::{Doc, DocId, Kind, Origin, Vault, VaultPath};
 
 use crate::models::Models;
 use crate::note_links::LinksView;
+use crate::versions::{BroughtBack, VersionsView};
 use crate::workspace::{Happened, Workspace};
 
 /// How long after the last keystroke a note is written to its file.
@@ -68,6 +71,8 @@ pub struct NotesView {
     scroll: ScrollHandle,
     /// What is said of the open note's links, beside it.
     links: Entity<LinksView>,
+    /// The sheet of the open note's versions.
+    versions: Entity<VersionsView>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -104,6 +109,18 @@ impl NotesView {
             }),
         ];
         let links = cx.new(|cx| LinksView::new(workspace.clone(), models, cx));
+        let versions = cx.new(|cx| VersionsView::new(workspace.clone(), cx));
+        let mut subscriptions = subscriptions;
+        subscriptions.push(cx.subscribe(
+            &versions,
+            |this: &mut Self, _, back: &BroughtBack, cx| {
+                // The note's file is as it was: show it, nothing typed is waiting.
+                this.dirty = false;
+                this.list(cx);
+                this.show(Some(back.0.clone()), cx);
+            },
+        ));
+        subscriptions.push(cx.observe(&versions, |_, _, cx| cx.notify()));
         let mut view = NotesView {
             workspace,
             notes: Vec::new(),
@@ -121,6 +138,7 @@ impl NotesView {
             list_scroll: ScrollHandle::new(),
             scroll: ScrollHandle::new(),
             links,
+            versions,
             _subscriptions: subscriptions,
         };
         view.list(cx);
@@ -134,9 +152,14 @@ impl NotesView {
     /// links are about.
     fn landing(&self) -> Option<DocId> {
         let demo = crate::connect::demo::asked().is_some();
+        let waves = crate::notes_demo::asked().is_some();
         self.notes
             .iter()
             .find(|n| demo && n.title == crate::connect::demo::LANDING)
+            .or(self
+                .notes
+                .iter()
+                .find(|n| waves && n.title == crate::notes_demo::LANDING))
             .or(self.notes.first())
             .map(|n| n.id.clone())
     }
@@ -220,6 +243,7 @@ impl NotesView {
                 let first = self.landing();
                 self.show(first, cx);
                 self.open_first_broken(cx);
+                self.open_demo(cx);
             }
             Happened::Changed(event) => {
                 self.list(cx);
@@ -373,6 +397,28 @@ impl NotesView {
             Err(e) => self.problem = Some(format!("The note was not made: {e}")),
         }
         cx.notify();
+    }
+
+    /// INCIPIT_NOTES=versions or changes: opens the sheet on the made-up note.
+    fn open_demo(&mut self, cx: &mut Context<Self>) {
+        match crate::notes_demo::asked().as_deref() {
+            Some("versions") => self.show_versions(Some((1, false)), cx),
+            Some("changes") => self.show_versions(Some((1, true)), cx),
+            _ => {}
+        }
+    }
+
+    /// Opens the sheet of the open note's versions, after saving what is typed.
+    fn show_versions(&mut self, look: Option<(usize, bool)>, cx: &mut Context<Self>) {
+        self.save(cx);
+        let (Some(vault), Some(id)) = (self.vault(cx), self.open.clone()) else {
+            return;
+        };
+        let Some(doc) = vault.get(&id) else {
+            return;
+        };
+        self.versions
+            .update(cx, |versions, cx| versions.start(id, doc.title(), look, cx));
     }
 
     fn delete(&mut self, cx: &mut Context<Self>) {
@@ -625,6 +671,20 @@ impl Render for NotesView {
                                         )
                                         .child(
                                             icon_button(
+                                                "note-versions",
+                                                IconName::Clock,
+                                                "Versions of this note",
+                                                t,
+                                            )
+                                            .ghost()
+                                            .on_click(
+                                                cx.listener(|this, _, _, cx| {
+                                                    this.show_versions(None, cx)
+                                                }),
+                                            ),
+                                        )
+                                        .child(
+                                            icon_button(
                                                 "note-delete",
                                                 IconName::Trash,
                                                 "Delete this note",
@@ -682,6 +742,7 @@ impl Render for NotesView {
                         row.child(self.links.clone())
                     }),
             )
+            .child(self.versions.clone())
             .into_any_element()
     }
 }

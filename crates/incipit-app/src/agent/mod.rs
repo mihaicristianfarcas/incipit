@@ -25,8 +25,8 @@
 //! index and announced, so open pages follow; one that changes the app's own files or clashes
 //! with the learner's edits, or an agent that failed or was stopped, lands nothing. Undo takes
 //! that change out and keeps what was written before and after it; it is refused when later
-//! edits touched the same lines. The runs and the history calls block, so they run off the
-//! window's thread and the sheet awaits them.
+//! edits touched the same lines. "Show the changes" reads that change as a diff. The runs and
+//! the history calls block, so they run off the window's thread and the sheet awaits them.
 //!
 //! Closing the sheet does not stop the agent: it goes on, and the key shows it again. Stop does,
 //! and so does opening another vault.
@@ -34,7 +34,8 @@
 //! Without clicking: INCIPIT_AGENT=demo shows a made-up run that landed, `review` one waiting for
 //! the learner's OK, `refused` one refused for changing the review log, `thread` a conversation
 //! of an answer and a follow-up, and `recent` the list of recent conversations with one
-//! working; none calls a model, and what is done with them changes nothing. INCIPIT_AGENT=open
+//! working, and `diff` the first with its changes shown ("Show the changes"); none calls a
+//! model, and what is done with them changes nothing. INCIPIT_AGENT=open
 //! opens the sheet as the key does, on the vault's own runs. INCIPIT_AGENT with other words runs
 //! them once the vault is open, with the learner's login. On the Reader page,
 //! the sheet knows the book and the selection once the reader has them.
@@ -58,7 +59,7 @@ use crate::study::now;
 use crate::workspace::{Happened, Workspace};
 use here::Here;
 use run::{Job, Status};
-use turn::{status_word, undo_problem, Turn};
+use turn::{status_word, undo_problem, Changes, Turn, DIFF_LINES};
 
 pub mod here;
 pub mod prompt;
@@ -225,7 +226,7 @@ impl AgentView {
         cx.notify();
     }
 
-    /// INCIPIT_AGENT=demo, review, refused, thread or recent: made-up runs, with no model
+    /// INCIPIT_AGENT=demo, diff, review, refused, thread or recent: made-up runs, with no model
     /// called. What is done with them changes no vault.
     pub fn show_demo(&mut self, which: &str, cx: &mut Context<Self>) {
         self.demo = true;
@@ -517,6 +518,45 @@ impl AgentView {
         .detach();
     }
 
+    /// Shows the changes a run made as a diff, or hides them again.
+    fn toggle_changes(&mut self, id: &str, cx: &mut Context<Self>) {
+        let vault = self.vault.clone();
+        let Some(turn) = self.turn_mut(id) else {
+            return;
+        };
+        if turn.changes != Changes::Hidden {
+            turn.changes = Changes::Hidden;
+            cx.notify();
+            return;
+        }
+        if turn.made_up {
+            turn.changes = Changes::Shown(turn::MADE_UP_DIFF.to_owned());
+            cx.notify();
+            return;
+        }
+        let (Some(vault), Some(commit)) = (vault, turn.run.commit.clone()) else {
+            return;
+        };
+        turn.changes = Changes::Reading;
+        let id = id.to_owned();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let diff = cx
+                .background_executor()
+                .spawn(async move { vault.history().diff(&commit, None).unwrap_or_default() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(turn) = this.turn_mut(&id) {
+                    if turn.changes == Changes::Reading {
+                        turn.changes = Changes::Shown(diff);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Take a run's change out of the vault, and nothing else.
     fn undo(&mut self, id: &str, cx: &mut Context<Self>) {
         self.act_on(
@@ -683,6 +723,22 @@ impl AgentView {
                 button(("agent-again", ix), "Try again", t).on_click(on(Self::try_again, cx)),
             );
         }
+        if turn.can_show_changes() {
+            let shown = turn.changes != Changes::Hidden;
+            row = row.child(
+                button(
+                    ("agent-changes", ix),
+                    if shown {
+                        "Hide the changes"
+                    } else {
+                        "Show the changes"
+                    },
+                    t,
+                )
+                .ghost()
+                .on_click(on(Self::toggle_changes, cx)),
+            );
+        }
         if turn.working() {
             row = row.child(
                 button(("agent-stop", ix), "Stop", t)
@@ -784,6 +840,19 @@ impl AgentView {
                 body.child(div().flex().flex_col().children(files))
             })
             .child(self.actions(ix, turn, t, cx))
+            .children(match &turn.changes {
+                Changes::Hidden => None,
+                Changes::Reading => Some(
+                    div()
+                        .text_size(px(Type::META))
+                        .text_color(t.tertiary)
+                        .child("Reading the changes…")
+                        .into_any_element(),
+                ),
+                Changes::Shown(diff) => {
+                    Some(incipit_ui::diff(("agent-diff", ix), diff, DIFF_LINES, t))
+                }
+            })
             .into_any_element()
     }
 

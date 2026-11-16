@@ -5,6 +5,10 @@
 //!   (INCIPIT_PAGE=notes) opens its Versions sheet with the middle version picked, as it was
 //!   (`versions`) or as what it changed (`changes`).
 //!
+//! - `pictures`: a note, "Light", that embeds a picture kept in `attachments/` (a made-up
+//!   gradient) with a width and one without, and a figure kept on its own (a sequence), so the
+//!   Notes page (INCIPIT_PAGE=notes) shows both under the note's text.
+//!
 //! Nothing is added to a vault that has notes. No model is called.
 
 use incipit_vault::{Doc, Kind, Vault};
@@ -16,15 +20,57 @@ pub fn asked() -> Option<String> {
 
 /// The note the demo is about: the page opens on it.
 pub const LANDING: &str = "Waves";
+/// The note of `pictures`.
+pub const PICTURES: &str = "Light";
 
 /// Adds the made-up notes asked for to a vault that has none.
 pub fn add(vault: &Vault) {
     if vault.count(Some(Kind::Note)) > 0 {
         return;
     }
-    if let Some("versions" | "changes") = asked().as_deref() {
-        written_in_three_sittings(vault);
+    match asked().as_deref() {
+        Some("versions" | "changes") => written_in_three_sittings(vault),
+        Some("pictures") => with_a_picture_and_a_figure(vault),
+        _ => {}
     }
+}
+
+/// A gradient, as the PNG a person would paste.
+fn gradient() -> Vec<u8> {
+    let picture = image::RgbaImage::from_fn(240, 120, |x, y| {
+        image::Rgba([(x * 255 / 239) as u8, (y * 255 / 119) as u8, 160, 255])
+    });
+    let mut out = std::io::Cursor::new(Vec::new());
+    picture
+        .write_to(&mut out, image::ImageFormat::Png)
+        .expect("a picture in memory is written as a PNG");
+    out.into_inner()
+}
+
+/// A note that embeds a picture twice (the second time narrower) and a figure.
+fn with_a_picture_and_a_figure(vault: &Vault) {
+    let Ok(place) = vault.add_picture(&gradient(), Some("Sky colours.png")) else {
+        return;
+    };
+    let mut figure = Doc::new(Kind::Figure);
+    figure.set_title("How a request travels");
+    figure.set_fields(&incipit_vault::Figure {
+        spec: serde_json::to_value(incipit_scene::schema::example(incipit_scene::Kind::ALL[0]))
+            .ok(),
+        ..incipit_vault::Figure::default()
+    });
+    let Ok(figure) = vault.add(figure) else {
+        return;
+    };
+    let mut note = Doc::new(Kind::Note);
+    note.set_title(PICTURES);
+    note.set_body(format!(
+        "A picture kept in the vault:\n\n![[{name}]]\n\nThe same, narrower:\n\n![[{name}|120]]\n\n\
+         A figure kept on its own:\n\n![[figure:{id}]]\n",
+        name = place.name(),
+        id = figure.id()
+    ));
+    let _ = vault.add(note);
 }
 
 /// A note whose history has three sittings, the last of which replaced a sentence.
@@ -56,6 +102,23 @@ fn written_in_three_sittings(vault: &Vault) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_made_up_note_embeds_a_picture_and_a_figure_that_resolve() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = Vault::create(&folder.path().join("vault")).unwrap();
+        with_a_picture_and_a_figure(&vault);
+        let note = vault
+            .list(Some(Kind::Note))
+            .into_iter()
+            .find(|n| n.title() == PICTURES)
+            .unwrap();
+        let embeds = vault.embeds(note.id());
+        assert_eq!(embeds.len(), 3, "{embeds:?}");
+        let picture = incipit_vault::VaultPath::new("attachments/Sky colours.png").unwrap();
+        assert!(vault.picture(&picture).unwrap().starts_with(&[0x89, b'P']));
+        assert!(vault.unresolved().is_empty());
+    }
 
     #[test]
     fn the_made_up_note_has_three_saved_versions_and_the_unsaved_one_is_not_among_them() {

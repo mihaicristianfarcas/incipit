@@ -10,8 +10,8 @@ use std::ops::Range;
 use std::time::Instant;
 
 use gpui::{
-    actions, div, fill, point, prelude::*, px, size, App, Bounds, ClipboardItem, Context,
-    CursorStyle, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter,
+    actions, div, fill, point, prelude::*, px, size, App, Bounds, ClipboardEntry, ClipboardItem,
+    Context, CursorStyle, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter,
     FocusHandle, Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Style, TextRun, UTF16Selection,
     UnderlineStyle, Window, WrappedLine,
@@ -127,6 +127,12 @@ pub enum FieldEvent {
     Cancel,
 }
 
+/// Something that is not text was pasted into a field for Markdown: a picture, or files.
+/// `TextField::take_pasted` has it; the page decides what to do, and `insert` puts words where
+/// the cursor is. It is an event of its own so that the pages that only read `FieldEvent` need
+/// not know of it.
+pub struct Pasted;
+
 pub struct TextField {
     focus: FocusHandle,
     text: String,
@@ -142,6 +148,8 @@ pub struct TextField {
     /// and carries a list on, and the field is as tall as its text.
     markdown: bool,
     history: History,
+    /// What was pasted that is not text, until the page takes it.
+    pasted: Option<ClipboardItem>,
     selecting: bool,
     /// Laid out last frame: for the mouse and the IME.
     layout: Option<Layout>,
@@ -158,6 +166,7 @@ struct Layout {
 }
 
 impl EventEmitter<FieldEvent> for TextField {}
+impl EventEmitter<Pasted> for TextField {}
 
 impl Focusable for TextField {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -180,6 +189,7 @@ impl TextField {
             mono: false,
             markdown: false,
             history: History::default(),
+            pasted: None,
             selecting: false,
             layout: None,
             scroll_x: px(0.0),
@@ -486,8 +496,41 @@ impl TextField {
         self.select_to(self.line_end(self.cursor()), cx);
     }
 
+    /// What was pasted that is not text, once: the page that heard `Pasted` takes it.
+    pub fn take_pasted(&mut self) -> Option<ClipboardItem> {
+        self.pasted.take()
+    }
+
+    /// Puts `text` where the cursor is, in place of what is selected, as if typed.
+    pub fn insert(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.edit(self.selected.clone(), text, window, cx);
+    }
+
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+        let item = cx.read_from_clipboard();
+        // A picture or files with no words: for the page to take, in a field for Markdown.
+        let no_words = |item: &ClipboardItem| {
+            !item
+                .entries()
+                .iter()
+                .any(|e| matches!(e, ClipboardEntry::String(s) if !s.text().is_empty()))
+        };
+        if let Some(item) = item.clone().filter(|item| {
+            self.markdown
+                && !self.disabled
+                && no_words(item)
+                && item.entries().iter().any(|e| {
+                    matches!(
+                        e,
+                        ClipboardEntry::Image(_) | ClipboardEntry::ExternalPaths(_)
+                    )
+                })
+        }) {
+            self.pasted = Some(item);
+            cx.emit(Pasted);
+            return;
+        }
+        if let Some(text) = item.and_then(|item| item.text()) {
             let text = if self.multiline {
                 text
             } else {

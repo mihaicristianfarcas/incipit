@@ -8,12 +8,19 @@
 //! relative to the linking document, or else from the root. Case does not matter. Links in
 //! properties count too (`about: ["[[Derivative]]"]`), as they do in Obsidian.
 //!
+//! Two targets the earlier app had are read as well: `[[figure:<id>]]` is the figure with that
+//! id (by id, so it follows the figure when its file moves), and a name ending in a picture's
+//! extension is a picture kept in `attachments/` (`picture_paths`; whether the file is there is
+//! for the vault to say, since the graph is built from documents).
+//!
 //! The graph is rebuilt from the documents when it is asked for after a change: parsing every
 //! body is a few tens of milliseconds for thousands of notes, and it is never stale.
 
 use std::collections::{HashMap, HashSet};
 
+use crate::attachments::{names_a_picture, ATTACHMENTS};
 use crate::doc::{Doc, DocId};
+use crate::kind::Kind;
 use crate::links::{self, Link, LinkStyle};
 use crate::path::VaultPath;
 use crate::value::Value;
@@ -40,6 +47,9 @@ pub struct Outlink {
     pub link: Link,
     pub place: Place,
     pub to: Option<DocId>,
+    /// The picture in `attachments/` it names, when it is no document but a picture that is
+    /// there. Filled in by `Vault::outlinks`, which looks at the folder.
+    pub picture: Option<VaultPath>,
 }
 
 /// The key a name is matched by: lowercase, spaces folded, without `.md`.
@@ -58,6 +68,8 @@ struct Names {
     paths: HashMap<String, DocId>,
     stems: HashMap<String, Vec<DocId>>,
     ids: HashSet<DocId>,
+    /// The ids of the figures, which `[[figure:<id>]]` names.
+    figures: HashSet<DocId>,
     titles: HashMap<String, Vec<DocId>>,
     aliases: HashMap<String, Vec<DocId>>,
     where_is: HashMap<DocId, VaultPath>,
@@ -85,6 +97,37 @@ fn links_of(doc: &Doc) -> Vec<(Link, Place)> {
         }
     }
     out
+}
+
+/// The id a `[[figure:<id>]]` link names.
+pub(crate) fn figure_id(link: &Link) -> Option<&str> {
+    let (scheme, id) = link.target.split_once(':')?;
+    (link.style == LinkStyle::Wiki && scheme.eq_ignore_ascii_case("figure")).then(|| id.trim())
+}
+
+/// Where the picture a link names would be, if it is one: only `attachments/` holds pictures
+/// the vault reads. A name alone is in that folder; a Markdown link may also be written as a
+/// path from its document or from the root. The first place that has the file is the one.
+pub(crate) fn picture_paths(link: &Link, from: &VaultPath) -> Vec<VaultPath> {
+    if !names_a_picture(&link.target) {
+        return Vec::new();
+    }
+    let folder = VaultPath::new(ATTACHMENTS).ok();
+    let mut paths = Vec::new();
+    match link.style {
+        LinkStyle::Wiki if link.target.contains('/') => paths.push(link.target.clone()),
+        LinkStyle::Wiki => paths.push(format!("{ATTACHMENTS}/{}", link.target)),
+        LinkStyle::Markdown => {
+            paths.extend(join_relative(from.parent().as_ref(), &link.target));
+            paths.extend(join_relative(None, &link.target));
+            paths.push(format!("{ATTACHMENTS}/{}", link.target));
+        }
+    }
+    paths
+        .iter()
+        .filter_map(|p| VaultPath::new(p).ok())
+        .filter(|p| folder.as_ref().is_some_and(|f| p.is_in(f)))
+        .collect()
 }
 
 /// A path written relative to a folder, with `..` and `.` worked out; `None` if it climbs out.
@@ -129,6 +172,9 @@ impl Graph {
                 .or_default()
                 .push(id.clone());
             names.ids.insert(id.clone());
+            if doc.kind() == Kind::Figure {
+                names.figures.insert(id.clone());
+            }
             if !doc.kind().title_is_file_name() {
                 names
                     .titles
@@ -165,7 +211,12 @@ impl Graph {
                             place: place.clone(),
                         });
                 }
-                out.push(Outlink { link, place, to });
+                out.push(Outlink {
+                    link,
+                    place,
+                    to,
+                    picture: None,
+                });
             }
             graph.outgoing.insert(doc.id().clone(), out);
         }
@@ -199,6 +250,10 @@ impl Graph {
                 .into_iter()
                 .flatten()
                 .find_map(|p| names.paths.get(&key(&p)).cloned());
+        }
+        if let Some(id) = figure_id(link) {
+            let id = DocId::from(id);
+            return names.figures.contains(&id).then_some(id);
         }
         let target = key(&link.target);
         if let Some(id) = names.paths.get(&target) {
@@ -272,6 +327,10 @@ impl Graph {
             let from_new = moves.get(doc.id()).cloned().unwrap_or(from_old.clone());
             let moved_self = from_new != from_old;
             let mut target_for = |link: &Link| -> Option<String> {
+                // A figure is named by its id, which a move does not change.
+                if figure_id(link).is_some() {
+                    return None;
+                }
                 let to = self.resolve(link, &from_old)?;
                 let to_moved = moves.contains_key(&to);
                 let relative_md =

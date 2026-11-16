@@ -41,7 +41,7 @@ mod keys;
 mod model;
 mod place;
 mod reading;
-mod rows;
+pub(crate) mod rows;
 mod scrolling;
 mod session;
 mod studying;

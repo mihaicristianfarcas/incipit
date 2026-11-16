@@ -10,7 +10,7 @@
 //! apart at the top of the list, marked as one that cannot be read; opening it shows the reason
 //! in plain words and the file's text as it is, to mend and save, after which it is a note.
 //! INCIPIT_PAGE=notes opens the page; with INCIPIT_BROKEN set it opens on the first file that
-//! cannot be read.
+//! cannot be read, and with INCIPIT_CONNECT set on the note the made-up links are about.
 
 use std::time::Duration;
 
@@ -124,10 +124,21 @@ impl NotesView {
             _subscriptions: subscriptions,
         };
         view.list(cx);
-        let first = view.notes.first().map(|n| n.id.clone());
+        let first = view.landing();
         view.show(first, cx);
         view.open_first_broken(cx);
         view
+    }
+
+    /// The note the page opens on: the newest, or with INCIPIT_CONNECT set, the one the made-up
+    /// links are about.
+    fn landing(&self) -> Option<DocId> {
+        let demo = crate::connect::demo::asked().is_some();
+        self.notes
+            .iter()
+            .find(|n| demo && n.title == crate::connect::demo::LANDING)
+            .or(self.notes.first())
+            .map(|n| n.id.clone())
     }
 
     /// For a look without clicking: INCIPIT_BROKEN opens the first file that cannot be read.
@@ -206,7 +217,7 @@ impl NotesView {
                 self.saving = None;
                 self.dirty = false;
                 self.list(cx);
-                let first = self.notes.first().map(|n| n.id.clone());
+                let first = self.landing();
                 self.show(first, cx);
                 self.open_first_broken(cx);
             }

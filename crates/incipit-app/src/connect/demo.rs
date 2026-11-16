@@ -2,8 +2,9 @@
 //! INCIPIT_CONNECT=demo, on a throwaway vault (INCIPIT_VAULT), adds
 //!
 //! - three notes on distributed systems, one of which names another without linking it (so the
-//!   Notes page lists a mention to link), with suggestions waiting between them, one accepted
-//!   (its link is in the note) and one turned down;
+//!   Notes page, which opens on Quorums, lists a mention to link), with suggestions waiting
+//!   between them, one accepted (its link is in the note) and one turned down, and a fourth note
+//!   that names two of the concepts (so their pages list a mention to link);
 //! - four concepts on attention, where Self-attention builds on Attention and Attention on
 //!   Softmax, and Softmax has only a card reviewed long ago, so it is forgotten: the line of
 //!   foundations shows over the results of INCIPIT_QUIZ=done, whose misses are on Self-attention
@@ -17,6 +18,9 @@ use incipit_vault::{
 };
 
 const DAY: i64 = 86_400_000;
+
+/// The note the Notes page opens on with the demo: it is named, unlinked, by another.
+pub const LANDING: &str = "Quorums";
 
 /// What INCIPIT_CONNECT asks for, if anything.
 pub fn asked() -> Option<String> {
@@ -58,6 +62,11 @@ pub fn add(vault: &Vault, now: i64) {
     let raft = note(
         "Raft",
         "Raft elects a leader with a majority of the votes, and the leader orders the log.\n",
+        &[],
+    );
+    let _ = note(
+        "Transformers",
+        "Self-attention lets every word weigh every other; softmax makes the weights add up to one.\n",
         &[],
     );
     let (Ok(quorums), Ok(consensus), Ok(raft)) = (quorums, consensus, raft) else {
@@ -211,6 +220,22 @@ mod tests {
             fading.iter().map(|b| b.title.as_str()).collect::<Vec<_>>(),
             ["Softmax"]
         );
+
+        // The concepts are named by a note too, and linking its mention is a link like any.
+        let self_attention = find(&vault, "Self-attention").unwrap();
+        let mentions = vault.unlinked_mentions(self_attention.id());
+        assert_eq!(
+            mentions
+                .iter()
+                .map(|m| m.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Transformers"]
+        );
+        assert!(vault
+            .link_mention(self_attention.id(), &mentions[0].id)
+            .unwrap());
+        assert!(vault.unlinked_mentions(self_attention.id()).is_empty());
+        assert_eq!(vault.backlinks(self_attention.id()).len(), 1);
 
         // A vault that has notes is left alone.
         add(&vault, now);

@@ -221,8 +221,8 @@ app's fields:
 | `data` | more, by type; left out when none |
 
 A `quiz` line is one quiz finished: its `data` has `score` (the points,
-to a tenth), `total` (the answers scored), `mode` (`check`, `pretest` or
-`review`) and `answers`, each an answer's `concept` (the concept's id) and
+to a tenth), `total` (the answers scored), `mode` (`check`, `pretest`, `review` or
+`practice`) and `answers`, each an answer's `concept` (the concept's id) and
 its `score` (0 to 1). A pretest's answers are not counted toward how well
 a concept is known.
 

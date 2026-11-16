@@ -201,6 +201,8 @@ pub struct ReaderView {
     drafter: Entity<crate::drafter::DrafterView>,
     /// The sheet where a passage or a concept is explained back.
     explain: Entity<crate::explain::ExplainView>,
+    /// The sheet where a passage is practised.
+    practice: Entity<crate::practice::PracticeView>,
     /// Find in the book.
     finding: finding::Finding,
     _draft_events: Subscription,
@@ -274,6 +276,11 @@ impl ReaderView {
         if std::env::var("INCIPIT_EXPLAIN").as_deref() == Ok("demo") {
             explain.update(cx, |explain, cx| explain.show_demo(cx));
         }
+        let practice =
+            cx.new(|cx| crate::practice::PracticeView::new(workspace.clone(), models.clone(), cx));
+        if let Ok(which) = std::env::var("INCIPIT_PRACTICE") {
+            practice.update(cx, |practice, cx| practice.show_demo(&which, cx));
+        }
         let quiz = cx.new(|cx| crate::quiz::QuizView::new(workspace.clone(), models.clone(), cx));
         match std::env::var("INCIPIT_QUIZ").as_deref() {
             Ok("demo") => quiz.update(cx, |quiz, cx| quiz.show_demo(false, cx)),
@@ -325,6 +332,7 @@ impl ReaderView {
             reading: reading::Reading::new(),
             drafter,
             explain,
+            practice,
             finding,
             _draft_events: draft_events,
             _reply_events: reply_events,
@@ -1259,6 +1267,13 @@ impl ReaderView {
                     .icon(IconName::Pencil)
                     .tooltip("Explain it in your own words, and see what you missed")
                     .on_click(cx.listener(|this, _, _, cx| this.teach_back(cx))),
+            )
+            .child(
+                button("reader-practise", "Practise", t)
+                    .ghost()
+                    .icon(IconName::Gamepad)
+                    .tooltip("A worked example of the skill it teaches, then problems to try")
+                    .on_click(cx.listener(|this, _, _, cx| this.practise(cx))),
             );
         Some(deferred(anchored().position(at).snap_to_window().child(menu)).into_any_element())
     }
@@ -1554,6 +1569,7 @@ impl Render for ReaderView {
             .children(self.session_sheet(t, cx))
             .child(self.drafter.clone())
             .child(self.explain.clone())
+            .child(self.practice.clone())
     }
 }
 

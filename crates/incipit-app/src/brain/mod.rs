@@ -125,6 +125,8 @@ pub struct BrainView {
     wanted: Option<String>,
     /// The sheet where a concept is explained back.
     explain: Entity<crate::explain::ExplainView>,
+    /// The sheet where a concept is practised.
+    practice: Entity<crate::practice::PracticeView>,
     models: Entity<crate::models::Models>,
     /// The suggested links waiting for the learner.
     waiting: Vec<suggestions::Waiting>,
@@ -246,6 +248,11 @@ impl BrainView {
         if std::env::var("INCIPIT_EXPLAIN").as_deref() == Ok("demo") {
             explain.update(cx, |explain, cx| explain.show_demo(cx));
         }
+        let practice =
+            cx.new(|cx| crate::practice::PracticeView::new(workspace.clone(), models.clone(), cx));
+        if let Ok(which) = std::env::var("INCIPIT_PRACTICE") {
+            practice.update(cx, |practice, cx| practice.show_demo(&which, cx));
+        }
         let mut view = BrainView {
             workspace,
             picture: None,
@@ -270,6 +277,7 @@ impl BrainView {
             page_scroll: ScrollHandle::new(),
             wanted,
             explain,
+            practice,
             models,
             waiting: Vec::new(),
             suggesting: crate::connect::demo::asked().is_some(),
@@ -307,6 +315,39 @@ impl BrainView {
         }
         self.read_mentions(cx);
         cx.notify();
+    }
+
+    /// Opens the sheet to practise concept `id`: a worked example, then problems. It has the
+    /// concept's name, its summary and the book, author and chapter its first passage is in; the
+    /// book is not open here, so no text of it goes.
+    pub(crate) fn practise_concept(&mut self, id: &DocId, cx: &mut Context<Self>) {
+        let Some(vault) = self.workspace.read(cx).vault.clone() else {
+            return;
+        };
+        let Some(doc) = vault.get(id) else {
+            return;
+        };
+        let fields = doc.fields::<incipit_vault::Concept>().unwrap_or_default();
+        let source = fields.sources.first().cloned();
+        let mut context = crate::learning::context::BookContext::default();
+        if let Some(source) = &source {
+            let book = DocId::from(source.book.as_str());
+            context.title = vault.get(&book).map(|record| record.title());
+            context.author = crate::concepts::mapping::author_of(&vault, &book);
+            context.chapter = source.chapter.clone();
+        }
+        let about = crate::explain::About {
+            concept: Some(doc.title()),
+            passage: Some(crate::learning::practice::passage_of(
+                None,
+                Some((&doc.title(), &fields.summary)),
+                None,
+            )),
+            source,
+            context,
+        };
+        self.practice
+            .update(cx, |practice, cx| practice.start(about, cx));
     }
 
     /// Opens the sheet to explain concept `id` back, with its summary, and the book, author and
@@ -648,7 +689,11 @@ impl BrainView {
 impl Render for BrainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let shown = self.shown_page(window, cx);
-        div().size_full().child(shown).child(self.explain.clone())
+        div()
+            .size_full()
+            .child(shown)
+            .child(self.explain.clone())
+            .child(self.practice.clone())
     }
 }
 

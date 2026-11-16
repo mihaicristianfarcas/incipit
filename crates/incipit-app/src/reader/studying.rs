@@ -311,6 +311,44 @@ impl ReaderView {
         cx.notify();
     }
 
+    /// Practise the selection: a worked example of the skill it teaches, then problems. The text
+    /// around it is gathered first, as the earlier app sent it (8,000 characters at most).
+    pub(super) fn practise(&mut self, cx: &mut Context<Self>) {
+        let anchors = self.anchors();
+        self.selection = None;
+        self.menu = None;
+        let Some(first) = anchors.first() else {
+            return;
+        };
+        let passage = anchors
+            .iter()
+            .map(|a| a.quote.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let about = About {
+            concept: None,
+            passage: Some(passage),
+            source: self.passage_source(first),
+            context: BookContext::default(),
+        };
+        let context = self.book_context(Some(first.part), cx);
+        let text = self.text_around(first.part);
+        let practice = self.practice.clone();
+        cx.spawn(async move |_, cx| {
+            let texts = text.await.unwrap_or_else(|_| Ok(Vec::new()));
+            let about = About {
+                context: BookContext {
+                    text: texts.unwrap_or_default().join("\n\n"),
+                    ..context
+                },
+                ..about
+            };
+            practice.update(cx, |practice, cx| practice.start(about, cx));
+        })
+        .detach();
+        cx.notify();
+    }
+
     /// Explain back the concept whose card in the margin is `note`, with its summary.
     pub(super) fn explain_concept(&mut self, note: u64, cx: &mut Context<Self>) {
         let Some(card) = self.notes.iter().find(|n| n.id == note) else {

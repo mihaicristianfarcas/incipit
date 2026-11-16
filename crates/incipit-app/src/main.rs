@@ -36,6 +36,7 @@ mod note_embeds;
 mod note_links;
 mod notes;
 mod notes_demo;
+mod practice;
 mod profile_form;
 mod progress;
 mod providers;

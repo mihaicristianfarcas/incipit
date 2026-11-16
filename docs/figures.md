@@ -139,9 +139,45 @@ steps, and a point, a data point, a bar or an arrow's end that leaves
 the plot is an error that says where and with which values; names under
 bars that run into each other are refused like any text that overlaps.
 
+### Graph
+
+A network: nodes linked in any pattern (computers, peers, servers,
+people, the slots of an array), with tokens that travel along the links.
+Layered graphs and trees are the flow kind's.
+
+Spec: `layout` (`force`, `circle`, `row` or `grid`), `nodes` (id, label,
+sublabel, shape: circle, box, pill, diamond, database or cell; tone),
+`edges` (from, to, label, tone, dashed, arrow), `tokens` (a path of node
+ids, the second it leaves, the seconds each hop takes, a label), `groups`
+(a label and the nodes it boxes) and `steps`. A graph with tokens plays
+on a clock that runs until the last arrives; one without may have steps.
+
+Layout (`graph/place.rs`, `graph/layout.rs`), as the earlier app set
+graphs out: each node is sized to its label; `force` runs a fixed
+simulation in the manner of d3-force (links pull to a length, every pair
+pushes apart, nodes keep clear of each other, a weak pull to the middle;
+it starts from an ellipse and runs a set number of ticks, so it is the
+same every time); `circle` sets the nodes clockwise from the top, `row`
+left to right, `grid` in rows; the positions are fitted to the stage and
+nodes that still overlap are pushed apart. Edges run between the nodes'
+outlines; two between one pair bend to their own left, so a pair joined
+both ways bends apart; a node's link to itself loops over it. Tokens
+ride along the edges, easing in and out of each hop. A drawing larger
+than the stage is shrunk about its middle, text and all.
+
+Checks: 2 to 16 nodes, at most 96 edges, 24 tokens and 12 groups; edges,
+tokens and groups that name real nodes; tokens with a path of two nodes
+or more that leave at 0 seconds or later and take at least 0.05 seconds
+a hop; tokens and steps not both. In the drawing: a node label wider
+than its circle (or 130 units for other shapes), an edge label with no
+room, a group's box that takes in a node not in it, and text shrunk too
+small to read are errors. The drawing is looked at in each step, or at
+each moment a token leaves or reaches a node and halfway between.
+
 ## Steps
 
-Flow and plot share `steps::Step`: one sentence of
+Flow, graph and plot share `steps::Step` (a plot's steps also set
+parameters): one sentence of
 narration, the ids that appear at that step (`show`) and the ids to light
 (`focus`). An element no step shows is there from the start. Positions
 never depend on the step, so nothing jumps as the learner steps on. The

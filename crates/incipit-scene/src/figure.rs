@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::draw::{Frame, Measure};
 use crate::flow::Flow;
+use crate::graph::Graph;
 use crate::handles::{Drag, Target};
 use crate::plot::Plot;
 use crate::sequence::Sequence;
@@ -21,6 +22,7 @@ pub enum Figure {
     Sequence(Sequence),
     Flow(Flow),
     Plot(Plot),
+    Graph(Graph),
 }
 
 /// The kinds of figure, in the order a person would look for them.
@@ -29,10 +31,11 @@ pub enum Kind {
     Sequence,
     Flow,
     Plot,
+    Graph,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 3] = [Kind::Sequence, Kind::Flow, Kind::Plot];
+    pub const ALL: [Kind; 4] = [Kind::Sequence, Kind::Flow, Kind::Plot, Kind::Graph];
 
     /// The name a spec's `kind` field holds.
     pub fn name(self) -> &'static str {
@@ -40,6 +43,7 @@ impl Kind {
             Kind::Sequence => "sequence",
             Kind::Flow => "flow",
             Kind::Plot => "plot",
+            Kind::Graph => "graph",
         }
     }
 
@@ -49,6 +53,7 @@ impl Kind {
             Kind::Sequence => "Sequence",
             Kind::Flow => "Flow",
             Kind::Plot => "Plot",
+            Kind::Graph => "Graph",
         }
     }
 
@@ -62,6 +67,10 @@ impl Kind {
             Kind::Plot => {
                 "functions of x and data, with parameters to drag: rates, growth, waves, \
                  distributions, paths and vectors, measurements and bars"
+            }
+            Kind::Graph => {
+                "a network of nodes and links, with tokens that travel along them: computers, \
+                 peers, people, a hash ring, an array"
             }
         }
     }
@@ -166,6 +175,7 @@ impl Figure {
             Figure::Sequence(s) => s,
             Figure::Flow(f) => f,
             Figure::Plot(k) => k,
+            Figure::Graph(g) => g,
         }
     }
 
@@ -174,6 +184,7 @@ impl Figure {
             Figure::Sequence(_) => Kind::Sequence,
             Figure::Flow(_) => Kind::Flow,
             Figure::Plot(_) => Kind::Plot,
+            Figure::Graph(_) => Kind::Graph,
         }
     }
 

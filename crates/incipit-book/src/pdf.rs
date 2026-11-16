@@ -638,11 +638,14 @@ impl Page {
     /// then by how far left they start. Runs whose tops are within half the first one's
     /// height are one line; the passage stops before a gap of more than 1.6 times that height
     /// (a new paragraph, a heading) or a seventh line. The runs here are the lines pdfium ends.
-    /// `None` when no text on the page reaches down to `y`.
+    /// A run more than twice as tall as its tallest character is set up the page (an arXiv
+    /// stamp in the margin), not a line, and is left out. `None` when no text on the page
+    /// reaches down to `y`.
     pub fn lines_at(&self, y: f32) -> Option<(usize, usize)> {
-        // Each run's first and last sized character, top, bottom and left.
-        let mut runs: Vec<(usize, usize, f32, f32, f32)> = Vec::new();
-        let mut open: Option<(usize, usize, f32, f32, f32)> = None;
+        // Each run's first and last sized character, top, bottom, left and tallest character.
+        type Run = (usize, usize, f32, f32, f32, f32);
+        let mut runs: Vec<Run> = Vec::new();
+        let mut open: Option<Run> = None;
         for (i, g) in self.glyphs.iter().enumerate() {
             if g.c == '\n' {
                 runs.extend(open.take());
@@ -651,13 +654,15 @@ impl Page {
             if g.w <= 0.0 || g.h <= 0.0 || g.c.is_whitespace() {
                 continue;
             }
-            let run = open.get_or_insert((i, i, g.y, g.y + g.h, g.x));
+            let run = open.get_or_insert((i, i, g.y, g.y + g.h, g.x, g.h));
             run.1 = i;
             run.2 = run.2.min(g.y);
             run.3 = run.3.max(g.y + g.h);
             run.4 = run.4.min(g.x);
+            run.5 = run.5.max(g.h);
         }
         runs.extend(open);
+        runs.retain(|r| r.3 - r.2 <= 2.0 * r.5);
         runs.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.4.total_cmp(&b.4)));
         let start = runs.iter().position(|r| r.3 >= y)?;
         let height = runs[start].3 - runs[start].2;
@@ -772,6 +777,24 @@ mod tests {
             &text[first..=last],
             "line0\nline1\nline2\nline3\nline4\nline5"
         );
+    }
+
+    #[test]
+    fn text_set_up_the_margin_is_not_a_line_of_the_passage() {
+        // A stamp up the page's left margin, its characters one above the other and last in
+        // the page's text, as on the sample paper's first page, beside two lines.
+        let mut page = sheet(&[("one", 100.0), ("two", 112.0)]);
+        page.glyphs
+            .extend("stamp".chars().enumerate().map(|(i, c)| Glyph {
+                c,
+                x: 10.0,
+                y: 150.0 - 8.0 * i as f32,
+                w: 10.0,
+                h: 8.0,
+            }));
+        let text: String = page.text().into_iter().collect();
+        let (first, last) = page.lines_at(105.0).unwrap();
+        assert_eq!(&text[first..=last], "one\ntwo");
     }
 
     #[test]

@@ -42,6 +42,9 @@ use crate::workspace::Workspace;
 const WIDTH: f32 = 560.0;
 const BODY: f32 = 330.0;
 
+/// How many questions a refresher on foundations has: the earlier app's.
+pub const REFRESHER: usize = 3;
+
 /// The sheet was closed.
 pub struct Closed;
 

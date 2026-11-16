@@ -185,6 +185,18 @@ impl PracticeView {
                     .child(Self::small(title, t))
                     .child(Self::small(rule, t)),
             )
+            // The earlier app's words when the easier problem comes, before it is answered.
+            .when(easier && given.is_none(), |sheet| {
+                sheet.child(
+                    div()
+                        .text_size(px(Type::META))
+                        .text_color(t.secondary)
+                        .child(
+                            "That one wasn’t landing, and that’s fine: this one has fewer \
+                             moving parts.",
+                        ),
+                )
+            })
             .children(fading_line)
             .child(
                 div()

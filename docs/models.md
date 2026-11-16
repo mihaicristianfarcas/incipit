@@ -170,6 +170,16 @@ and others), and the child gets those folders in its `PATH` too.
   (`provider/model#low`); a model that has none is asked again without it.
   It needs version 2 or later.
 
+A call can ask to search the web (`Request::search`, and `Abilities::search`
+says which providers can). It is for the jobs that look for things outside the
+learner's files, such as further reading for a passage. Codex gets
+`-c web_search="live"` on its read-only turn; Claude Code gets its `WebSearch`
+tool and no other (no `WebFetch`, no file tool); OpenCode's call is allowed
+`websearch` and nothing else. The HTTP providers and the ChatGPT sign-in cannot,
+and a job that needs the web is not offered with them. What a search finds is
+material like any other text, and is shown as links the learner opens
+themselves.
+
 Status (installed, signed in, version) comes from `--version` and each
 program's login status (`codex login status`, `claude auth status`,
 `opencode auth list`), and shows how a program is signed in, never who.

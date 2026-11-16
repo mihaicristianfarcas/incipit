@@ -1,7 +1,8 @@
 //! Codex as a provider: each call is one `codex exec --json` turn with the learner's ChatGPT login,
 //! ephemeral (no session kept), the prompt on stdin, and the final message read from the file
 //! `-o` names. Structured output is `--output-schema`; plain calls run in the read-only sandbox in
-//! a scratch folder, and agents in their workspace under a permission profile (`sandbox`).
+//! a scratch folder (with live web search when the request asks for it), and agents in their
+//! workspace under a permission profile (`sandbox`).
 //!
 //! The JSONL events become short activity lines. A turn the service turns away for a moment
 //! ("at capacity", rate limits) is tried again after 30, 90 and 180 s, moving to the next model the
@@ -81,6 +82,8 @@ pub struct Turn {
     pub images: Vec<PathBuf>,
     pub model: Option<String>,
     pub effort: Option<Effort>,
+    /// Let the turn search the web (live results).
+    pub search: bool,
     /// Where Codex writes its final message.
     pub last: PathBuf,
 }
@@ -131,6 +134,9 @@ impl Codex {
                     args.extend(["-c".into(), entry.clone()]);
                 }
             }
+        }
+        if turn.search {
+            args.extend(["-c".into(), "web_search=\"live\"".into()]);
         }
         if let Some(model) = &turn.model {
             args.extend(["-m".into(), model.clone()]);
@@ -330,6 +336,7 @@ impl Codex {
             schema,
             model: request.model_name().map(String::from),
             effort: request.effort,
+            search: request.search,
             last: scratch.join("last-message.txt"),
         };
         on(Event::Activity("Codex is thinking".into()));
@@ -403,6 +410,7 @@ impl Provider for Codex {
             agent: true,
             images: true,
             streams: false,
+            search: true,
         }
     }
 
@@ -503,6 +511,7 @@ impl Provider for Codex {
             schema: None,
             model: request.model_name().map(String::from),
             effort: request.effort,
+            search: false,
             last: scratch.join("last-message.txt"),
         };
         on(Event::Activity("Codex is starting".into()));
@@ -526,8 +535,22 @@ mod tests {
             images: vec!["/scratch/image-1.png".into()],
             model: Some("gpt-6-luna".into()),
             effort: Some(Effort::Low),
+            search: false,
             last: "/scratch/last.txt".into(),
         }
+    }
+
+    #[test]
+    fn a_turn_that_searches_asks_for_live_web_results_and_one_that_does_not_does_not() {
+        let plain = Codex::args(&turn()).join(" ");
+        assert!(!plain.contains("web_search"));
+        let searching = Codex::args(&Turn {
+            search: true,
+            ..turn()
+        })
+        .join(" ");
+        assert!(searching.contains("-c web_search=\"live\""), "{searching}");
+        assert!(searching.contains("sandbox_mode=\"read-only\""));
     }
 
     #[test]

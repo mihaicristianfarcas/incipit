@@ -4,7 +4,8 @@
 //! agent with Incipit's system prompt and permission rules, and no plugins, MCP servers or project
 //! config. Its session is deleted when it ends, so none is kept.
 //!
-//! Plain calls get no tools and see pictures as attached files; JSON is asked for in the prompt,
+//! Plain calls get no tools, but the web search when the request asks for it, and see pictures as
+//! attached files; JSON is asked for in the prompt,
 //! as `opencode run` has no structured output. Agents get only OpenCode's shell, which runs every
 //! command under the OS sandbox (`sandbox::sandboxed_shell`). Models are `provider/model`, and
 //! the effort is the model's variant (`provider/model#low`), left out for a model that has none.
@@ -234,6 +235,15 @@ impl OpenCode {
         Ok(real(&dir))
     }
 
+    /// What a plain call may do: nothing, or the web search when the request asks for it.
+    fn allowed_for(request: &Request) -> Vec<(&'static str, String)> {
+        if request.search {
+            vec![("websearch", "*".to_string())]
+        } else {
+            Vec::new()
+        }
+    }
+
     /// One call or agent run: the answer's text. `confine` makes it an agent in that folder.
     fn call(
         &self,
@@ -268,7 +278,7 @@ impl OpenCode {
             }
             None => Setup {
                 system: request.system(),
-                permissions: only(&[]),
+                permissions: only(&Self::allowed_for(request)),
                 shell: None,
                 instructions: vec![],
             },
@@ -417,6 +427,7 @@ impl Provider for OpenCode {
             agent: true,
             images: true,
             streams: true,
+            search: true,
         }
     }
 
@@ -518,6 +529,20 @@ mod tests {
             args.join(" "),
             "run --standalone --format json --agent incipit --title Incipit -m opencode/deepseek-v4.1-flash-free#low -f /a.png"
         );
+    }
+
+    #[test]
+    fn a_plain_call_may_search_the_web_only_when_it_asks_to() {
+        assert!(OpenCode::allowed_for(&Request::new("Find.")).is_empty());
+        assert_eq!(
+            OpenCode::allowed_for(&Request::new("Find.").with_search()),
+            [("websearch", "*".to_string())]
+        );
+        let rules = only(&OpenCode::allowed_for(&Request::new("Find.").with_search()));
+        let rules = rules.as_array().unwrap();
+        assert_eq!(rules[0]["effect"], "deny");
+        assert_eq!(rules[1]["action"], "websearch");
+        assert_eq!(rules[1]["effect"], "allow");
     }
 
     #[test]

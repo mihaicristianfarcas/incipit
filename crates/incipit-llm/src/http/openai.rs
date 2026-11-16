@@ -191,6 +191,7 @@ impl Provider for OpenAiCompatible {
             agent: false,
             images: true,
             streams: true,
+            search: false,
         }
     }
 

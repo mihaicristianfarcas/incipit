@@ -66,6 +66,10 @@ pub struct Request {
     pub effort: Option<Effort>,
     /// How long the call may take; none means the provider's own limit.
     pub timeout: Option<Duration>,
+    /// Let the model search the web for this one call, where the provider can
+    /// (`Abilities::search`). It is asked for only by the jobs that look for things outside the
+    /// learner's files, and gives the model no other tool.
+    pub search: bool,
 }
 
 impl Request {
@@ -119,6 +123,12 @@ impl Request {
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// Lets the model search the web for this call.
+    pub fn with_search(mut self) -> Self {
+        self.search = true;
         self
     }
 
@@ -299,6 +309,12 @@ mod tests {
         assert!(messages[0].text.contains("A passage."));
         assert_eq!(messages[1].speaker, Speaker::Model);
         assert_eq!(messages[2].text, "And now?");
+    }
+
+    #[test]
+    fn a_request_searches_the_web_only_when_it_asks_to() {
+        assert!(!Request::new("Find.").search);
+        assert!(Request::new("Find.").with_search().search);
     }
 
     #[test]

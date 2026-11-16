@@ -13,6 +13,7 @@ use super::ReaderView;
 use crate::learning::answers::{self, Asked, Way, RELATED};
 use crate::learning::context::BookContext;
 use crate::learning::learner;
+use crate::learning::resources;
 
 pub(super) use crate::learning::answers::EXPLAIN;
 const MAKE_FIGURE: &str = "Draw a figure of this.";
@@ -38,6 +39,12 @@ impl ReaderView {
 
     pub(super) fn define(&mut self, cx: &mut Context<Self>) {
         self.ask_selection(Way::Define, cx);
+    }
+
+    /// Have the model look on the web for further reading for the selection. Only offered while
+    /// the model chosen for quick answers can search.
+    pub(super) fn resources(&mut self, cx: &mut Context<Self>) {
+        self.ask_selection(Way::Resources, cx);
     }
 
     /// Put the selection to the model as `way`, which needs no words of the learner's.
@@ -152,7 +159,18 @@ impl ReaderView {
                 if !this.notes.iter().any(|n| n.id == id) {
                     return None;
                 }
-                match this.models.read(cx).ask(answers::request(&asked)) {
+                let asking = match asked.way {
+                    Way::Resources => {
+                        let asked = asked.clone();
+                        this.models
+                            .read(cx)
+                            .search(move |provider, chosen, cancel, on| {
+                                resources::find(provider, chosen, &asked, cancel, on)
+                            })
+                    }
+                    _ => this.models.read(cx).ask(answers::request(&asked)),
+                };
+                match asking {
                     Ok(asking) => {
                         this.answers.insert(id, asking.cancel.clone());
                         Some(asking)

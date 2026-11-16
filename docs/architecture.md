@@ -64,6 +64,17 @@ app). Like every request that adapts to the learner, it also carries the
 earlier app's paragraph about them (`learning/learner.rs`, from the profile
 and what they know), as material apart from the instructions.
 
+**Further reading is found by the model's own web search, and shown as
+links.** The selection menu's Resources (`learning/resources.rs`) asks the
+model chosen for quick answers to find three to six resources for the passage,
+with the earlier app's instructions and form, and is offered only while that
+model can search (`Abilities::search`, [models.md](models.md)); with another
+it is not in the menu. The passage and the learner are material as for any
+answer. What comes back is checked against the form, a resource whose address
+is not `http://` or `https://` is dropped, and the rest is kept in the margin
+as a list of links (`- [title](address) — why *(kind)*`) that the learner opens
+in their browser. Nothing from the web is fetched or run by Incipit.
+
 **The reader's Note goes to the book's reading note.** The selection
 menu's Note (`learning/reading_note.rs`) highlights the passage and adds it,
 as a quote whose heading links back to the highlight, to one note of the

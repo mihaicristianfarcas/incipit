@@ -5,7 +5,8 @@
 //! the text around it (cut at 7,000 characters) and the notes and concepts of the vault that
 //! share words with it, which the answer may link to as `[[title]]`.
 //!
-//! The answer is kept as an annotation of type `explain`, `define` or `ask`. It is made as
+//! The answer is kept as an annotation of type `explain`, `define`, `ask` or `resources`; the last
+//! is a list of links found by a search of the web (`resources`), not prose. It is made as
 //! pending before the model is asked, becomes ready with the answer, or failed with the reason;
 //! a pending one is written again when its book is next opened, and a failed one can be tried
 //! again, as the earlier app's `resumeAnnotations` and `retryAnnotation` do.
@@ -29,6 +30,7 @@ const REASON: usize = 400;
 /// What the learner is taken to have said when a button asked for an explanation or a definition.
 pub const EXPLAIN: &str = "Explain this passage.";
 pub const DEFINE: &str = "Define this.";
+pub const RESOURCES: &str = "Find further reading for this.";
 
 /// What the learner asked of a passage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +38,8 @@ pub enum Way {
     Explain,
     Define,
     Ask,
+    /// Further reading found on the web.
+    Resources,
 }
 
 impl Way {
@@ -45,11 +49,12 @@ impl Way {
             Way::Explain => "explain",
             Way::Define => "define",
             Way::Ask => "ask",
+            Way::Resources => "resources",
         }
     }
 
     pub fn of_type(name: &str) -> Option<Way> {
-        [Way::Explain, Way::Define, Way::Ask]
+        [Way::Explain, Way::Define, Way::Ask, Way::Resources]
             .into_iter()
             .find(|way| way.name() == name)
     }
@@ -60,6 +65,7 @@ impl Way {
             Way::Explain => EXPLAIN,
             Way::Define => DEFINE,
             Way::Ask => "Answer my question.",
+            Way::Resources => RESOURCES,
         }
     }
 
@@ -93,6 +99,7 @@ impl Way {
                  - If the book doesn't answer it, say so briefly and answer from general \
                  knowledge, marked as such."
             }
+            Way::Resources => super::resources::INSTRUCTIONS,
         }
     }
 }
@@ -344,6 +351,28 @@ pub fn retry(vault: &Vault, id: &DocId) -> Result<Doc, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn further_reading_is_an_answer_of_its_own_kept_as_an_annotation_of_type_resources() {
+        assert_eq!(Way::Resources.name(), "resources");
+        assert_eq!(Way::of_type("resources"), Some(Way::Resources));
+        assert_eq!(Way::Resources.said(), RESOURCES);
+        assert_eq!(
+            Way::Resources.instructions(),
+            crate::learning::resources::INSTRUCTIONS
+        );
+        let source = Source {
+            book: "book1".into(),
+            page: Some(3),
+            quote: Some("The derivative measures".into()),
+            ..Source::default()
+        };
+        let doc = pending(&source, Way::Resources, Some("ignored"));
+        assert_eq!(doc.doc_type(), Some("resources"));
+        let fields = doc.fields::<Annotation>().unwrap();
+        assert_eq!(fields.status, Status::Pending);
+        assert_eq!(fields.request, None, "only a question is kept as a request");
+    }
 
     fn asked(way: Way) -> Asked {
         Asked {

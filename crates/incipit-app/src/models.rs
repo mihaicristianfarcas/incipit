@@ -274,6 +274,48 @@ impl Models {
             .registry
             .prepare(&self.settings, Job::Figure, Request::new(""))
             .map_err(|e| e.to_string())?;
+        Ok(Self::spawn_work(provider, chosen, work))
+    }
+
+    /// Whether the model chosen for quick answers can search the web, which jobs that look for
+    /// things outside the learner's files need; where it cannot, they are not offered.
+    pub fn can_search(&self) -> bool {
+        self.settings
+            .choice(Job::Quick)
+            .and_then(|choice| self.registry.get(&choice.provider))
+            .is_some_and(|provider| provider.abilities().search)
+    }
+
+    /// Like `work`, with the model chosen for quick answers, which must be able to search the
+    /// web (`can_search`): `work` asks for the search itself (`Request::with_search`).
+    pub fn search<T, F>(&self, work: F) -> Result<Asking<T>, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&dyn Provider, &Request, &Cancel, &mut dyn FnMut(Event)) -> Result<T, Error>
+            + Send
+            + 'static,
+    {
+        let (provider, chosen) = self
+            .registry
+            .prepare(&self.settings, Job::Quick, Request::new(""))
+            .map_err(|e| e.to_string())?;
+        if !provider.abilities().search {
+            return Err(format!(
+                "{} cannot search the web. Choose Claude Code, Codex or OpenCode for quick \
+                 answers in Settings to find further reading.",
+                provider.name()
+            ));
+        }
+        Ok(Self::spawn_work(provider, chosen, work))
+    }
+
+    fn spawn_work<T, F>(provider: Arc<dyn Provider>, chosen: Request, work: F) -> Asking<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&dyn Provider, &Request, &Cancel, &mut dyn FnMut(Event)) -> Result<T, Error>
+            + Send
+            + 'static,
+    {
         let (send, updates) = unbounded();
         let cancel = spawn_with(
             move |cancel: &Cancel, on: &mut dyn FnMut(Event)| {
@@ -283,7 +325,7 @@ impl Models {
                 let _ = send.unbounded_send(update);
             },
         );
-        Ok(Asking { updates, cancel })
+        Asking { updates, cancel }
     }
 
     /// Ask the chosen model to fill `schema`. What comes back matches it, or is an error.

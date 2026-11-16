@@ -1,7 +1,7 @@
 //! The study tools apart from the window, each the earlier app's: the explanations, definitions
-//! and answers the model writes in the margin (`answers`), flashcards drafted from a
-//! passage, edited and saved into the book's deck, each tied to its concept (`drafts`), and
-//! quizzes on a chapter, before one or across the concepts known least, with short answers
+//! and answers the model writes in the margin (`answers`), further reading it finds with a search
+//! of the web (`resources`), flashcards drafted from a passage, edited and saved into the book's
+//! deck, each tied to its concept (`drafts`), and quizzes on a chapter, before one or across the concepts known least, with short answers
 //! graded by the model and every answer kept as evidence (`quiz`), and a concept explained back
 //! in the learner's own words, graded and kept as a note (`explain`), and a worked example with
 //! practice problems (`practice`). Each tool has the earlier app's instructions and form, sends
@@ -20,6 +20,7 @@ pub mod learner;
 pub mod practice;
 pub mod quiz;
 pub mod reading_note;
+pub mod resources;
 pub mod tutor;
 
 /// A model that answers from a script, for the tests of the study tools.

@@ -193,35 +193,63 @@ impl Layer {
     }
 }
 
+/// Each parameter's value at `step` before the learner moves it: its start, or what the last
+/// step up to this one set it to. For any kind whose steps set parameters.
+pub fn values_at(params: &[Param], steps: &[PlotStep], step: usize) -> Vec<(String, f32)> {
+    params
+        .iter()
+        .map(|p| {
+            let set = steps
+                .iter()
+                .take(step + 1)
+                .flat_map(|s| &s.set)
+                .rfind(|s| s.param == p.name)
+                .map_or(p.start, |s| s.value);
+            (p.name.clone(), set)
+        })
+        .collect()
+}
+
+/// The state on moving to `step`: what the step sets is set over what the learner dragged, and
+/// a parameter the state does not hold yet takes its value at that step.
+pub fn step_to(params: &[Param], steps: &[PlotStep], state: &State, step: usize) -> State {
+    let mut next = State {
+        step,
+        ..state.clone()
+    };
+    let moved: Vec<&str> = steps
+        .get(step)
+        .map(|s| s.set.iter().map(|s| s.param.as_str()).collect())
+        .unwrap_or_default();
+    for (name, value) in values_at(params, steps, step) {
+        if moved.contains(&name.as_str()) || !next.params.contains_key(&name) {
+            next.params.insert(name, value);
+        }
+    }
+    next
+}
+
+/// Steps that set parameters as plain steps, for what steps share.
+pub fn plain_steps(steps: &[PlotStep]) -> Vec<crate::steps::Step> {
+    steps
+        .iter()
+        .map(|s| crate::steps::Step {
+            narration: s.narration.clone(),
+            show: s.show.clone(),
+            focus: s.focus.clone(),
+        })
+        .collect()
+}
+
 impl Plot {
-    /// Each parameter's value at `step` before the learner moves it: its start, or what the last
-    /// step up to this one set it to.
+    /// Each parameter's value at `step` before the learner moves it.
     pub fn values_at(&self, step: usize) -> Vec<(String, f32)> {
-        self.params
-            .iter()
-            .map(|p| {
-                let set = self
-                    .steps
-                    .iter()
-                    .take(step + 1)
-                    .flat_map(|s| &s.set)
-                    .rfind(|s| s.param == p.name)
-                    .map_or(p.start, |s| s.value);
-                (p.name.clone(), set)
-            })
-            .collect()
+        values_at(&self.params, &self.steps, step)
     }
 
     /// The steps as plain steps, for what steps share.
     fn plain_steps(&self) -> Vec<crate::steps::Step> {
-        self.steps
-            .iter()
-            .map(|s| crate::steps::Step {
-                narration: s.narration.clone(),
-                show: s.show.clone(),
-                focus: s.focus.clone(),
-            })
-            .collect()
+        plain_steps(&self.steps)
     }
 }
 
@@ -258,20 +286,6 @@ impl Spec for Plot {
     }
 
     fn step_to(&self, state: &State, step: usize) -> State {
-        let mut next = State {
-            step,
-            ..state.clone()
-        };
-        let moved: Vec<&str> = self
-            .steps
-            .get(step)
-            .map(|s| s.set.iter().map(|s| s.param.as_str()).collect())
-            .unwrap_or_default();
-        for (name, value) in self.values_at(step) {
-            if moved.contains(&name.as_str()) || !next.params.contains_key(&name) {
-                next.params.insert(name, value);
-            }
-        }
-        next
+        step_to(&self.params, &self.steps, state, step)
     }
 }

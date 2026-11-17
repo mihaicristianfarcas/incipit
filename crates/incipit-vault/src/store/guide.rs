@@ -28,6 +28,7 @@ impl Vault {
     /// Writes the guide and the indexes whole, and takes away any that are no longer made (a
     /// book's page when the book is gone). The paths are places in a vault.
     pub fn write_agent_files(&self, files: &[Generated]) -> Result<()> {
+        super::prepare_app_folder(&self.inner.root)?;
         let folder = self.agent_folder();
         for file in files {
             VaultPath::new(&file.path)?;

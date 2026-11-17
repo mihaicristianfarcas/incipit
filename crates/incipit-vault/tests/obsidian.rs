@@ -114,6 +114,13 @@ fn an_obsidian_vault_opens_where_it_is_and_every_one_of_its_files_stays_as_it_wa
         assert_eq!(now, bytes, "{name} has the bytes it had");
         assert_eq!(changed, modified, "{name} was not written");
     }
+    // Neither of them is seen by Git, which the learner may keep the vault in: each has a
+    // `.gitignore` of its own that ignores it, and the learner's is as it was.
+    assert_eq!(
+        fs::read_to_string(root.join(".incipit/.gitignore")).unwrap(),
+        "*\n"
+    );
+    assert!(root.join(".jj/.gitignore").is_file());
     // The only folders that appeared are the history and the generated one.
     let mut expected = folders_before;
     expected.extend([".incipit".to_owned(), ".jj".to_owned()]);

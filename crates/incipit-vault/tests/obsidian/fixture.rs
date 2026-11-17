@@ -73,6 +73,7 @@ pub fn files() -> Vec<(&'static str, Vec<u8>)> {
         ),
         text(".obsidian/workspace.json", "{\"main\":{\"type\":\"split\"}}"),
         text(".obsidian/plugins/calendar/data.json", "{}"),
+        text(".gitignore", ".obsidian/workspace.json\n.trash/\n"),
         text(".git/HEAD", "ref: refs/heads/main\n"),
         text(".git/config", "[core]\n\trepositoryformatversion = 0\n"),
         text(".trash/Old idea.md", "Thrown away in Obsidian.\n"),

@@ -38,7 +38,10 @@ is opened where it is, with every file as it is. Opening and browsing write noth
 property is added, no file is renamed or moved, nothing in `.obsidian/` is
 touched. The folders that appear are the app's own, `.jj/` (the history) and
 `.incipit/` (generated files), which Obsidian leaves out as it leaves out
-every folder that begins with a dot. The usual folders above are made in an
+every folder that begins with a dot. Each has a `.gitignore` of its own that
+ignores it, so a vault that is also a Git repository (Obsidian Git) does not
+see them; the learner's own `.gitignore` is not touched, and history honours
+it. The usual folders above are made in an
 empty folder only; in one that holds anything, each appears when something
 is first kept in it. What was there becomes the first entry of the history,
 but for the places the history leaves out (see History).

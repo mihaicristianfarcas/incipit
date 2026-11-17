@@ -650,6 +650,28 @@ fn a_folder_with_obsidians_settings_folder_is_an_obsidian_vault() {
 }
 
 #[test]
+fn the_app_folder_keeps_git_out_of_it_whenever_it_is_made_again() {
+    let (_dir, vault) = new_vault();
+    let ignore = vault.app_folder().join(".gitignore");
+    assert_eq!(fs::read_to_string(&ignore).unwrap(), "*\n");
+    assert!(
+        !vault.root().join(".gitignore").exists(),
+        "the learner's own .gitignore is not made"
+    );
+    fs::remove_dir_all(vault.app_folder()).unwrap();
+    vault.write_generated("a.idx", b"x").unwrap();
+    assert_eq!(fs::read_to_string(&ignore).unwrap(), "*\n");
+    fs::remove_dir_all(vault.app_folder()).unwrap();
+    vault.write_agent_files(&[]).unwrap();
+    assert_eq!(fs::read_to_string(&ignore).unwrap(), "*\n");
+    fs::remove_dir_all(vault.app_folder()).unwrap();
+    let root = vault.root().to_path_buf();
+    drop(vault);
+    Vault::open(&root).unwrap();
+    assert_eq!(fs::read_to_string(&ignore).unwrap(), "*\n");
+}
+
+#[test]
 fn a_vault_opens_again_with_its_documents() {
     let (_dir, vault) = new_vault();
     let doc = vault.add(note("Kept", "Still here.\n")).unwrap();

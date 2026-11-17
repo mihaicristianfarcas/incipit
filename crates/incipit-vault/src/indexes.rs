@@ -67,6 +67,22 @@ fn cell(text: &str) -> String {
         .join(" ")
 }
 
+/// When a document changed, as the maps say it: its `updated` property as it is written, else when
+/// its file was last written, as an RFC 3339 time in UTC. A note made in Obsidian has no such
+/// property, and would otherwise be listed with no time and last.
+fn changed(vault: &Vault, doc: &Doc) -> String {
+    match doc.updated().filter(|said| !said.trim().is_empty()) {
+        Some(said) => said,
+        None => vault
+            .changed_at(doc)
+            .map(|time| {
+                chrono::DateTime::<chrono::Utc>::from(time)
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            })
+            .unwrap_or_default(),
+    }
+}
+
 /// A time as `2026-11-10 09:12` (the first sixteen characters of an RFC 3339 time).
 fn day(time: &str) -> String {
     time.chars()
@@ -213,7 +229,11 @@ pub fn build(vault: &Vault, now: &str, mastery: &dyn Fn(&DocId) -> Option<f64>) 
         files.push(book_page(book, &docs));
     }
     files.push(library_page(&books, &docs));
-    files.push(notes_page(&of_kind(Kind::Note).collect::<Vec<_>>(), &edges));
+    files.push(notes_page(
+        vault,
+        &of_kind(Kind::Note).collect::<Vec<_>>(),
+        &edges,
+    ));
     files.push(concepts_page(
         &of_kind(Kind::Concept).collect::<Vec<_>>(),
         &of_kind(Kind::Card).collect::<Vec<_>>(),
@@ -224,14 +244,14 @@ pub fn build(vault: &Vault, now: &str, mastery: &dyn Fn(&DocId) -> Option<f64>) 
     ));
     files.push(links_table(&edges));
     files.push(unresolved_table(&edges));
-    files.push(map_page(&docs, &books, &edges, now));
+    files.push(map_page(vault, &docs, &books, &edges, now));
     files
 }
 
-fn map_page(docs: &[Doc], books: &[Doc], edges: &Edges, now: &str) -> Generated {
+fn map_page(vault: &Vault, docs: &[Doc], books: &[Doc], edges: &Edges, now: &str) -> Generated {
     let count = |kind: Kind| docs.iter().filter(|d| d.kind() == kind).count();
-    let mut recent: Vec<&Doc> = docs.iter().collect();
-    recent.sort_by(|a, b| b.updated().cmp(&a.updated()).then(a.path().cmp(b.path())));
+    let mut recent: Vec<(String, &Doc)> = docs.iter().map(|d| (changed(vault, d), d)).collect();
+    recent.sort_by(|(a, x), (b, y)| b.cmp(a).then(x.path().cmp(y.path())));
     let mut lines = vec![
         "# Vault index".to_owned(),
         String::new(),
@@ -274,7 +294,7 @@ fn map_page(docs: &[Doc], books: &[Doc], edges: &Edges, now: &str) -> Generated 
         recent
             .into_iter()
             .take(RECENT)
-            .map(|d| format!("- {} · {}", day(&d.updated().unwrap_or_default()), d.path())),
+            .map(|(time, d)| format!("- {} · {}", day(&time), d.path())),
     );
     page("INDEX.md", &lines.join("\n"))
 }
@@ -439,7 +459,7 @@ fn book_page(book: &Doc, docs: &[Doc]) -> Generated {
     )
 }
 
-fn notes_page(notes: &[&Doc], edges: &Edges) -> Generated {
+fn notes_page(vault: &Vault, notes: &[&Doc], edges: &Edges) -> Generated {
     let mut lines = vec![
         "# Notes".to_owned(),
         String::new(),
@@ -468,7 +488,7 @@ fn notes_page(notes: &[&Doc], edges: &Edges) -> Generated {
             cell(&note.all_tags().join(", ")),
             count(&edges.out, note.id()),
             count(&edges.into, note.id()),
-            day(&note.updated().unwrap_or_default()),
+            day(&changed(vault, note)),
         ));
     }
     page("notes/INDEX.md", &lines.join("\n"))

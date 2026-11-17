@@ -49,6 +49,18 @@ button opens a card where the learner may say what to show; those words go
 to the model with the passage in both steps, and are kept as the figure's
 request.
 
+**A figure is redrawn with the learner's notes.** On a figure's card in the
+margin, and on the Figure page when it shows a figure the vault keeps, a field
+takes what should change (`redraw.rs`, `reader/redrawing.rs`,
+`figure/redrawing.rs`). The figure is made again through the same two steps,
+from its passage, with the learner's earlier request and the notes as what
+they asked to be drawn, and, when there are notes, the figure as it is now as
+material, so the model may change the kind. The new figure replaces the old
+one in the same document once the engine passes it; until then the old one
+stays, and when every try is refused it stays and the reasons are said. The
+Figure page has no book open, so it sends the passage and the book's title,
+author and chapter but not the text around it.
+
 **An answer in the margin is kept before it is asked for.** Explain, Define
 and Ask on a passage (`reader/asking.rs`, with the earlier app's three
 instructions in `learning/answers.rs`) save an annotation of that type as

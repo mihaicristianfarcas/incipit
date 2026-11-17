@@ -22,7 +22,7 @@
 //!
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =math for one with math in it, =session for a tutor session
-//! with a made-up conversation),
+//! with a made-up conversation, =figure for a figure's card),
 //! INCIPIT_ASK=explain|resources|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
 //! INCIPIT_DRAFTS=demo (the drafter's sheet on made-up flashcards), INCIPIT_EXPLAIN=demo (the
 //! explaining sheet on a made-up explanation, graded), INCIPIT_EXPLAIN=write (with INCIPIT_NOTE:
@@ -30,6 +30,8 @@
 //! (the quiz sheet on the chapter on screen once the book is open: the choice, or a quiz or a
 //! pretest written by the model) or demo|done (a made-up quiz, at its start or finished),
 //! INCIPIT_CONNECTOR=demo|kept|writing|failed (the Connect sheet on made-up connections),
+//! INCIPIT_NOTE=figure with INCIPIT_REDRAW=field|busy|refused (a figure's card with the field to
+//! redraw it open, a redraw under way, or one that was refused),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block),
 //! INCIPIT_MAP=n (map line n of the contents, from 0, into concepts once the book is open),
 //! INCIPIT_FIND_BOOK=words (the find bar on those words once the book is open), INCIPIT_SELECT=1
@@ -42,6 +44,7 @@ mod keys;
 mod model;
 mod place;
 mod reading;
+mod redrawing;
 pub(crate) mod rows;
 mod scrolling;
 mod session;
@@ -111,8 +114,9 @@ enum State {
 /// A page drawn by the PDF's thread, ready for the window.
 type Drawn = (usize, Result<(Page, Arc<RenderImage>, bool), String>);
 
-/// The learner asked to see a figure made for a passage.
-pub struct OpenFigure(pub incipit_scene::Figure);
+/// The learner asked to see a figure made for a passage, with its document in the vault when it
+/// is kept there.
+pub struct OpenFigure(pub incipit_scene::Figure, pub Option<DocId>);
 
 impl gpui::EventEmitter<OpenFigure> for ReaderView {}
 
@@ -171,6 +175,10 @@ pub struct ReaderView {
     session: Option<session::Session>,
     reply: Entity<TextField>,
     draft: Entity<TextField>,
+    /// The field where the learner says what should change in a figure, and the card whose
+    /// figure it is for while it is open.
+    redraw: Entity<TextField>,
+    redrawing_for: Option<u64>,
     contents: bool,
     margin: bool,
     /// The width there is for the book itself, beside the margin and the contents.
@@ -200,6 +208,7 @@ pub struct ReaderView {
     /// Find in the book.
     finding: finding::Finding,
     _draft_events: Subscription,
+    _redraw_events: Subscription,
     _reply_events: Subscription,
     _vault_events: Subscription,
 }
@@ -241,15 +250,32 @@ impl ReaderView {
                     FieldEvent::Changed => {}
                 },
             );
+        let redraw = cx.new(|cx| {
+            TextField::new(cx)
+                .multiline()
+                .placeholder("What should change? (redraws it)")
+        });
+        let redraw_events =
+            cx.subscribe(
+                &redraw,
+                |this: &mut Self, _, event: &FieldEvent, cx| match event {
+                    FieldEvent::Submit => this.redraw_figure(cx),
+                    FieldEvent::Cancel => {
+                        this.redrawing_for = None;
+                        cx.notify();
+                    }
+                    FieldEvent::Changed => {}
+                },
+            );
         // A concept written, changed or removed changes the cards in the margin.
         let vault_events =
             cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
                 match happened {
-                    Happened::Changed(event) => {
-                        if event.path.parts().next() == Some("concepts") {
-                            this.concept_notes(cx);
-                        }
-                    }
+                    Happened::Changed(event) => match event.path.parts().next() {
+                        Some("concepts") => this.concept_notes(cx),
+                        Some("figures") => this.figure_changed(event.doc.as_ref(), cx),
+                        _ => {}
+                    },
                     // Another vault is open: the sittings were in the one that was.
                     Happened::Opened => this.end_sittings(cx),
                 }
@@ -316,6 +342,8 @@ impl ReaderView {
             session: None,
             reply,
             draft,
+            redraw,
+            redrawing_for: None,
             contents: std::env::var_os("INCIPIT_CONTENTS").is_some(),
             margin: true,
             room: f32::MAX,
@@ -335,6 +363,7 @@ impl ReaderView {
             connector,
             finding,
             _draft_events: draft_events,
+            _redraw_events: redraw_events,
             _reply_events: reply_events,
             _vault_events: vault_events,
         };
@@ -719,6 +748,9 @@ impl ReaderView {
         if std::env::var("INCIPIT_EXPLAIN").as_deref() == Ok("write") {
             self.teach_back(cx);
         }
+        if let Ok(which) = std::env::var("INCIPIT_REDRAW") {
+            self.show_demo_redraw(&which, cx);
+        }
         match std::env::var("INCIPIT_ASK").as_deref() {
             Ok("explain") => self.explain(cx),
             Ok("define") => self.define(cx),
@@ -800,17 +832,25 @@ impl ReaderView {
                 }
             }
         }
+        // INCIPIT_NOTE=figure: the note is a figure's card, which can be redrawn.
+        let figure = (std::env::var("INCIPIT_NOTE").as_deref() == Ok("figure"))
+            .then(|| incipit_scene::schema::example(incipit_scene::Kind::Flow));
         if let Some(anchor) = note {
             let id = self.id();
             self.notes.push(Note {
                 id,
                 anchors: vec![anchor],
-                words: words.into(),
+                words: if figure.is_some() {
+                    asking::about_figure(&incipit_scene::schema::example(incipit_scene::Kind::Flow))
+                } else {
+                    words.into()
+                },
                 asked: matches!(
                     std::env::var("INCIPIT_NOTE").as_deref(),
                     Ok("answer" | "session" | "math")
                 )
                 .then(|| asking::EXPLAIN.to_owned()),
+                figure,
                 ..Note::default()
             });
             self.open = Some(id);
@@ -1406,15 +1446,29 @@ impl ReaderView {
                 .child(words),
         )
         .children(note.figure.clone().map(|figure| {
-            div().flex().child(
-                button(("note-figure", id as usize), "Open the figure", t)
-                    .icon(IconName::Activity)
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        cx.stop_propagation();
-                        cx.emit(OpenFigure(figure.clone()));
-                    })),
-            )
+            let doc = note.doc.clone();
+            div()
+                .flex()
+                .gap(px(4.0))
+                .child(
+                    button(("note-figure", id as usize), "Open the figure", t)
+                        .icon(IconName::Activity)
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.stop_propagation();
+                            cx.emit(OpenFigure(figure.clone(), doc.clone()));
+                        })),
+                )
+                .child(
+                    button(("note-redraw-toggle", id as usize), "Redraw…", t)
+                        .icon(IconName::Refresh)
+                        .tooltip("Say what should change, and have the figure drawn again")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.toggle_redraw(id, window, cx);
+                        })),
+                )
         }))
+        .children(self.redraw_part(note, t, cx))
         .child(
             div()
                 .flex()

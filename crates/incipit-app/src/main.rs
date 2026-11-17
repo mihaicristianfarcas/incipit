@@ -47,6 +47,7 @@ mod progress;
 mod providers;
 mod quiz;
 mod reader;
+mod redraw;
 mod resources;
 mod review;
 mod settings;
@@ -203,13 +204,14 @@ impl Root {
             cx.new(|cx| first_run::FirstRun::new(workspace.clone(), models.clone(), cx));
         // The app opens, or the first run comes back, as what it waits on changes.
         cx.observe(&first_run, |_, _, cx| cx.notify()).detach();
-        let figure = cx.new(|cx| figure::FigureView::new(workspace.clone(), cx));
+        let figure = cx.new(|cx| figure::FigureView::new(workspace.clone(), models.clone(), cx));
         // A figure made for a passage opens on the Figure page.
         cx.subscribe(
             &reader,
             |this: &mut Self, _, open: &reader::OpenFigure, cx| {
-                let figure = open.0.clone();
-                this.figure.update(cx, |page, cx| page.present(figure, cx));
+                let (figure, doc) = (open.0.clone(), open.1.clone());
+                this.figure
+                    .update(cx, |page, cx| page.present(figure, doc, cx));
                 this.page = Page::Figure;
                 cx.notify();
             },

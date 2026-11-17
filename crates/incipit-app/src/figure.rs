@@ -5,6 +5,16 @@
 //! one of the engine's examples, picked with the kind switcher or INCIPIT_KIND; INCIPIT_AT,
 //! INCIPIT_STEP, INCIPIT_PARAMS and INCIPIT_POINTS open it in a given state. Under the figure are
 //! the figures the open vault keeps (those made for passages in the reader), to show again.
+//!
+//! A kept figure on show can be redrawn with notes on what should change (`crate::redraw`): the
+//! old figure stays on the page until the new one has passed the checks and replaces it in the
+//! vault, and when every try is refused it stays and the reasons are said. The book is not
+//! open here, so the model has the passage, the book's title, author and chapter, not the text
+//! around it. INCIPIT_REDRAW=field|busy|refused, with INCIPIT_VAULT on a throwaway folder, adds
+//! a made-up kept figure to a vault that has none and opens it with the field written in, a
+//! redraw under way or a refused one; no model is asked.
+
+mod redrawing;
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -14,14 +24,17 @@ use gpui::{
     div, prelude::*, px, AnyElement, Context, Entity, FontWeight, IntoElement, MouseButton, Pixels,
     Point, Render, ScrollHandle, SharedString, Subscription, Window,
 };
+use incipit_llm::Cancel;
 use incipit_scene::{
     check, grab, layout, schema, ticks, Drag, Figure, Handle, Kind, Pace, Report, State, WIDTH,
 };
 use incipit_ui::{
     button, card, icon_button, page, page_header, rows, section, segmented, setting, slider,
-    IconName, Theme, Type,
+    IconName, TextField, Theme, Type,
 };
+use incipit_vault::DocId;
 
+use crate::models::Models;
 use crate::stage::{paper, stage, Shaped};
 use crate::workspace::{Happened, Workspace};
 
@@ -46,13 +59,49 @@ pub struct FigureView {
     origin: Rc<Cell<Point<Pixels>>>,
     scroll: ScrollHandle,
     workspace: Entity<Workspace>,
-    /// The figures the open vault keeps, newest first, with the passage each was made for.
-    kept: Vec<(Figure, SharedString)>,
+    /// The figures the open vault keeps, newest first.
+    kept: Vec<Kept>,
+    models: Entity<Models>,
+    /// The kept figure on show, when the one on show is one.
+    shown: Option<DocId>,
+    redraw: Redrawing,
+    /// What INCIPIT_REDRAW asks for, until the vault it needs is open.
+    demo: Option<String>,
     _heard: Subscription,
+    _field: Subscription,
+}
+
+/// A figure the vault keeps, with the passage it was made for.
+struct Kept {
+    id: DocId,
+    figure: Figure,
+    quote: SharedString,
+}
+
+/// Redrawing the figure on show with the learner's notes.
+struct Redrawing {
+    /// Where the learner says what should change.
+    notes: Entity<TextField>,
+    open: bool,
+    doing: Option<Working>,
+    /// Why the last redraw left a figure as it was, and which figure.
+    problem: Option<(DocId, String)>,
+}
+
+/// A redraw under way.
+struct Working {
+    figure: DocId,
+    /// What the model is doing.
+    activity: String,
+    stop: Cancel,
 }
 
 impl FigureView {
-    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        workspace: Entity<Workspace>,
+        models: Entity<Models>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let heard = cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
             let ours = match happened {
                 Happened::Opened => true,
@@ -60,9 +109,29 @@ impl FigureView {
             };
             if ours {
                 this.kept = kept(&this.workspace, cx);
+                this.follow_kept(cx);
+                if matches!(happened, Happened::Opened) {
+                    this.show_demo_redraw(cx);
+                }
                 cx.notify();
             }
         });
+        let notes = cx.new(|cx| {
+            TextField::new(cx)
+                .multiline()
+                .placeholder("e.g. add a slider for the timeout, slow it down, label the axes")
+        });
+        let field_heard = cx.subscribe(
+            &notes,
+            |this: &mut Self, _, event: &incipit_ui::FieldEvent, cx| match event {
+                incipit_ui::FieldEvent::Submit => this.redraw_shown(cx),
+                incipit_ui::FieldEvent::Cancel => {
+                    this.redraw.open = false;
+                    cx.notify();
+                }
+                incipit_ui::FieldEvent::Changed => {}
+            },
+        );
         let (figure, kind) = match std::env::var("INCIPIT_FIGURE") {
             Ok(path) => (read(&path), None),
             Err(_) => {
@@ -83,7 +152,7 @@ impl FigureView {
             }
         }
         cx.notify();
-        FigureView {
+        let mut view = FigureView {
             figure,
             kind,
             state,
@@ -95,12 +164,29 @@ impl FigureView {
             scroll: ScrollHandle::new(),
             kept: kept(&workspace, cx),
             workspace,
+            models,
+            shown: None,
+            redraw: Redrawing {
+                notes,
+                open: false,
+                doing: None,
+                problem: None,
+            },
+            demo: std::env::var("INCIPIT_REDRAW").ok(),
             _heard: heard,
-        }
+            _field: field_heard,
+        };
+        view.show_demo_redraw(cx);
+        view
     }
 
-    /// Show a figure made elsewhere (by a model, for a passage) in place of the examples.
-    pub fn present(&mut self, figure: Figure, cx: &mut Context<Self>) {
+    /// Show a figure made elsewhere (by a model, for a passage) in place of the examples. `doc` is
+    /// its document in the vault when it is kept there, which is what can be redrawn.
+    pub fn present(&mut self, figure: Figure, doc: Option<DocId>, cx: &mut Context<Self>) {
+        if self.shown != doc {
+            self.redraw.open = false;
+        }
+        self.shown = doc;
         self.state = figure.start();
         self.figure = Ok(figure);
         self.kind = None;
@@ -111,6 +197,8 @@ impl FigureView {
     }
 
     fn show(&mut self, kind: Kind, cx: &mut Context<Self>) {
+        self.shown = None;
+        self.redraw.open = false;
         let figure = schema::example(kind);
         self.state = figure.start();
         self.figure = Ok(figure);
@@ -180,7 +268,7 @@ impl FigureView {
 }
 
 /// The figures in the open vault whose spec still reads, newest first.
-fn kept(workspace: &Entity<Workspace>, cx: &gpui::App) -> Vec<(Figure, SharedString)> {
+fn kept(workspace: &Entity<Workspace>, cx: &gpui::App) -> Vec<Kept> {
     let Some(vault) = workspace.read(cx).vault.clone() else {
         return Vec::new();
     };
@@ -191,7 +279,11 @@ fn kept(workspace: &Entity<Workspace>, cx: &gpui::App) -> Vec<(Figure, SharedStr
             let spec = doc.fields::<incipit_vault::Figure>()?.spec?;
             let figure = serde_json::from_value::<Figure>(spec).ok()?;
             let quote = doc.source().and_then(|s| s.quote).unwrap_or_default();
-            Some((figure, quote.into()))
+            Some(Kept {
+                id: doc.id().clone(),
+                figure,
+                quote: quote.into(),
+            })
         })
         .collect()
 }
@@ -394,20 +486,21 @@ impl Render for FigureView {
                     )
             }))
             .child(checked(&report, t));
+        body = body.children(self.redraw_part(t, cx));
         if !self.kept.is_empty() {
             let kept: Vec<AnyElement> = self
                 .kept
                 .iter()
                 .enumerate()
-                .map(|(index, (figure, quote))| {
-                    let shown = figure.clone();
-                    let detail = (!quote.is_empty()).then(|| quote.clone());
+                .map(|(index, kept)| {
+                    let (shown, id) = (kept.figure.clone(), kept.id.clone());
+                    let detail = (!kept.quote.is_empty()).then(|| kept.quote.clone());
                     setting(
-                        figure.title().to_owned(),
+                        kept.figure.title().to_owned(),
                         detail,
-                        button(("fig-kept", index), "Show", t).on_click(
-                            cx.listener(move |this, _, _, cx| this.present(shown.clone(), cx)),
-                        ),
+                        button(("fig-kept", index), "Show", t).on_click(cx.listener(
+                            move |this, _, _, cx| this.present(shown.clone(), Some(id.clone()), cx),
+                        )),
                         t,
                     )
                     .into_any_element()

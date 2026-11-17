@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Incipit
+GenericName=Book reader and study tool
+Comment=Read books beside figures and notes, and keep what you learn
+Exec=incipit %F
+Icon=incipit
+Terminal=false
+Categories=Education;Literature;
+# Books Incipit can open, so it shows in "Open With".
+MimeType=application/pdf;application/epub+zip;
+# The window class the program sets (its identifier), which is how a desktop matches a window to this file.
+StartupWMClass=@IDENTIFIER@
+StartupNotify=true

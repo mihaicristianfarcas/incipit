@@ -4,8 +4,8 @@
 # (samples/, not in git) the app's Reader page opens.
 #
 # pdfium comes from bblanchon/pdfium-binaries, one pinned build. Its archive
-# for macOS arm64 and for Linux arm64 is checked against a SHA-256; the other
-# platforms' archives have not been downloaded by anyone yet, so they have no
+# for macOS arm64, Linux arm64 and Linux x64 is checked against a SHA-256; the
+# macOS x64 archive has not been downloaded by anyone yet, so it has no
 # checksum here.
 set -e
 cd "$(dirname "$0")/.."
@@ -15,7 +15,7 @@ build=chromium/8152
 case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) name=pdfium-mac-arm64 sum=30b0c3f55448840f0947b54bedbe35185bbaccbadd35b8cd960270d6fa6caf80 ;;
     Darwin-x86_64) name=pdfium-mac-x64 sum= ;;
-    Linux-x86_64) name=pdfium-linux-x64 sum= ;;
+    Linux-x86_64) name=pdfium-linux-x64 sum=384ab5c51882408a143a21f9c14dcd2caf1f75280ae41c554d0489b46c3dba9f ;;
     Linux-aarch64) name=pdfium-linux-arm64 sum=c6ed1a91234aede0cfafdc09c401b83bd44ac69deafc4599fda75d511c36403e ;;
     *) echo "setup: no pdfium build named for $(uname -s) $(uname -m); see docs/development.md" >&2; exit 1 ;;
 esac

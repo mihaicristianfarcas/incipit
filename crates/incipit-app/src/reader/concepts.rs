@@ -253,18 +253,24 @@ impl ReaderView {
         note: &Note,
         concept: &ConceptNote,
         t: Theme,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let id = note.id;
         let open = self.open == Some(id);
+        let focus = focus_handle(format!("margin-note-{id}"), window, cx);
+        let ring = ringed(&focus, window);
         let card = incipit_ui::card(t)
             .id(("note", id as usize))
+            .relative()
             .w(px(MARGIN))
             .p(px(10.0))
             .flex()
             .flex_col()
             .gap(px(6.0))
             .cursor_pointer()
+            .track_focus(&focus)
+            .on_mouse_down(MouseButton::Left, keep_focus)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open = if this.open == Some(id) {
                     None
@@ -272,7 +278,10 @@ impl ReaderView {
                     Some(id)
                 };
                 cx.notify();
-            }));
+            }))
+            .when(ring, |card| {
+                card.child(focus_ring(t, Radius::ROW + 1.0, -2.0))
+            });
         let name = div()
             .flex()
             .items_center()

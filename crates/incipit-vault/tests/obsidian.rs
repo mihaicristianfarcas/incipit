@@ -797,6 +797,50 @@ fn notes_are_listed_newest_first_by_the_property_or_else_by_the_files_own_time()
 }
 
 #[test]
+fn the_agents_map_and_notes_index_time_a_note_by_its_file_when_it_has_no_updated_property() {
+    let (_dir, root) = obsidian_vault();
+    // Every note was last written early in the year; two were written later, and one says when it
+    // was updated (1 October), whatever its file says.
+    let notes: Vec<&str> = fixture::files()
+        .into_iter()
+        .map(|(path, _)| path)
+        .filter(|path| path.ends_with(".md") && !path.starts_with('.'))
+        .collect();
+    for (at, note) in notes.iter().enumerate() {
+        touch(&root, note, day(at as u64));
+    }
+    touch(&root, "Daily/2026-11-11.md", day(330));
+    touch(&root, "Welcome.md", day(305));
+    touch(&root, "Journal/Entry.md", day(1000));
+    let vault = Vault::create(&root).unwrap();
+    let files = indexes::build(&vault, "2026-11-30T09:00:00Z", &|_| None);
+    let text = |at: &str| files.iter().find(|f| f.path == at).unwrap().text.clone();
+
+    let map = text("INDEX.md");
+    let recent: Vec<&str> = map
+        .lines()
+        .skip_while(|line| *line != "## Recently changed")
+        .skip(2)
+        .take(3)
+        .collect();
+    assert_eq!(
+        recent,
+        [
+            "- 2026-11-27 00:00 · Daily/2026-11-11.md",
+            "- 2026-11-02 00:00 · Welcome.md",
+            "- 2026-10-01 08:00 · Journal/Entry.md",
+        ]
+    );
+    // None of the rest is listed with an empty time.
+    assert!(!map.contains("-  \u{b7}"), "{map}");
+
+    let table = text("notes/INDEX.md");
+    let row = |note: &str| table.lines().find(|l| l.starts_with(note)).unwrap();
+    assert!(row("| [[Welcome]]").ends_with("| 2026-11-02 00:00 |"));
+    assert!(row("| [[Entry]]").ends_with("| 2026-10-01 08:00 |"));
+}
+
+#[test]
 fn a_first_write_adds_no_updated_and_keeps_the_learners_own_dates() {
     let (_dir, vault) = opened();
     let text = write(&vault, "Journal/Own dates.md", |note| {

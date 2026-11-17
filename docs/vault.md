@@ -84,6 +84,8 @@ something differently:
   property says, if that is a time in RFC 3339, else when its file was last
   written. A note made elsewhere has no such property, and its own date
   stays as the learner wrote it.
+- The agent's maps (`INDEX.md`, `notes/INDEX.md`) give the same time: a
+  note's `updated` as written, else the time its file was last written, in UTC.
 - A `kind` of `concept`, `card` or `figure` makes a note that kind in any
   folder.
 

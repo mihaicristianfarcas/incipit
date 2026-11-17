@@ -1,10 +1,11 @@
 //! The study tools from the reader: flashcards drafted from a selected passage or from a tutor
 //! session (`crate::drafter`), a pretest or a quiz on the chapter on screen (`crate::quiz`), and
 //! explaining back a selected passage or a concept that has a card in the margin
-//! (`crate::explain`). The reader gathers what the earlier app sent with each (the book's title,
-//! its author when the vault's record names one, the chapter, and the text around the passage
-//! or the chapter's text: `learning::context`), an EPUB's from the blocks it holds and a PDF's
-//! from the PDF's thread, without drawing the pages, and hands it to the tool's sheet.
+//! (`crate::explain`), and practising a selected passage (`crate::practice`) or connecting it to
+//! the world (`crate::connector`). The reader gathers what the earlier app sent with each (the
+//! book's title, its author when the vault's record names one, the chapter, and the text around
+//! the passage or the chapter's text: `learning::context`), an EPUB's from the blocks it holds and
+//! a PDF's from the PDF's thread, without drawing the pages, and hands it to the tool's sheet.
 //!
 //! The vault's agent is told where the learner is in the book: the page or block at the reading
 //! line, the chapter its top falls in, and the selected text (`here`).

@@ -72,6 +72,11 @@ pub struct Note {
     pub problem: Option<String>,
     /// The figure the model made for the passage, once it passed the engine's checks.
     pub figure: Option<incipit_scene::Figure>,
+    /// The figure is being made again with the learner's notes: what the model is doing. The
+    /// figure shown stays the old one until the new one has passed the checks.
+    pub redrawing: Option<String>,
+    /// Why the last redraw left the figure as it was, in words for the learner.
+    pub redraw_problem: Option<String>,
     /// The tutor session the card stands for, if it is one; `doc` is then the session's.
     pub turns: Vec<incipit_vault::fields::Turn>,
     /// How the tutor answers in that session.

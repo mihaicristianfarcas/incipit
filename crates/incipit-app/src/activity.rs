@@ -189,6 +189,18 @@ pub fn note_about(at: i64, book: Option<&str>, title: &str, concepts: &[String])
     }
 }
 
+/// A connection that ties a passage or a concept to the world was kept as a note: `title` is the
+/// note's, `concepts` the ids of the concepts it is about. It is a `connect` line, as the earlier
+/// app logged a note of type `connection`, with the words of a note written.
+pub fn connection_kept(at: i64, book: Option<&str>, title: &str, concepts: &[String]) -> Activity {
+    let entry = Activity::new(ActivityType::Connect, at, format!("Wrote: {title}"))
+        .concepts(concepts.iter().cloned());
+    match book {
+        Some(book) => entry.book(book),
+        None => entry,
+    }
+}
+
 /// Links were suggested between notes: `count` of them, for the note titled `title` when the
 /// learner asked about one.
 pub fn connections_suggested(at: i64, count: usize, title: Option<&str>) -> Activity {
@@ -258,6 +270,10 @@ mod tests {
             "Mapped 2 concepts in Chapter 2"
         );
         assert_eq!(note_written(0, None, "Lenses").text, "Wrote: Lenses");
+        let kept = connection_kept(0, Some("b"), "Read replicas", &["c1".to_owned()]);
+        assert_eq!(kept.text, "Wrote: Read replicas");
+        assert_eq!(kept.kind, ActivityType::Connect);
+        assert_eq!(kept.concepts, ["c1"]);
         assert_eq!(
             connections_suggested(0, 1, None).text,
             "Suggested 1 connection"

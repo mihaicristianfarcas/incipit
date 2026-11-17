@@ -17,7 +17,8 @@
 //! Notes to edit it with `Edit`, and a passage in the reader with `Read`.
 //!
 //! A concept can be explained back from its page or from its card beside the picture
-//! (`crate::explain`), with its summary and the book its first passage is in.
+//! (`crate::explain`), with its summary and the book its first passage is in, and from its page
+//! it can be practised (`crate::practice`) or connected to the world (`crate::connector`).
 //!
 //! The links an agent suggests are listed in a card of their own, opened from a button in the
 //! find card, where each is linked or turned down, and the agent is asked for more
@@ -29,7 +30,8 @@
 //! into the field and presses Enter once the picture is there. INCIPIT_PAGE=concepts opens the
 //! list of concepts, and INCIPIT_CONCEPT=words the page of the concept whose title has the
 //! words, once the vault is open; with INCIPIT_EXPLAIN=write, the sheet to explain it back opens
-//! over it. INCIPIT_EXPLAIN=demo opens that sheet on a made-up explanation, graded. With
+//! over it. INCIPIT_EXPLAIN=demo opens that sheet on a made-up explanation, graded.
+//! INCIPIT_CONNECTOR=demo opens the Connect sheet on made-up connections. With
 //! INCIPIT_CONNECT set, the card of suggested links is open when the page is.
 
 mod concept;
@@ -127,6 +129,8 @@ pub struct BrainView {
     explain: Entity<crate::explain::ExplainView>,
     /// The sheet where a concept is practised.
     practice: Entity<crate::practice::PracticeView>,
+    /// The sheet where a concept is tied to the world.
+    connector: Entity<crate::connector::ConnectorView>,
     models: Entity<crate::models::Models>,
     /// The suggested links waiting for the learner.
     waiting: Vec<suggestions::Waiting>,
@@ -253,6 +257,11 @@ impl BrainView {
         if let Ok(which) = std::env::var("INCIPIT_PRACTICE") {
             practice.update(cx, |practice, cx| practice.show_demo(&which, cx));
         }
+        let connector = cx
+            .new(|cx| crate::connector::ConnectorView::new(workspace.clone(), models.clone(), cx));
+        if let Ok(which) = std::env::var("INCIPIT_CONNECTOR") {
+            connector.update(cx, |connector, cx| connector.show_demo(&which, cx));
+        }
         let mut view = BrainView {
             workspace,
             picture: None,
@@ -278,6 +287,7 @@ impl BrainView {
             wanted,
             explain,
             practice,
+            connector,
             models,
             waiting: Vec::new(),
             suggesting: crate::connect::demo::asked().is_some(),
@@ -362,6 +372,28 @@ impl BrainView {
         if let Some(about) = about {
             self.practice
                 .update(cx, |practice, cx| practice.start(about, cx));
+        }
+    }
+
+    /// Opens the sheet to connect concept `id` to the world and to the learner's goals. It has
+    /// the concept's name, summary and text, the first passage it came from and the book,
+    /// author and chapter there.
+    pub(crate) fn connect_concept(&mut self, id: &DocId, cx: &mut Context<Self>) {
+        let about = self.concept_about(
+            id,
+            |doc, fields| {
+                Some(format!(
+                    "{}: {}\n\n{}",
+                    doc.title(),
+                    fields.summary,
+                    doc.body()
+                ))
+            },
+            cx,
+        );
+        if let Some(about) = about {
+            self.connector
+                .update(cx, |connector, cx| connector.start(about, cx));
         }
     }
 
@@ -695,6 +727,7 @@ impl Render for BrainView {
             .child(shown)
             .child(self.explain.clone())
             .child(self.practice.clone())
+            .child(self.connector.clone())
     }
 }
 

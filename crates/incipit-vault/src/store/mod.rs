@@ -321,6 +321,27 @@ impl Vault {
         docs
     }
 
+    /// Every document, or those of one kind, the most recently changed first (those changed at
+    /// once, by path). A document changed when its `updated` property says, in RFC 3339, else
+    /// when its file was last written: a note made in Obsidian says neither.
+    pub fn list_newest(&self, kind: Option<Kind>) -> Vec<Doc> {
+        let mut docs: Vec<(Option<std::time::SystemTime>, Doc)> = self
+            .list(kind)
+            .into_iter()
+            .map(|doc| (self.changed_at(&doc), doc))
+            .collect();
+        docs.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
+        docs.into_iter().map(|(_, doc)| doc).collect()
+    }
+
+    /// When a document last changed (see `list_newest`); `None` when its file cannot be asked.
+    pub fn changed_at(&self, doc: &Doc) -> Option<std::time::SystemTime> {
+        doc.updated_time().or_else(|| {
+            let full = self.inner.locate(doc.path()).ok()?;
+            std::fs::metadata(full).ok()?.modified().ok()
+        })
+    }
+
     pub fn count(&self, kind: Option<Kind>) -> usize {
         let state = self.inner.lock();
         match kind {

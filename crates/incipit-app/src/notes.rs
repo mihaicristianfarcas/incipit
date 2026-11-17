@@ -1,5 +1,5 @@
-//! The notes page: the vault's notes in a list, and the one that is open in a field for writing
-//! Markdown. What is written is saved to its file a moment after the typing stops, and at once
+//! The notes page: the vault's notes in a list, newest first (`Vault::list_newest`), and the one
+//! that is open in a field for writing Markdown. What is written is saved to its file a moment after the typing stops, and at once
 //! when another note is opened; a new title renames the file, and the links to it follow (the
 //! vault does that). An edit made by another program shows here unless this window has changes
 //! of its own waiting. The concepts the open note links to, as its file has them, are buttons
@@ -45,7 +45,6 @@ const LIST: f32 = 250.0;
 struct Listed {
     id: DocId,
     title: String,
-    updated: String,
 }
 
 /// A file that cannot be read, and why.
@@ -253,13 +252,14 @@ impl NotesView {
         let listed = |doc: &Doc| Listed {
             id: doc.id().clone(),
             title: doc.title(),
-            updated: doc.updated().unwrap_or_default(),
         };
         let query = self.find.read(cx).text().trim().to_string();
         self.notes = if query.is_empty() {
-            let mut notes: Vec<Listed> = vault.list(Some(Kind::Note)).iter().map(listed).collect();
-            notes.sort_by(|a, b| b.updated.cmp(&a.updated));
-            notes
+            vault
+                .list_newest(Some(Kind::Note))
+                .iter()
+                .map(listed)
+                .collect()
         } else {
             let hits = vault.search(&query, 80);
             hits.iter()

@@ -1,0 +1,87 @@
+#!/bin/sh
+# Shared by tools/package-mac, tools/package-windows and tools/package-linux (sourced, not run): where
+# the repository is, which version the packages carry, and how the program they hold is built.
+#
+# The program is built with the `dist` profile (Cargo.toml) and with the build machine's paths taken
+# out of it: panic messages and debug records would otherwise carry the home folder's name into every
+# download. Cargo's own `trim-paths` is not stable yet, so rustc is told to rewrite the three places
+# paths come from (this repository, Cargo's folder with every dependency's source, the Rust
+# toolchain). The flags go in CARGO_ENCODED_RUSTFLAGS, which tolerates spaces in a path and replaces
+# RUSTFLAGS and `build.rustflags` for these builds. A Windows program is also built with its C runtime
+# inside it (`package_static_runtime=yes`, set by tools/package-windows).
+
+package_root=$(cd "$(dirname "$0")/.." && pwd)
+package_out="$package_root/target/package"
+
+# The workspace's version, which every package, bundle and installer says.
+package_version() {
+    sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"$/\1/p;}' "$package_root/Cargo.toml"
+}
+
+# Builds incipit-app with the dist profile for target triple $1 (the host's when empty).
+package_build() {
+    triple=$1
+    cargo_home=${CARGO_HOME:-$HOME/.cargo}
+    sysroot=$(rustc --print sysroot)
+    sep=$(printf '\037')
+    CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$package_root=incipit${sep}--remap-path-prefix=$cargo_home=cargo${sep}--remap-path-prefix=$sysroot=rust"
+    # A Windows program carries its own C runtime, so a PC that never installed Visual C++ runs it.
+    if [ "${package_static_runtime:-}" = yes ]; then
+        CARGO_ENCODED_RUSTFLAGS="$CARGO_ENCODED_RUSTFLAGS${sep}-C${sep}target-feature=+crt-static"
+    fi
+    export CARGO_ENCODED_RUSTFLAGS
+    if [ -n "$triple" ]; then
+        cargo build --profile dist -p incipit-app --target "$triple" --manifest-path "$package_root/Cargo.toml"
+    else
+        cargo build --profile dist -p incipit-app --manifest-path "$package_root/Cargo.toml"
+    fi
+}
+
+# Where `package_build` leaves the program for target triple $1 (the host's when empty).
+package_target_dir() {
+    if [ -n "$1" ]; then
+        echo "${CARGO_TARGET_DIR:-$package_root/target}/$1/dist"
+    else
+        echo "${CARGO_TARGET_DIR:-$package_root/target}/dist"
+    fi
+}
+
+# The identifier every package carries (packaging/identifier).
+package_identifier() {
+    tr -d '\n' <"$package_root/packaging/identifier"
+}
+
+# Stops with a message.
+package_fail() {
+    echo "$(basename "$0"): $*" >&2
+    exit 1
+}
+
+# Says a file's or folder's size as the packages are measured: in bytes, and in megabytes of a million.
+package_size() {
+    if [ -d "$1" ]; then
+        bytes=$(find "$1" -type f -exec cat {} + | wc -c | tr -d ' ')
+    else
+        bytes=$(wc -c <"$1" | tr -d ' ')
+    fi
+    echo "$bytes" | awk '{ printf "%d bytes (%.1f MB)", $1, $1 / 1000000 }'
+}
+
+# Writes the notice of the software inside the program (each dependency's licence, once per distinct
+# text) to the file $1. packaging/about.toml says which licences the project takes; one outside it
+# stops the package until someone has read it.
+package_notices() {
+    command -v cargo-about >/dev/null 2>&1 || package_fail "cargo-about makes the licence notice every package carries: cargo install cargo-about"
+    cargo about generate --manifest-path "$package_root/Cargo.toml" --all-features \
+        -c "$package_root/packaging/about.toml" "$package_root/packaging/licenses.hbs" -o "$1"
+}
+
+# Puts what a package says about licences into the folder $1: Incipit's own, the notice of the Rust
+# crates (made by `package_notices`), and pdfium's, which the folder lib/ holds beside its library.
+package_licenses() {
+    mkdir -p "$1/pdfium"
+    cp "$package_root/LICENSE" "$1/LICENSE"
+    package_notices "$1/THIRD-PARTY-NOTICES.txt"
+    cp "$package_root/lib/LICENSE" "$1/pdfium/LICENSE"
+    cp "$package_root"/lib/licenses/* "$1/pdfium/"
+}

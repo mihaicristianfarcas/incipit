@@ -1,0 +1,17 @@
+Incipit is free software under the GNU Affero General Public License, version 3 (the file
+LICENSE). It is made with the free software below, each under its own licence, which is the
+one that applies to it. The libraries pdfium is made of are listed with it, in the folder
+named pdfium.
+
+{{#each licenses}}
+================================================================================
+{{name}}
+
+Used by:
+{{#each used_by}}
+  {{crate.name}} {{crate.version}}{{#if crate.repository}}  {{crate.repository}}{{/if}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}

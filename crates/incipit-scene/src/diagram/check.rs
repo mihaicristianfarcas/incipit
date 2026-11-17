@@ -17,8 +17,9 @@ const MOST_PARTS: usize = 24;
 const MOST_PARTICLES: u32 = 200;
 /// The longest clock: the earlier app's longest animation.
 const LONGEST: f32 = 600.0;
-/// Moments on the clock the drawing is looked at, ends included: enough to catch a swing at
-/// its widest for the swings a few seconds long that diagrams show.
+/// Moments on the clock the drawing is looked at, and fitted over, ends included. A motion
+/// quicker than the moments are apart can reach a little past what they saw between them; the
+/// room the layout keeps round the setup takes that up, and nothing between them is checked.
 const MOMENTS: usize = 48;
 /// Steps up to this many are each sampled at every parameter combination; past it only the
 /// first and last are, as for a plot.

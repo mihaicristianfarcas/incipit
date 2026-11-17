@@ -312,6 +312,18 @@ impl Doc {
         }
     }
 
+    /// The folder it is in, as a person says it: `Projects/Alpha`, with `notes/` left off the
+    /// start for a note made here (a vault Obsidian made keeps its notes anywhere), and nothing
+    /// for the top of the vault.
+    pub fn folder(&self) -> String {
+        let mut folders: Vec<&str> = self.path.parts().collect();
+        folders.pop();
+        if folders.first() == Some(&"notes") {
+            folders.remove(0);
+        }
+        folders.join("/")
+    }
+
     /// The title: the file name for notes and concepts, else the `title` property, else one made
     /// from what the document holds.
     pub fn title(&self) -> String {
@@ -640,6 +652,16 @@ mod tests {
         .unwrap();
         assert_eq!(doc.kind(), Kind::Annotation);
         assert_eq!(doc.doc_type(), Some("explain"));
+    }
+
+    #[test]
+    fn a_folder_is_said_without_the_notes_folder_a_note_made_here_is_in() {
+        let folder = |at: &str| Doc::new_at(Kind::Note, path(at)).folder();
+        assert_eq!(folder("notes/Physics/Waves.md"), "Physics");
+        assert_eq!(folder("notes/Waves.md"), "");
+        assert_eq!(folder("Projects/Alpha/Plan.md"), "Projects/Alpha");
+        assert_eq!(folder("Ideas.md"), "");
+        assert_eq!(folder("Archive/notes/Old.md"), "Archive/notes");
     }
 
     #[test]

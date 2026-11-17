@@ -439,17 +439,6 @@ fn book_page(book: &Doc, docs: &[Doc]) -> Generated {
     )
 }
 
-/// The folder a note is in, as the notes table shows it: from `notes/` for the notes made here,
-/// from the root for the others (a vault Obsidian made keeps its notes anywhere).
-fn note_folder(path: &crate::VaultPath) -> String {
-    let mut folders: Vec<&str> = path.parts().collect();
-    folders.pop();
-    if folders.first() == Some(&"notes") {
-        folders.remove(0);
-    }
-    folders.join("/")
-}
-
 fn notes_page(notes: &[&Doc], edges: &Edges) -> Generated {
     let mut lines = vec![
         "# Notes".to_owned(),
@@ -470,7 +459,7 @@ fn notes_page(notes: &[&Doc], edges: &Edges) -> Generated {
             .unwrap_or_default()
     };
     for note in notes {
-        let folder = note_folder(note.path());
+        let folder = note.folder();
         lines.push(format!(
             "| [[{}]] | {} | {} | {} | {} | {} | {} |",
             note.title(),

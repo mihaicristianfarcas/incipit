@@ -131,7 +131,7 @@ fn kept_or_made(
 fn make(file: &Path, pdf: bool, source: Source) -> Result<TextIndex, String> {
     let unread = |e: anyhow::Error| format!("The book's text was not read: {e:#}");
     if pdf {
-        let pdf = Pdf::open(&crate::reader::pdfium(), file).map_err(unread)?;
+        let pdf = Pdf::open(&crate::resources::pdfium(), file).map_err(unread)?;
         let pages: Vec<_> = (0..pdf.pages())
             .map(|index| pdf.page_text(index).unwrap_or_default())
             .collect();

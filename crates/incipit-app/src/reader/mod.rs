@@ -89,15 +89,6 @@ const ZOOM: f32 = 1.15;
 const COLUMN: f32 = 600.0;
 const TEXT: (f32, f32, f32) = (13.0, 26.0, 17.0);
 
-/// The folder `tools/setup` puts pdfium's library in.
-pub(crate) fn pdfium() -> PathBuf {
-    root().join("lib/lib")
-}
-
-fn root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
-}
-
 /// A book to read: a file, and the vault's record of it when it has one (the samples have none,
 /// and notes on them are not kept).
 #[derive(Clone)]
@@ -345,8 +336,8 @@ impl ReaderView {
         });
         // The sample books, for looking at the reader without a vault.
         let sample = match std::env::var("INCIPIT_BOOK").as_deref() {
-            Ok("pdf") => Some(("Attention Is All You Need", "samples/paper.pdf", false)),
-            Ok("epub") => Some(("Relativity", "samples/book.epub", true)),
+            Ok("pdf") => Some(("Attention Is All You Need", "paper.pdf", false)),
+            Ok("epub") => Some(("Relativity", "book.epub", true)),
             _ => None,
         };
         if let Some((title, file, epub)) = sample {
@@ -354,7 +345,7 @@ impl ReaderView {
                 Shelved {
                     id: None,
                     title: title.into(),
-                    file: root().join(file),
+                    file: crate::resources::sample(file),
                     epub,
                 },
                 cx,
@@ -1614,7 +1605,7 @@ impl Raw {
 }
 
 fn open_pdf(file: PathBuf) -> Result<(PdfWorker, PdfInfo), String> {
-    PdfWorker::open(pdfium(), file).map_err(|e| format!("{e:#}"))
+    PdfWorker::open(crate::resources::pdfium(), file).map_err(|e| format!("{e:#}"))
 }
 
 /// An EPUB's contents: its headings of the first three levels, each at its block.

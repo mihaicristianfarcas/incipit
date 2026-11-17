@@ -28,6 +28,12 @@ use unicode_normalization::UnicodeNormalization;
 
 static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 
+/// The file name pdfium's library has on this system (`libpdfium.dylib`, `pdfium.dll`,
+/// `libpdfium.so`): what `Pdf::open` looks for in the folder it is given.
+pub fn library_file() -> std::ffi::OsString {
+    Pdfium::pdfium_platform_library_name()
+}
+
 pub struct Pdf {
     document: PdfDocument<'static>,
 }

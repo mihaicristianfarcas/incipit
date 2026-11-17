@@ -5,9 +5,12 @@
 //!
 //! A document keeps every property as it was read, known or not, in its order, so a learner's
 //! own keys (and Obsidian's) survive any rewrite; the typed methods read and change single keys
-//! in place. While no property has changed, the frontmatter block is written back exactly as it
-//! was read, comments and all. A new key goes where the common ones are usually written, before
-//! `created` and `updated`, and anyone's own keys never move.
+//! in place. A document read from a file remembers how the file began (its byte order mark, its
+//! `---` lines, its line endings) and writes back the text it was given exactly: while nothing
+//! has changed the file's text comes back as it was, and when a property has changed only that
+//! property's lines are written again (`amend`), so a learner's comments, quoting and blank lines
+//! stay. A new key goes where the common ones are usually written, before `created` and
+//! `updated`, and anyone's own keys never move.
 //!
 //! The id is the `id` property. A file without one (written by hand or in Obsidian) gets an id
 //! made from its path, which is stable for as long as the file stays where it is; documents the
@@ -17,6 +20,7 @@ use std::fmt;
 use std::hash::{BuildHasher, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::amend;
 use crate::error::{Error, Result};
 use crate::fields::Source;
 use crate::frontmatter;
@@ -114,6 +118,19 @@ pub(crate) fn now_precise() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+/// How a file began when it was read: what a write needs to leave alone what did not change.
+#[derive(Clone, Debug, PartialEq)]
+struct AsRead {
+    /// Whether the text began with a byte order mark.
+    bom: bool,
+    /// The `---` lines before and after the properties, as written, when there was a block.
+    fences: Option<(String, String)>,
+    /// The properties' own text, as written; empty when there was no block.
+    front: String,
+    /// The line ending the file used, for the lines a write adds.
+    eol: &'static str,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Doc {
     id: DocId,
@@ -121,8 +138,8 @@ pub struct Doc {
     path: VaultPath,
     properties: Properties,
     body: String,
-    /// The frontmatter block as it was read, while the properties are unchanged.
-    front: Option<String>,
+    /// What the file was like when it was read; `None` for a document made here.
+    as_read: Option<AsRead>,
     /// Whether the path was chosen (read from disk, or given); a new document's is made from its
     /// content when it is added.
     placed: bool,
@@ -156,7 +173,7 @@ impl Doc {
             path,
             properties,
             body: String::new(),
-            front: None,
+            as_read: None,
             placed: false,
         }
     }
@@ -189,24 +206,38 @@ impl Doc {
             .map(|id| DocId(id.trim().to_owned()))
             .filter(|id| !id.0.is_empty())
             .unwrap_or_else(|| DocId::from_path(&path));
+        let as_read = AsRead {
+            bom: split.bom,
+            fences: split.fences.map(|(a, b)| (a.to_owned(), b.to_owned())),
+            front: split.front.unwrap_or_default().to_owned(),
+            eol: frontmatter::line_ending(text),
+        };
         Ok(Doc {
             id,
             kind,
             path,
             properties,
             body: split.body.to_owned(),
-            front: split.front.map(str::to_owned),
+            as_read: Some(as_read),
             placed: true,
         })
     }
 
-    /// The file's text.
+    /// The file's text. For a document read from a file that is the file's own text with what
+    /// changed written in: the body as it is, the properties' lines that changed, and no line
+    /// ending added where the file had none.
     pub fn to_text(&self) -> String {
-        let front = match &self.front {
-            Some(front) => front.clone(),
-            None => frontmatter::write(&self.properties),
+        let Some(read) = &self.as_read else {
+            return frontmatter::compose(&frontmatter::write(&self.properties), &self.body);
         };
-        frontmatter::compose(&front, &self.body)
+        let bom = if read.bom { "\u{feff}" } else { "" };
+        let front = amend::amend(&read.front, &self.properties, read.eol);
+        match &read.fences {
+            Some((open, close)) => format!("{bom}{open}{front}{close}{}", self.body),
+            None if front.is_empty() => format!("{bom}{}", self.body),
+            // The file had no properties and has some now.
+            None => format!("{bom}---{eol}{front}---{eol}{}", self.body, eol = read.eol),
+        }
     }
 
     pub fn id(&self) -> &DocId {
@@ -251,7 +282,6 @@ impl Doc {
 
     /// Changes properties directly (anyone's own keys; the typed methods are for known ones).
     pub fn properties_mut(&mut self) -> &mut Properties {
-        self.front = None;
         &mut self.properties
     }
 
@@ -452,6 +482,60 @@ mod tests {
             doc.to_text(),
             "---\n# my comment\ntitle:   'Spaced'\n---\nOther body\n"
         );
+    }
+
+    #[test]
+    fn a_file_read_is_written_back_as_it_was_whatever_its_endings_and_fences() {
+        for text in [
+            "---\n# my comment\ntitle:   'Spaced'\n---\nBody\n",
+            "---\r\ntags: [a]\r\n---\r\nBody\r\nTwo\r\n",
+            "\u{feff}---\r\ntags: [a]\r\n---  \r\nBody",
+            "\u{feff}No properties, a mark, and no final line ending",
+            "---\n---\nAn empty block\n",
+            "---\ntags: [a]\n---",
+            "---\ntags: [a]\n---\n\n\n  Body with spaces   \n\n",
+            "",
+        ] {
+            let doc = Doc::parse(path("notes/Waves.md"), text).unwrap();
+            assert_eq!(doc.to_text(), text);
+        }
+    }
+
+    #[test]
+    fn a_change_to_the_body_or_a_property_is_all_that_a_write_changes() {
+        let text =
+            "\u{feff}---\r\n# a plugin's\r\ntags: [a]   # kept\r\nrating: 4\r\n---\r\nBody\r\nTwo";
+        let mut doc = Doc::parse(path("notes/Waves.md"), text).unwrap();
+        doc.set_body("Body\r\nThree");
+        assert_eq!(
+            doc.to_text(),
+            text.replace("Two", "Three"),
+            "no line ending is added where the file had none"
+        );
+        doc.set_tags(vec!["a".into(), "b".into()]);
+        doc.set_related(vec!["[[Other]]".into()]);
+        assert_eq!(
+            doc.to_text(),
+            "\u{feff}---\r\n# a plugin's\r\ntags: [a, b]   # kept\r\nrating: 4\r\nrelated:\r\n  - \"[[Other]]\"\r\n---\r\nBody\r\nThree"
+        );
+        // Taking the change back writes the file's own text again.
+        doc.set_tags(vec!["a".into()]);
+        doc.set_related(Vec::new());
+        doc.set_body("Body\r\nTwo");
+        assert_eq!(doc.to_text(), text);
+    }
+
+    #[test]
+    fn the_first_property_of_a_file_that_had_none_is_a_block_in_the_files_own_endings() {
+        let mut doc = Doc::parse(path("notes/Waves.md"), "\u{feff}One\r\nTwo\r\n").unwrap();
+        doc.set_tags(vec!["a".into()]);
+        assert_eq!(
+            doc.to_text(),
+            "\u{feff}---\r\ntags:\r\n  - a\r\n---\r\nOne\r\nTwo\r\n"
+        );
+        let mut doc = Doc::parse(path("notes/Waves.md"), "One\n").unwrap();
+        doc.set_tags(vec!["a".into()]);
+        assert_eq!(doc.to_text(), "---\ntags:\n  - a\n---\nOne\n");
     }
 
     #[test]

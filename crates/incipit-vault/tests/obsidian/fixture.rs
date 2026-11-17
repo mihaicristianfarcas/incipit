@@ -38,12 +38,22 @@ related:
 > [!note]- A folded callout
 > It holds a block id. ^callout-id
 
-Read after [[Ideas#^abc123|the idea]].
+Read after [[Ideas#^abc123|the idea]].\x20\x20\x20
 ";
 
 /// A note whose first lines are Windows': a byte order mark and carriage returns.
 pub const WINDOWS: &str =
     "\u{feff}---\r\ntags: [archive]\r\n---\r\nA note from another machine.\r\nSee [[Ideas]].\r\n";
+
+/// A note that says when it was made and last changed, as Incipit's own do, beside a key and a
+/// comment of the learner's.
+pub const ENTRY: &str = "---
+created: 2026-10-01T08:00:00Z   # the first line
+updated: 2026-10-01T08:00:00Z
+mood: calm
+---
+A day's entry.
+";
 
 /// A template: its properties are not YAML until a plugin fills them in.
 pub const TEMPLATE: &str = "---\ndate: {{date}}\ntags: [daily\n---\n# {{title}}\n";
@@ -126,7 +136,7 @@ Learn the basics. ^goal-1
 
 ## Steps
 
-See [[Plan#Goals]] here, [[#Steps]] below, [[Ideas#^abc123|that idea]] and [[Thoughts]].
+See [[Plan#Goals]] here, [[#Steps]] below and [[Ideas#^abc123|that idea]].
 ",
         ),
         text(
@@ -151,6 +161,7 @@ See [[Plan#Goals]] here, [[#Steps]] below, [[Ideas#^abc123|that idea]] and [[Tho
         text("Daily/2026-11-11.md", "Tomorrow is not written yet.\n"),
         ("Reading/Feynman Lectures.md", FEYNMAN.as_bytes().to_vec()),
         ("Archive/Windows note.md", WINDOWS.as_bytes().to_vec()),
+        ("Journal/Entry.md", ENTRY.as_bytes().to_vec()),
         ("Templates/Daily.md", TEMPLATE.as_bytes().to_vec()),
         text(
             "Știință/Fizică.md",

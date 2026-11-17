@@ -517,10 +517,12 @@ fn unknown_frontmatter_keys_survive_an_update_through_the_vault() {
     let mut doc = vault.at(&path("notes/Mine.md")).unwrap();
     doc.set_tags(vec!["a".into(), "b".into()]);
     vault.update(&doc).unwrap();
+    // Only the property that changed is written again; the others stay as they were written.
     let text = fs::read_to_string(vault.root().join("notes/Mine.md")).unwrap();
-    assert!(text.contains("cssclasses:\n  - wide\n"), "{text}");
-    assert!(text.contains("rating: 5\n"), "{text}");
-    assert!(text.contains("  - b\n"), "{text}");
+    assert_eq!(
+        text,
+        "---\ncssclasses: [wide]\nrating: 5\ntags: [a, b]\n---\nBody\n"
+    );
 }
 
 #[test]

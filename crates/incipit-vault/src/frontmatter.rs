@@ -4,8 +4,8 @@
 //!
 //! Parsing is serde-saphyr's (YAML 1.2, with limits on size and aliases, and errors instead of
 //! panics on any input). A name written twice keeps its last value, as Obsidian does. Writing
-//! puts the properties back in their order; only a document whose properties changed is written
-//! anew, so the comments and quoting of a block nobody touched survive.
+//! puts the properties back in their order. A block that is read and changed is not written
+//! afresh: `amend` changes only the properties that changed and keeps the rest of its text.
 
 use crate::value::{Properties, Value};
 
@@ -14,6 +14,11 @@ use crate::value::{Properties, Value};
 pub(crate) struct Split<'a> {
     pub front: Option<&'a str>,
     pub body: &'a str,
+    /// The opening `---` line and the closing one as they were written, with their line
+    /// endings (a closing line may carry spaces, and may end the file), when there is a block.
+    pub fences: Option<(&'a str, &'a str)>,
+    /// Whether the text began with a byte order mark, which is in none of the other parts.
+    pub bom: bool,
 }
 
 /// The fence line, without its line ending.
@@ -28,10 +33,13 @@ fn line_at(text: &str, at: usize) -> (&str, usize) {
 }
 
 pub(crate) fn split(text: &str) -> Split<'_> {
+    let bom = text.starts_with('\u{feff}');
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let all_body = Split {
         front: None,
         body: text,
+        fences: None,
+        bom,
     };
     let (first, mut at) = line_at(text, 0);
     if first.trim_end() != FENCE || at == text.len() && !text.ends_with('\n') {
@@ -44,11 +52,21 @@ pub(crate) fn split(text: &str) -> Split<'_> {
             return Split {
                 front: Some(&text[start..at]),
                 body: &text[next..],
+                fences: Some((&text[..start], &text[at..next])),
+                bom,
             };
         }
         at = next;
     }
     all_body
+}
+
+/// The line ending a text uses: Windows' when its first line ends with it, else a line feed.
+pub(crate) fn line_ending(text: &str) -> &'static str {
+    match text.find('\n') {
+        Some(at) if text[..at].ends_with('\r') => "\r\n",
+        _ => "\n",
+    }
 }
 
 /// The properties in a frontmatter block, or what is wrong with it, in words.

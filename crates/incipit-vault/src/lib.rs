@@ -15,6 +15,7 @@
 //! layout on disk and the decisions behind it are in `docs/vault.md`.
 
 pub mod activity;
+mod amend;
 pub mod attachments;
 pub mod checks;
 pub mod connections;

@@ -338,4 +338,37 @@ mod tests {
             "{problems:?}"
         );
     }
+
+    #[test]
+    #[ignore = "requires Claude Code signed in; makes up to four small model calls with Haiku"]
+    fn claude_draws_a_figure_of_a_passage_live() {
+        let material = vec![(
+            "passage".to_owned(),
+            "The dominant sequence transduction models are based on complex recurrent or \
+             convolutional neural networks that include an encoder and a decoder. We propose a \
+             new simple network architecture, the Transformer, based solely on attention \
+             mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two \
+             machine translation tasks show these models to be superior in quality while being \
+             more parallelizable and requiring significantly less time to train."
+                .to_owned(),
+        )];
+        let made = make(
+            &incipit_llm::Claude::new(),
+            &Request::new("").with_model("haiku"),
+            &material,
+            &Cancel::new(),
+            &mut |e| {
+                if let Event::Activity(doing) = e {
+                    eprintln!("{doing}");
+                }
+            },
+        );
+        match made {
+            Ok(figure) => eprintln!("drawn: {}", serde_json::to_string(&figure).unwrap()),
+            Err(Error::Invalid { problems, answer }) => {
+                panic!("refused: {problems:#?}\nlast answer: {answer}")
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
 }

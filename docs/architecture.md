@@ -318,4 +318,5 @@ so that no code under a license of Zed's own is linked.
 
 ## Not built yet
 
-More figure kinds. This page describes them when they exist.
+The earlier app's 3D figures (`object3d`), which need a renderer of their
+own. This page describes them when they exist.

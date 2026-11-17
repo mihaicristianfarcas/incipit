@@ -6,6 +6,7 @@
 //! model is asked to fill in. Each kind is one module.
 
 pub mod check;
+pub mod diagram;
 pub mod draw;
 pub mod expr;
 pub mod figure;
@@ -20,6 +21,7 @@ pub mod steps;
 pub mod ticks;
 
 pub use check::{check, Report};
+pub use diagram::Diagram;
 pub use draw::{
     Anchor, Fill, Frame, Issue, Item, Mark, Measure, Rect, Rough, Text, Tone, HEIGHT, WIDTH,
 };

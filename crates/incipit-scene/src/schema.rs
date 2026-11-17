@@ -6,7 +6,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::figure::{Figure, Kind};
-use crate::{flow, graph, plot, sequence};
+use crate::{diagram, flow, graph, plot, sequence};
 
 /// A strict object with these fields, in this order.
 pub fn fields(fields: Vec<(&str, Value)>) -> Value {
@@ -73,6 +73,7 @@ pub fn schema(kind: Kind) -> Value {
         Kind::Flow => flow::schema(),
         Kind::Plot => plot::schema(),
         Kind::Graph => graph::schema(),
+        Kind::Diagram => diagram::schema(),
     };
     if let Some(Value::Object(properties)) = of.get_mut("properties") {
         let mut with_kind = Map::new();
@@ -112,6 +113,7 @@ pub fn guide(kind: Kind) -> String {
         Kind::Flow => flow::GUIDE,
         Kind::Plot => plot::GUIDE,
         Kind::Graph => graph::GUIDE,
+        Kind::Diagram => diagram::GUIDE,
     };
     format!("{COMMON}\n\n{own}")
 }
@@ -123,6 +125,7 @@ pub fn example(kind: Kind) -> Figure {
         Kind::Flow => Figure::Flow(flow::example()),
         Kind::Plot => Figure::Plot(plot::example()),
         Kind::Graph => Figure::Graph(graph::example()),
+        Kind::Diagram => Figure::Diagram(diagram::example()),
     }
 }
 

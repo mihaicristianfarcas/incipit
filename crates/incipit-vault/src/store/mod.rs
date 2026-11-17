@@ -38,8 +38,11 @@ use crate::path::VaultPath;
 use crate::search::{Hit, SearchIndex};
 
 /// The folders a new vault starts with, so a learner opening it in Obsidian or a file browser
-/// sees where things go.
+/// sees where things go. A folder that already holds something is not given them.
 const FOLDERS: [&str; 6] = ["notes", "concepts", "cards", "figures", "library", "log"];
+
+/// What a system leaves in a folder by itself, which does not make the folder one in use.
+const LEFT_BY_THE_SYSTEM: [&str; 3] = [".DS_Store", "Thumbs.db", "desktop.ini"];
 
 /// The app's own hidden folder: generated indexes and caches, which can always be made again
 /// from the files and which history ignores.
@@ -59,6 +62,20 @@ fn generated_name(name: &str) -> Result<()> {
             reason: "a generated file is named by a plain file name",
         })
     }
+}
+
+/// Whether a folder holds anything of the learner's: a file or a folder, hidden ones (an Obsidian
+/// vault's `.obsidian`) too, but not what a system leaves there by itself.
+fn holds_something(folder: &Path) -> bool {
+    std::fs::read_dir(folder).is_ok_and(|mut entries| {
+        entries.any(|entry| {
+            entry.is_ok_and(|e| {
+                e.file_name()
+                    .to_str()
+                    .is_none_or(|name| !LEFT_BY_THE_SYSTEM.contains(&name))
+            })
+        })
+    })
 }
 
 /// A file that could not be read as a document, and why.
@@ -166,9 +183,10 @@ impl std::fmt::Debug for Vault {
 }
 
 impl Vault {
-    /// Makes a folder a vault: the folder (made if it does not exist; files already in it, an
-    /// Obsidian vault for one, stay and become its first entry in history), the usual folders,
-    /// and its history.
+    /// Makes a folder a vault: the folder (made if it does not exist) and its history. An empty
+    /// folder also gets the usual folders. One that already holds something, an Obsidian vault
+    /// for one, is opened where it is: its files stay exactly as they are and become the first
+    /// entry in history, and the only folders that appear are the history's and the app's own.
     pub fn create(path: &Path) -> Result<Vault> {
         std::fs::create_dir_all(path).map_err(|e| Error::io("make the folder", path, e))?;
         let root = dunce::canonicalize(path).map_err(|e| Error::io("open", path, e))?;
@@ -178,7 +196,12 @@ impl Vault {
                 root.display()
             )));
         }
-        for folder in FOLDERS.iter().chain([&APP_FOLDER]) {
+        let usual: &[&str] = if holds_something(&root) {
+            &[]
+        } else {
+            &FOLDERS
+        };
+        for folder in usual.iter().chain([&APP_FOLDER]) {
             let at = root.join(folder);
             std::fs::create_dir_all(&at).map_err(|e| Error::io("make the folder", &at, e))?;
         }

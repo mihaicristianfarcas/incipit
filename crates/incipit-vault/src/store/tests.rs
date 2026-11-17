@@ -3,6 +3,7 @@
 //! with a deadline so a missing event fails the test instead of hanging it.
 
 use std::fs;
+use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
@@ -576,6 +577,58 @@ fn a_folder_of_notes_becomes_a_vault_with_them_as_its_first_entry() {
         Vault::open(elsewhere.path()),
         Err(Error::NotAVault { .. })
     ));
+}
+
+#[test]
+fn only_an_empty_folder_is_given_the_usual_folders_and_the_others_make_theirs_when_used() {
+    let dir = tempfile::tempdir().unwrap();
+    let left_by_the_system = dir.path().join("only a system file");
+    fs::create_dir_all(&left_by_the_system).unwrap();
+    fs::write(left_by_the_system.join(".DS_Store"), "x").unwrap();
+    Vault::create(&left_by_the_system).unwrap();
+    assert!(left_by_the_system.join("notes").is_dir());
+
+    let settings_only = dir.path().join("only settings");
+    fs::create_dir_all(settings_only.join(".obsidian")).unwrap();
+    let vault = Vault::create(&settings_only).unwrap();
+    let folders = |root: &Path| -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(
+        folders(vault.root()),
+        [".incipit", ".jj", ".obsidian"],
+        "a folder in use gets no folders of its own but the history's and the app's"
+    );
+    let added = vault.add(note("First", "Written here.\n")).unwrap();
+    assert_eq!(added.path().as_str(), "notes/First.md");
+    let review = Review {
+        card: "c1".into(),
+        at: "2026-11-10T09:00:00Z".into(),
+        rating: 3,
+        took: None,
+        variant: false,
+    };
+    vault.append_log(crate::logs::REVIEWS, &review).unwrap();
+    vault
+        .add_picture(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 1], None)
+        .unwrap();
+    assert_eq!(
+        folders(vault.root()),
+        [
+            ".incipit",
+            ".jj",
+            ".obsidian",
+            "attachments",
+            "log",
+            "notes"
+        ],
+        "each folder is made when something is first kept in it"
+    );
 }
 
 #[test]

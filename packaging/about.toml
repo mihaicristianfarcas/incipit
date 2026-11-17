@@ -1,0 +1,20 @@
+# The licences of the software inside Incipit, for tools/package-* (cargo-about reads this).
+# `accepted` is the list of licences the project has looked at and takes into a package; a crate
+# under another one stops the build until someone reads that licence and decides.
+# Incipit's own crates are not listed (`private`): their licence is the repository's LICENSE.
+accepted = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+    "bzip2-1.0.6",
+]
+private = { ignore = true }

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The bundle's description, filled in by tools/package-mac: @VERSION@ is the workspace's version,
+     @IDENTIFIER@ the bundle identifier (packaging/identifier), @MINIMUM@ the oldest macOS the
+     program and the pdfium library inside both run on. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Incipit</string>
+	<key>CFBundleDisplayName</key>
+	<string>Incipit</string>
+	<key>CFBundleIdentifier</key>
+	<string>@IDENTIFIER@</string>
+	<key>CFBundleExecutable</key>
+	<string>incipit</string>
+	<key>CFBundleIconFile</key>
+	<string>incipit</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@MINIMUM@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.education</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Licensed under the GNU Affero General Public License, version 3.</string>
+	<!-- Books Incipit can open. Alternate: it shows in "Open With" and never takes a file type from
+	     the reader the person already uses. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>PDF document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>pdf</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>EPUB book</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.idpf.epub-container</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>epub</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

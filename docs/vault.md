@@ -197,7 +197,9 @@ when it saves. An agent may not change the file (see Changes).
 
 Both of Obsidian's spellings are read: `[[Note]]`, `[[Note|shown]]`,
 `[[folder/Note#Heading]]` and `[shown](Note.md)`. Links in properties
-count too. Renaming a document rewrites the links that point at it.
+count too. Renaming a document rewrites the links written with its file name
+or its path; one that reaches it through an alias, a title that is not its
+file name, or an id still does, and is left as written.
 
 A note that names a note or a concept in plain words, by its title or another
 name, without linking it, is an unlinked mention of it (`Vault::unlinked_mentions`):

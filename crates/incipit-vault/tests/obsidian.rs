@@ -389,15 +389,13 @@ fn pictures_in_attachments_are_shown_and_those_kept_elsewhere_are_not_as_in_obsi
 
 #[test]
 fn an_alias_reaches_its_note_and_finds_it() {
-    let (_dir, root) = obsidian_vault();
-    fs::write(root.join("Aliased.md"), "Back to [[Thoughts]].\n").unwrap();
-    let vault = Vault::create(&root).unwrap();
+    let (_dir, vault) = opened();
     let ideas = doc(&vault, "Ideas.md");
     assert_eq!(ideas.aliases(), ["Thoughts", "Loose ideas"]);
     // A link written with an alias is a link to the note that has it (Obsidian lists an alias
     // when a link is typed but does not follow one written by hand).
-    let aliased = reached(&vault, "Aliased.md");
-    assert_eq!(aliased, [link("Thoughts", None, None, Some("Ideas.md"))]);
+    let alpha = reached(&vault, "Projects/Alpha/Plan.md");
+    assert!(alpha.contains(&link("Thoughts", None, None, Some("Ideas.md"))));
     let from = doc(&vault, "Welcome.md");
     assert_eq!(
         vault.resolve("Loose ideas", from.id()).as_ref(),
@@ -699,7 +697,8 @@ fn renaming_a_note_carries_the_links_to_it_and_changes_nothing_else_in_the_notes
             at
         };
         let text = text_of(&vault, now_at);
-        // A link to it is the same link with the new name: its heading, block and label stay.
+        // A link written with its name is the same link with the new name: its heading, block and
+        // label stay. The one written with an alias is as it was, and still reaches the note.
         let expected = original
             .replace("[[Ideas]]", "[[Thoughts and ideas]]")
             .replace("[[Ideas#^abc123|", "[[Thoughts and ideas#^abc123|")

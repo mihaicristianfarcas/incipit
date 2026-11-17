@@ -4,8 +4,8 @@
 //!
 //! A new document goes where its kind keeps such things, named after its title or what it holds
 //! (`place`), with " 2", " 3"… added when the name is taken. A document that moves (a new title
-//! for a note, a new folder, a renamed folder) takes the links to it along: every link that
-//! reached it is rewritten, in bodies and in properties, as Obsidian does. Deleting moves the
+//! for a note, a new folder, a renamed folder) takes the links to it along: every link written
+//! with its file name or path is rewritten, in bodies and in properties, as Obsidian does. Deleting moves the
 //! file to `.trash/`. When two writers change one document, the last write wins.
 
 use std::collections::HashMap;

@@ -215,6 +215,16 @@ fn folders_inside_folders_are_read_and_the_file_name_is_the_title() {
         "2026-11-03 Kickoff"
     );
     assert_eq!(doc(&vault, "Știință/Fizică.md").title(), "Fizică");
+    // Two notes called Plan are told apart by their folders.
+    assert_eq!(
+        doc(&vault, "Projects/Alpha/Plan.md").folder(),
+        "Projects/Alpha"
+    );
+    assert_eq!(
+        doc(&vault, "Projects/Beta/Plan.md").folder(),
+        "Projects/Beta"
+    );
+    assert_eq!(doc(&vault, "Ideas.md").folder(), "");
     let folders: Vec<String> = vault.folders().iter().map(|f| f.to_string()).collect();
     for expected in [
         "Projects",

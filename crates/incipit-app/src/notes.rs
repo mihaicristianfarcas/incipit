@@ -1,7 +1,8 @@
 //! The notes page: the vault's notes in a list, newest first (`Vault::list_newest`), and the one
-//! that is open in a field for writing Markdown. What is written is saved to its file a moment after the typing stops, and at once
-//! when another note is opened; a new title renames the file, and the links to it follow (the
-//! vault does that). An edit made by another program shows here unless this window has changes
+//! that is open in a field for writing Markdown. Notes that share a title show their folders under
+//! it, so two of them can be told apart. What is written is saved to its file a moment after the
+//! typing stops, and at once when another note is opened; a new title renames the file, and the
+//! links to it follow (the vault does that). An edit made by another program shows here unless this window has changes
 //! of its own waiting. The concepts the open note links to, as its file has them, are buttons
 //! under its title that open each concept's page (the page emits `OpenConcept`). Beside the note
 //! is a column of what is said of its links (`note_links`): the notes that name it without
@@ -45,6 +46,37 @@ const LIST: f32 = 250.0;
 struct Listed {
     id: DocId,
     title: String,
+    /// The folder, when another note in the list has the same title and the two must be told apart.
+    folder: Option<String>,
+}
+
+/// What is shown of a note that shares its title in the list, for the top of the vault.
+const TOP_FOLDER: &str = "Top of the vault";
+
+/// The list rows for these notes (id, title, folder), each with its folder when another note in
+/// the list has the same title, in any case.
+fn tell_apart(notes: Vec<(DocId, String, String)>) -> Vec<Listed> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (_, title, _) in &notes {
+        *seen.entry(title.to_lowercase()).or_default() += 1;
+    }
+    notes
+        .into_iter()
+        .map(|(id, title, folder)| {
+            let shared = seen.get(&title.to_lowercase()).is_some_and(|n| *n > 1);
+            Listed {
+                id,
+                folder: shared.then(|| {
+                    if folder.is_empty() {
+                        TOP_FOLDER.to_owned()
+                    } else {
+                        folder
+                    }
+                }),
+                title,
+            }
+        })
+        .collect()
 }
 
 /// A file that cannot be read, and why.
@@ -249,25 +281,22 @@ impl NotesView {
                 reason: p.message,
             })
             .collect();
-        let listed = |doc: &Doc| Listed {
-            id: doc.id().clone(),
-            title: doc.title(),
-        };
         let query = self.find.read(cx).text().trim().to_string();
-        self.notes = if query.is_empty() {
-            vault
-                .list_newest(Some(Kind::Note))
-                .iter()
-                .map(listed)
-                .collect()
+        let docs: Vec<Doc> = if query.is_empty() {
+            vault.list_newest(Some(Kind::Note))
         } else {
-            let hits = vault.search(&query, 80);
-            hits.iter()
+            vault
+                .search(&query, 80)
+                .iter()
                 .filter(|h| h.kind == Kind::Note)
                 .filter_map(|h| vault.get(&h.id))
-                .map(|d| listed(&d))
                 .collect()
         };
+        self.notes = tell_apart(
+            docs.iter()
+                .map(|doc| (doc.id().clone(), doc.title(), doc.folder()))
+                .collect(),
+        );
     }
 
     fn heard(&mut self, happened: &Happened, cx: &mut Context<Self>) {
@@ -640,7 +669,14 @@ impl NotesView {
                 .when(on, |row| row.bg(t.selected))
                 .hover(|row| row.bg(t.hover))
                 .cursor_pointer()
-                .child(note.title.clone())
+                .flex()
+                .flex_col()
+                .child(div().truncate().child(note.title.clone()))
+                .children(
+                    note.folder
+                        .clone()
+                        .map(|folder| div().truncate().text_size(px(Type::META)).child(folder)),
+                )
                 .on_click(cx.listener(move |this, _, _, cx| this.select(id.clone(), cx)))
         });
         let broken = self.broken.iter().enumerate().map(|(index, file)| {
@@ -943,5 +979,36 @@ impl Render for NotesView {
             .child(self.versions.clone())
             .child(self.quiz.clone())
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn note(title: &str, folder: &str) -> (DocId, String, String) {
+        (DocId::new(), title.to_owned(), folder.to_owned())
+    }
+
+    #[test]
+    fn notes_with_one_title_show_their_folders_and_the_others_show_none() {
+        let listed = tell_apart(vec![
+            note("Plan", "Projects/Alpha"),
+            note("Ideas", "Loose"),
+            note("plan", "Projects/Beta"),
+            note("Plan", ""),
+        ]);
+        let folders: Vec<Option<&str>> = listed.iter().map(|n| n.folder.as_deref()).collect();
+        assert_eq!(
+            folders,
+            [
+                Some("Projects/Alpha"),
+                None,
+                Some("Projects/Beta"),
+                Some("Top of the vault")
+            ]
+        );
+        assert_eq!(listed[1].title, "Ideas");
+        assert!(tell_apart(Vec::new()).is_empty());
     }
 }

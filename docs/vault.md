@@ -78,6 +78,8 @@ something differently:
 - A file whose name a system refuses (`?`, `:`, `"`, `*`, `<`, `>`, `|`, a
   name ending in a dot or a space, `CON`) is not read and is not listed, so
   that a vault opens on every system.
+- Notes with the same title (two called Plan) show their folders in the Notes
+  list.
 - The Notes page lists the newest first: a note changed when its `updated`
   property says, if that is a time in RFC 3339, else when its file was last
   written. A note made elsewhere has no such property, and its own date

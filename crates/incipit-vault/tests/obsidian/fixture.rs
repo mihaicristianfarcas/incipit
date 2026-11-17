@@ -55,6 +55,9 @@ mood: calm
 A day's entry.
 ";
 
+/// A note on a reading list, whose own `kind` property is no business of Incipit's.
+pub const SHELF: &str = "---\nkind: book\nstatus: reading\n---\nOn my shelf. See [[Ideas]].\n";
+
 /// A template: its properties are not YAML until a plugin fills them in.
 pub const TEMPLATE: &str = "---\ndate: {{date}}\ntags: [daily\n---\n# {{title}}\n";
 
@@ -163,6 +166,7 @@ See [[Plan#Goals]] here, [[#Steps]] below, [[Ideas#^abc123|that idea]] and [[Tho
         ("Reading/Feynman Lectures.md", FEYNMAN.as_bytes().to_vec()),
         ("Archive/Windows note.md", WINDOWS.as_bytes().to_vec()),
         ("Journal/Entry.md", ENTRY.as_bytes().to_vec()),
+        ("Shelf/Dune.md", SHELF.as_bytes().to_vec()),
         ("Templates/Daily.md", TEMPLATE.as_bytes().to_vec()),
         text(
             "Știință/Fizică.md",

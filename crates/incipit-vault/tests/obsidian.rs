@@ -795,3 +795,22 @@ fn notes_are_listed_newest_first_by_the_property_or_else_by_the_files_own_time()
     assert!(times.windows(2).all(|pair| pair[0] >= pair[1]));
     assert_eq!(listed.len(), vault.count(Some(Kind::Note)));
 }
+
+#[test]
+fn a_first_write_adds_no_updated_and_keeps_the_learners_own_dates() {
+    let (_dir, vault) = opened();
+    let text = write(&vault, "Journal/Own dates.md", |note| {
+        note.set_body("Written by hand, and then changed.\n");
+    });
+    assert_eq!(
+        text,
+        fixture::OWN_DATES.replace("hand.", "hand, and then changed.")
+    );
+    let text = write(&vault, "Journal/Created only.md", |note| {
+        note.set_tags(vec!["journal".to_owned()]);
+    });
+    assert_eq!(
+        text,
+        fixture::CREATED_ONLY.replace("created:", "tags:\n  - journal\ncreated:")
+    );
+}

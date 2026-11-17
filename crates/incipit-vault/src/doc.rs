@@ -459,10 +459,12 @@ impl Doc {
         Some(time.with_timezone(&chrono::Utc).into())
     }
 
-    /// Marks it changed now. Only documents that already say when they were made get the mark,
-    /// so a file written by hand keeps the properties it had.
+    /// Marks it changed now. Only a document whose `updated` is a time as the vault writes it
+    /// (RFC 3339) gets the mark: those are the ones the vault made. A file written by hand, or in
+    /// Obsidian, keeps the properties it had, with its own dates in its own form, and gets none
+    /// it did not have.
     pub(crate) fn touch(&mut self) {
-        if self.properties.contains("created") || self.properties.contains("updated") {
+        if self.updated_time().is_some() {
             self.set_property("updated", Some(Value::from(now())));
         }
     }
@@ -556,6 +558,31 @@ mod tests {
         let mut doc = Doc::parse(path("notes/Waves.md"), "One\n").unwrap();
         doc.set_tags(vec!["a".into()]);
         assert_eq!(doc.to_text(), "---\ntags:\n  - a\n---\nOne\n");
+    }
+
+    #[test]
+    fn only_an_updated_time_the_vault_wrote_is_marked_when_the_document_is_written() {
+        let touched = |front: &str| {
+            let text = format!("---\n{front}---\nBody\n");
+            let mut doc = Doc::parse(path("Waves.md"), &text).unwrap();
+            doc.touch();
+            (text, doc.to_text())
+        };
+        let (was, now) = touched("created: 2026-10-01T08:00:00Z\nupdated: 2026-10-01T08:00:00Z\n");
+        assert_ne!(now, was);
+        let lines: Vec<&str> = now.lines().collect();
+        assert_eq!(lines[1], "created: 2026-10-01T08:00:00Z");
+        assert!(lines[2].starts_with("updated: ") && !lines[2].contains("2026-10-01"));
+        for own in [
+            "created: 2023-11-10 08:00\n",
+            "created: 2026-10-01T08:00:00Z\n",
+            "updated: 2023-11-10\n",
+            "created: 10 Nov 2023\nupdated: 'Nov 11, 2023'\n",
+            "mood: calm\n",
+        ] {
+            let (was, now) = touched(own);
+            assert_eq!(now, was);
+        }
     }
 
     #[test]

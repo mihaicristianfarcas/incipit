@@ -55,6 +55,12 @@ mood: calm
 A day's entry.
 ";
 
+/// Notes with dates of the learner's own, in their own forms, or only a `created`: a write to them
+/// must not add an `updated`, nor change one.
+pub const OWN_DATES: &str =
+    "---\ncreated: 2023-11-10 08:00\nupdated: 10 Nov 2023\n---\nWritten by hand.\n";
+pub const CREATED_ONLY: &str = "---\ncreated: 2026-10-01T08:00:00Z\n---\nOnly when it began.\n";
+
 /// A note on a reading list, whose own `kind` property is no business of Incipit's.
 pub const SHELF: &str = "---\nkind: book\nstatus: reading\n---\nOn my shelf. See [[Ideas]].\n";
 
@@ -167,6 +173,8 @@ See [[Plan#Goals]] here, [[#Steps]] below, [[Ideas#^abc123|that idea]] and [[Tho
         ("Archive/Windows note.md", WINDOWS.as_bytes().to_vec()),
         ("Journal/Entry.md", ENTRY.as_bytes().to_vec()),
         ("Shelf/Dune.md", SHELF.as_bytes().to_vec()),
+        ("Journal/Own dates.md", OWN_DATES.as_bytes().to_vec()),
+        ("Journal/Created only.md", CREATED_ONLY.as_bytes().to_vec()),
         ("Templates/Daily.md", TEMPLATE.as_bytes().to_vec()),
         text(
             "Știință/Fizică.md",

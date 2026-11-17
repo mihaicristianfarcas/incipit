@@ -40,6 +40,12 @@ empty folder only; in one that holds anything, each appears when something
 is first kept in it. What was there becomes the first entry of the history,
 but for the places the history leaves out (see History).
 
+The first time Incipit writes a note it did not make, it changes what it was
+asked to change and nothing else: the properties it does not know, comments,
+callouts, trailing spaces and line endings stay exactly as they were. A note
+that is only moved or renamed is not written, and the notes that link to it
+change only the link's name; its heading, block and label stay.
+
 ## A document
 
 Every record is one type, a document: a Markdown file whose YAML
@@ -63,7 +69,12 @@ updated: 2026-11-10T09:12:00Z
 - A file written by hand, without an `id`, gets one made from its path,
   which holds for as long as the file stays where it is.
 - Properties the app does not know, their order and their comments are
-  kept when a document is rewritten.
+  kept when a document is rewritten. Only the properties that changed are
+  written again (a list written on one line stays on one line, a comment
+  after a value stays); the lines between them, the body, the file's byte
+  order mark, its line endings and a missing final line break are as they
+  were. A block that cannot be edited line by line (a flow map, a key
+  written twice) is written whole.
 - What a kind adds lives where a person reads it easily: a card's
   `## Front` and `## Back`, a session's `## You` and `## Tutor` turns, a
   figure's fenced `figure` block, an annotation's passage as a

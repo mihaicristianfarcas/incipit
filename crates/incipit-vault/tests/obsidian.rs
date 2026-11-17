@@ -153,12 +153,12 @@ fn doc(vault: &Vault, at: &str) -> Doc {
         .unwrap_or_else(|| panic!("{at} is a document"))
 }
 
+/// A link: its target, its heading, its label and the path of the document it reaches.
+type Reached = (String, Option<String>, Option<String>, Option<String>);
+
 /// What each link of a document reaches, as the path of the document or `None`, with the
 /// heading and label it was written with: `[target, heading, label]` and where it goes.
-fn reached(
-    vault: &Vault,
-    from: &str,
-) -> Vec<(String, Option<String>, Option<String>, Option<String>)> {
+fn reached(vault: &Vault, from: &str) -> Vec<Reached> {
     let id = doc(vault, from).id().clone();
     vault
         .outlinks(&id)
@@ -175,12 +175,7 @@ fn reached(
         .collect()
 }
 
-fn link(
-    target: &str,
-    heading: Option<&str>,
-    label: Option<&str>,
-    to: Option<&str>,
-) -> (String, Option<String>, Option<String>, Option<String>) {
+fn link(target: &str, heading: Option<&str>, label: Option<&str>, to: Option<&str>) -> Reached {
     (
         target.to_owned(),
         heading.map(str::to_owned),
@@ -387,12 +382,15 @@ fn pictures_in_attachments_are_shown_and_those_kept_elsewhere_are_not_as_in_obsi
 
 #[test]
 fn an_alias_reaches_its_note_and_finds_it() {
-    let (_dir, vault) = opened();
+    let (_dir, root) = obsidian_vault();
+    fs::write(root.join("Aliased.md"), "Back to [[Thoughts]].\n").unwrap();
+    let vault = Vault::create(&root).unwrap();
     let ideas = doc(&vault, "Ideas.md");
     assert_eq!(ideas.aliases(), ["Thoughts", "Loose ideas"]);
-    // `[[Thoughts]]` in the plan is a link to the note that has that alias.
-    let alpha = reached(&vault, "Projects/Alpha/Plan.md");
-    assert!(alpha.contains(&link("Thoughts", None, None, Some("Ideas.md"))));
+    // A link written with an alias is a link to the note that has it (Obsidian lists an alias
+    // when a link is typed but does not follow one written by hand).
+    let aliased = reached(&vault, "Aliased.md");
+    assert_eq!(aliased, [link("Thoughts", None, None, Some("Ideas.md"))]);
     let from = doc(&vault, "Welcome.md");
     assert_eq!(
         vault.resolve("Loose ideas", from.id()).as_ref(),
@@ -537,5 +535,181 @@ fn tags_in_the_properties_and_in_the_text_are_read_and_found_by() {
     assert!(
         notes.contains("| physics, study/notes, learning, study/plan |"),
         "{notes}"
+    );
+}
+
+/// A file of the vault as it is now.
+fn text_of(vault: &Vault, at: &str) -> String {
+    fs::read_to_string(vault.root().join(at)).unwrap()
+}
+
+/// Writes a changed note through the vault, as a window does, and gives the file's new text.
+fn write(vault: &Vault, at: &str, change: impl FnOnce(&mut Doc)) -> String {
+    let mut note = doc(vault, at);
+    change(&mut note);
+    vault.update(&note).unwrap();
+    text_of(vault, at)
+}
+
+#[test]
+fn writing_every_note_without_a_change_gives_the_same_bytes() {
+    let (_dir, vault) = opened();
+    let before = snapshot(vault.root(), &[".jj", ".incipit"]);
+    for note in vault.list(None) {
+        // One that says when it was updated is marked, which is the one change a write makes.
+        if note.path().as_str() != "Journal/Entry.md" {
+            vault.update(&note).unwrap();
+        }
+    }
+    let after = snapshot(vault.root(), &[".jj", ".incipit"]);
+    for (name, (bytes, _)) in &before {
+        assert_eq!(&after[name].0, bytes, "{name}");
+    }
+}
+
+#[test]
+fn a_notes_text_is_changed_where_it_changed_and_its_callouts_and_spaces_stay() {
+    let (_dir, vault) = opened();
+    let text = write(&vault, "Reading/Feynman Lectures.md", |note| {
+        let body = note.body().replace(
+            "Nature cannot be fooled.",
+            "Nature cannot be fooled, he said.",
+        );
+        note.set_body(body);
+    });
+    // The properties, with their comments and quoting, the callouts, the block id and the spaces
+    // after the last line are as they were.
+    assert_eq!(
+        text,
+        fixture::FEYNMAN.replace("fooled.", "fooled, he said.")
+    );
+    assert!(text.ends_with("the idea]].   \n"));
+}
+
+#[test]
+fn a_link_added_to_a_property_changes_only_that_property() {
+    let (_dir, vault) = opened();
+    // A list that is there is written again with the new item, in the way it was written.
+    let text = write(&vault, "Reading/Feynman Lectures.md", |note| {
+        let mut related = note.related();
+        related.push("[[Welcome]]".to_owned());
+        note.set_related(related);
+    });
+    assert_eq!(
+        text,
+        fixture::FEYNMAN.replace(
+            "  - \"[[Ideas]]\"\n",
+            "  - \"[[Ideas]]\"\n  - \"[[Welcome]]\"\n"
+        )
+    );
+    // A property that is new goes with the others the way the vault writes them, and nothing
+    // else of the note moves, whatever Incipit does not know.
+    let text = write(&vault, "Ideas.md", |note| {
+        note.set_related(vec!["[[Welcome]]".to_owned()]);
+    });
+    let original = String::from_utf8(
+        fixture::files()
+            .into_iter()
+            .find(|(path, _)| *path == "Ideas.md")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(
+        text,
+        original.replace(
+            "rating: 4\n---\n",
+            "rating: 4\nrelated:\n  - \"[[Welcome]]\"\n---\n"
+        )
+    );
+}
+
+#[test]
+fn a_new_property_goes_before_the_properties_it_is_written_before_and_the_comments_stay() {
+    let (_dir, vault) = opened();
+    let text = write(&vault, "Reading/Feynman Lectures.md", |note| {
+        note.set_tags(vec!["physics".to_owned()]);
+    });
+    assert_eq!(
+        text,
+        fixture::FEYNMAN.replace(
+            "aliases: [Lectures]\n",
+            "tags:\n  - physics\naliases: [Lectures]\n"
+        )
+    );
+}
+
+#[test]
+fn a_note_from_windows_keeps_its_mark_and_its_line_endings_when_a_property_changes() {
+    let (_dir, vault) = opened();
+    let text = write(&vault, "Archive/Windows note.md", |note| {
+        note.set_tags(vec!["archive".to_owned(), "done".to_owned()]);
+    });
+    assert_eq!(
+        text,
+        fixture::WINDOWS.replace("tags: [archive]", "tags: [archive, done]")
+    );
+    let text = write(&vault, "Archive/Windows note.md", |note| {
+        note.set_related(vec!["[[Ideas]]".to_owned()]);
+    });
+    assert!(
+        text.contains("related:\r\n  - \"[[Ideas]]\"\r\n---\r\n"),
+        "{text:?}"
+    );
+    assert!(!text.replace("\r\n", "").contains('\n'), "{text:?}");
+}
+
+#[test]
+fn marking_a_note_updated_changes_that_line_and_no_other() {
+    let (_dir, vault) = opened();
+    let text = write(&vault, "Journal/Entry.md", |_| {});
+    let before: Vec<&str> = fixture::ENTRY.lines().collect();
+    let after: Vec<&str> = text.lines().collect();
+    assert_eq!(after.len(), before.len());
+    for (at, (now, was)) in after.iter().zip(&before).enumerate() {
+        if at == 2 {
+            assert!(now.starts_with("updated: ") && now != was, "{now}");
+        } else {
+            assert_eq!(now, was);
+        }
+    }
+}
+
+#[test]
+fn renaming_a_note_carries_the_links_to_it_and_changes_nothing_else_in_the_notes_that_have_them() {
+    let (_dir, vault) = opened();
+    let ideas = doc(&vault, "Ideas.md");
+    let originals: Vec<(&str, String)> = fixture::files()
+        .into_iter()
+        .filter(|(path, _)| path.ends_with(".md") && !path.starts_with('.'))
+        .map(|(path, bytes)| (path, String::from_utf8(bytes).unwrap()))
+        .collect();
+    vault.rename(ideas.id(), "Thoughts and ideas").unwrap();
+    for (at, original) in &originals {
+        let now_at = if *at == "Ideas.md" {
+            "Thoughts and ideas.md"
+        } else {
+            at
+        };
+        let text = text_of(&vault, now_at);
+        // A link to it is the same link with the new name: its heading, block and label stay.
+        let expected = original
+            .replace("[[Ideas]]", "[[Thoughts and ideas]]")
+            .replace("[[Ideas#^abc123|", "[[Thoughts and ideas#^abc123|")
+            .replace("[[Ideas\\|", "[[Thoughts and ideas\\|")
+            .replace(
+                "](<../../../Ideas.md>)",
+                "](<../../../Thoughts and ideas.md>)",
+            )
+            .replace("\"[[Ideas]]\"", "\"[[Thoughts and ideas]]\"");
+        assert_eq!(text, expected, "{at}");
+    }
+    assert!(!vault.root().join("Ideas.md").exists());
+    // An alias that was one of its names still reaches it.
+    let plan = doc(&vault, "Projects/Alpha/Plan.md");
+    let moved = doc(&vault, "Thoughts and ideas.md");
+    assert_eq!(
+        vault.resolve("Thoughts", plan.id()).as_ref(),
+        Some(moved.id())
     );
 }

@@ -347,6 +347,21 @@ impl Pdf {
         Ok(Pdf { document })
     }
 
+    /// The title and the author the file says it has, as whatever made it wrote them: either
+    /// may be missing or junk (a converter's "Microsoft Word - …", say), so the caller judges.
+    pub fn said(&self) -> (Option<String>, Option<String>) {
+        let meta = self.document.metadata();
+        let get = |tag| {
+            meta.get(tag)
+                .map(|t| t.value().trim().to_owned())
+                .filter(|v| !v.is_empty())
+        };
+        (
+            get(PdfDocumentMetadataTagType::Title),
+            get(PdfDocumentMetadataTagType::Author),
+        )
+    }
+
     /// Every page's width and height in points, without drawing any.
     pub fn sizes(&self) -> Result<Vec<(f32, f32)>> {
         let sizes = self

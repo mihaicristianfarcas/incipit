@@ -130,6 +130,45 @@ fn format_of(file: &Path) -> Option<&'static str> {
     }
 }
 
+/// A title or author as the file says it, cleaned as the earlier app's `ingestPdf` cleaned them:
+/// Project Gutenberg's and Word's prefixes taken off, and the junk that print-to-PDF and
+/// converters leave (`untitled`, `about:blank`, `Document1`, an address, a file name) dropped, as
+/// the file's own name is better than these.
+fn said_cleanly(value: Option<String>) -> Option<String> {
+    let mut text = value?.trim().to_owned();
+    let lower = text.to_lowercase();
+    if let Some(rest) = lower.strip_prefix("the project gutenberg ebook #") {
+        let digits = rest.chars().take_while(char::is_ascii_digit).count();
+        if digits > 0 && rest[digits..].starts_with(':') {
+            let cut = "the project gutenberg ebook #".len() + digits + 1;
+            text = text[cut..].trim_start().to_owned();
+        }
+    }
+    if text.to_lowercase().starts_with("microsoft word - ") {
+        text = text["microsoft word - ".len()..].to_owned();
+    }
+    let text = text.trim().to_owned();
+    let lower = text.to_lowercase();
+    let word = |c: char| c.is_alphanumeric() || c == '_' || c == '-';
+    let file_name = lower.rsplit_once('.').is_some_and(|(stem, ext)| {
+        !stem.is_empty()
+            && stem.chars().all(word)
+            && ["doc", "docx", "htm", "html", "tex", "pdf"].contains(&ext)
+    });
+    let document = lower
+        .strip_prefix("document")
+        .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()));
+    let address = (lower.starts_with("http://") || lower.starts_with("https://"))
+        && !lower.contains(char::is_whitespace);
+    let junk = text.is_empty()
+        || lower == "about:blank"
+        || lower == "untitled"
+        || document
+        || address
+        || file_name;
+    (!junk).then_some(text)
+}
+
 /// Copy a book's file into the vault and write its record. Blocks while the file is copied.
 pub fn add_book(vault: &Vault, file: &Path) -> Result<Doc, String> {
     let format = format_of(file).ok_or("Only PDF and EPUB books can be added for now.")?;
@@ -138,14 +177,18 @@ pub fn add_book(vault: &Vault, file: &Path) -> Result<Doc, String> {
         .and_then(|n| n.to_str())
         .ok_or("The file has no name that can be kept.")?;
     let stem = file.file_stem().and_then(|n| n.to_str()).unwrap_or("Book");
-    let title = match format {
+    // The title and author the book says, as the earlier app took them; the file's name when it
+    // names no title worth keeping.
+    let (title, author) = match format {
         "epub" => incipit_book::Book::open(file)
-            .ok()
-            .map(|b| b.title)
-            .filter(|t| !t.trim().is_empty()),
-        _ => None,
-    }
-    .unwrap_or_else(|| stem.replace(['_', '-'], " "));
+            .map(|b| (Some(b.title), b.author))
+            .unwrap_or_default(),
+        _ => incipit_book::Pdf::open(&crate::resources::pdfium(), file)
+            .map(|pdf| pdf.said())
+            .unwrap_or_default(),
+    };
+    let author = said_cleanly(author);
+    let title = said_cleanly(title).unwrap_or_else(|| stem.replace(['_', '-'], " "));
     // A folder of the book's own, under a name not taken yet.
     let base = incipit_vault::kind::slug(&title, 60);
     let taken = |folder: &str| vault.root().join("library").join(folder).exists();
@@ -166,6 +209,7 @@ pub fn add_book(vault: &Vault, file: &Path) -> Result<Doc, String> {
     let mut doc = Doc::new_at(Kind::Book, record);
     doc.set_title(&title);
     doc.set_fields(&Book {
+        author,
         file: Some(name.to_owned()),
         format: Some(format.to_owned()),
         ..Book::default()
@@ -503,6 +547,47 @@ impl Render for LibraryView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_title_the_file_says_is_kept_unless_it_is_junk() {
+        let said = |t: &str| said_cleanly(Some(t.to_owned()));
+        assert_eq!(
+            said(" Attention Is All You Need ").as_deref(),
+            Some("Attention Is All You Need")
+        );
+        assert_eq!(
+            said("The Project Gutenberg eBook #5001: Relativity").as_deref(),
+            Some("Relativity")
+        );
+        assert_eq!(
+            said("Microsoft Word - Thesis final").as_deref(),
+            Some("Thesis final")
+        );
+        for junk in [
+            "",
+            "untitled",
+            "Untitled",
+            "about:blank",
+            "Document1",
+            "document",
+            "https://example.com/a",
+            "notes.docx",
+            "paper_v2.pdf",
+            "main.tex",
+        ] {
+            assert_eq!(said(junk), None, "{junk:?}");
+        }
+        // Words that only look like the junk are kept.
+        assert_eq!(
+            said("Documents of the Revolution").as_deref(),
+            Some("Documents of the Revolution")
+        );
+        assert_eq!(
+            said("A guide to HTML.html and more").as_deref(),
+            Some("A guide to HTML.html and more")
+        );
+        assert_eq!(said_cleanly(None), None);
+    }
 
     fn listed(title: &str, author: Option<&str>, touched: i64) -> Listed {
         Listed {

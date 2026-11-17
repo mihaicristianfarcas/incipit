@@ -23,10 +23,11 @@ use std::time::Duration;
 
 use gpui::{
     div, prelude::*, px, ClipboardEntry, Context, Entity, EventEmitter, ExternalPaths, IntoElement,
-    Render, ScrollHandle, Subscription, Task, Window,
+    MouseButton, Render, ScrollHandle, Subscription, Task, Window,
 };
 use incipit_ui::{
-    button, field, icon_button, FieldEvent, IconName, Pasted, TextField, Theme, Type,
+    button, field, focus_ring, icon_button, keep_focus, row_stops, scroll_area, FieldEvent,
+    IconName, Pasted, TextField, Theme, Type,
 };
 use incipit_vault::attachments::{picture_type, MAX_PICTURE_BYTES};
 use incipit_vault::{Doc, DocId, Kind, Origin, Vault, VaultPath};
@@ -655,12 +656,23 @@ impl NotesView {
             .children(buttons)
     }
 
-    fn rows(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    fn rows(&self, t: Theme, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        scroll_area(&self.list_scroll);
+        // The notes are one stop for Tab, the arrows going from one to the next.
+        let stops = row_stops(
+            "note-rows",
+            self.notes.iter().map(|n| n.id.as_str()),
+            None,
+            window,
+            cx,
+        );
         let rows = self.notes.iter().enumerate().map(|(index, note)| {
             let id = note.id.clone();
             let on = self.open.as_ref() == Some(&note.id);
+            let (focus, ring) = stops.row(index, window);
             div()
                 .id(("note-row", index))
+                .relative()
                 .px(px(10.0))
                 .py(px(7.0))
                 .rounded(px(6.0))
@@ -669,6 +681,8 @@ impl NotesView {
                 .when(on, |row| row.bg(t.selected))
                 .hover(|row| row.bg(t.hover))
                 .cursor_pointer()
+                .track_focus(&focus)
+                .on_mouse_down(MouseButton::Left, keep_focus)
                 .flex()
                 .flex_col()
                 .child(div().truncate().child(note.title.clone()))
@@ -678,6 +692,7 @@ impl NotesView {
                         .map(|folder| div().truncate().text_size(px(Type::META)).child(folder)),
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.select(id.clone(), cx)))
+                .when(ring, |row| row.child(focus_ring(t, 6.0, -2.0)))
         });
         let broken = self.broken.iter().enumerate().map(|(index, file)| {
             let path = file.path.clone();
@@ -723,6 +738,7 @@ impl NotesView {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&self.list_scroll)
+                    .on_key_down(stops.keys())
                     .flex()
                     .flex_col()
                     .gap(px(1.0))
@@ -970,7 +986,7 @@ impl Render for NotesView {
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(self.rows(t, cx))
+                    .child(self.rows(t, window, cx))
                     .child(note)
                     .when(self.open.is_some() && self.mending.is_none(), |row| {
                         row.child(self.links.clone())

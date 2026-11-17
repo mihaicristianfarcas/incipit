@@ -507,3 +507,35 @@ fn a_file_whose_name_another_system_refuses_is_left_where_it_is_and_not_read() {
         "Obsidian on a Mac allows this name.\n"
     );
 }
+
+#[test]
+fn tags_in_the_properties_and_in_the_text_are_read_and_found_by() {
+    let (_dir, vault) = opened();
+    let tags = |at: &str| doc(&vault, at).all_tags();
+    // The properties first, then the text; a nested tag is one tag. A heading's `#`, a number, a
+    // web address's fragment and code are not tags.
+    assert_eq!(
+        tags("Ideas.md"),
+        ["physics", "study/notes", "learning", "study/plan"]
+    );
+    assert_eq!(doc(&vault, "Ideas.md").tags(), ["physics", "study/notes"]);
+    assert_eq!(tags("Daily/2026-11-10.md"), ["daily"]);
+    assert_eq!(tags("Archive/Windows note.md"), ["archive"]);
+    assert_eq!(tags("Știință/Fizică.md"), ["fizică"]);
+    assert!(tags("Welcome.md").is_empty());
+    // A tag known from the text finds the note as one from the properties does.
+    assert_eq!(
+        vault.search("learning", 5)[0].id,
+        *doc(&vault, "Ideas.md").id()
+    );
+    assert_eq!(vault.search("daily", 5)[0].title, "2026-11-10");
+    let notes = indexes::build(&vault, "2026-11-10T09:00:00Z", &|_| None)
+        .into_iter()
+        .find(|f| f.path == "notes/INDEX.md")
+        .unwrap()
+        .text;
+    assert!(
+        notes.contains("| physics, study/notes, learning, study/plan |"),
+        "{notes}"
+    );
+}

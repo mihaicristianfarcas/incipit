@@ -339,6 +339,20 @@ impl Doc {
         self.set_property("tags", Some(Value::from(tags)));
     }
 
+    /// Every tag the document has, as Obsidian counts them: the `tags` property (a leading `#`
+    /// is left off), then the `#tags` written in the text, each once, whatever its case. The
+    /// `tags` property alone is `tags()`, which is what `set_tags` changes.
+    pub fn all_tags(&self) -> Vec<String> {
+        let mut tags = Vec::new();
+        for tag in self.tags() {
+            crate::tags::add(&mut tags, &tag);
+        }
+        for tag in crate::tags::inline(&self.body) {
+            crate::tags::add(&mut tags, &tag);
+        }
+        tags
+    }
+
     pub fn aliases(&self) -> Vec<String> {
         self.properties.texts("aliases")
     }

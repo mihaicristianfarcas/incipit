@@ -132,7 +132,7 @@ impl SearchIndex {
         let known_by = doc
             .aliases()
             .into_iter()
-            .chain(doc.tags())
+            .chain(doc.all_tags())
             .chain(extra_lines.iter().cloned())
             .collect::<Vec<_>>()
             .join(" ");

@@ -37,6 +37,7 @@ pub mod profile;
 pub mod quiz;
 pub mod search;
 mod store;
+mod tags;
 pub mod value;
 mod watch;
 

@@ -23,7 +23,7 @@
 //! Without clicking: INCIPIT_BOOK=pdf|epub, INCIPIT_NOTE=1 (a note and a selection to look at;
 //! =answer for a model's answer, =math for one with math in it, =session for a tutor session
 //! with a made-up conversation, =figure for a figure's card),
-//! INCIPIT_ASK=explain|resources|cards|quiz|figure (with INCIPIT_NOTE: ask the model about the selection or the page),
+//! INCIPIT_ASK=explain|resources|cards|quiz|figure|connect (with INCIPIT_NOTE: ask the model about the selection or the page),
 //! INCIPIT_DRAFTS=demo (the drafter's sheet on made-up flashcards), INCIPIT_EXPLAIN=demo (the
 //! explaining sheet on a made-up explanation, graded), INCIPIT_EXPLAIN=write (with INCIPIT_NOTE:
 //! the sheet open to explain the selection back), INCIPIT_QUIZ=choose|check|pretest
@@ -737,7 +737,7 @@ impl ReaderView {
         .detach();
     }
 
-    /// INCIPIT_ASK=explain|define|resources|note|cards|quiz|figure puts the demonstration's selection to the model, to
+    /// INCIPIT_ASK=explain|define|resources|note|cards|quiz|figure|connect puts the demonstration's selection to the model, to
     /// see a real answer arrive without a mouse; INCIPIT_EXPLAIN=write opens the selection to
     /// explain back. INCIPIT_NOTE=session opens the demonstration's
     /// note as a tutor session, which asks no model.
@@ -759,6 +759,7 @@ impl ReaderView {
             Ok("cards") => self.make_cards(cx),
             Ok("quiz") => self.offer_quiz(Some(Mode::Check), cx),
             Ok("figure") => self.draw_selection(cx),
+            Ok("connect") => self.connect(cx),
             // With INCIPIT_NOTE=session: the learner's next turn, sent to the model.
             Ok("session") => {
                 self.reply.update(cx, |reply, cx| {

@@ -12,7 +12,8 @@
 //! open here, so the model has the passage, the book's title, author and chapter, not the text
 //! around it. INCIPIT_REDRAW=field|busy|refused, with INCIPIT_VAULT on a throwaway folder, adds
 //! a made-up kept figure to a vault that has none and opens it with the field written in, a
-//! redraw under way or a refused one; no model is asked.
+//! redraw under way or a refused one; no model is asked. `send` redraws it with those notes,
+//! which asks the model.
 
 mod redrawing;
 

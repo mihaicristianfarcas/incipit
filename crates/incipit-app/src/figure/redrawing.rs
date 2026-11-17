@@ -147,7 +147,7 @@ impl FigureView {
 
     /// INCIPIT_REDRAW=field|busy|refused: adds a made-up kept figure to a vault that has none,
     /// shows it with the field to redraw it open and notes written, with a redraw under way, or
-    /// with a refused one. No model is asked.
+    /// with a refused one. No model is asked; `send` does ask one, to redraw it with those notes.
     pub(super) fn show_demo_redraw(&mut self, cx: &mut Context<Self>) {
         let Some(vault) = self.workspace.read(cx).vault.clone() else {
             return;
@@ -206,6 +206,8 @@ impl FigureView {
                     ]),
                 ))
             }
+            // The one that asks a model: the notes written are sent.
+            "send" => self.redraw_shown(cx),
             _ => {}
         }
         cx.notify();

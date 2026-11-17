@@ -58,14 +58,14 @@ use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::StreamExt;
 use gpui::{
     anchored, deferred, div, list, prelude::*, px, AnyElement, Context, Entity, FocusHandle,
-    IntoElement, KeyDownEvent, ListAlignment, ListOffset, ListState, Pixels, Point, Render,
-    RenderImage, Subscription, Window,
+    IntoElement, KeyDownEvent, ListAlignment, ListOffset, ListState, MouseButton, Pixels, Point,
+    Render, RenderImage, ScrollHandle, Subscription, Window,
 };
 use incipit_book::{Anchor, Block, Book, Entry, Page, PdfInfo, PdfWorker};
 use incipit_llm::Cancel;
 use incipit_ui::{
-    button, drag_area, field, floating, icon_button, scrollbar, FieldEvent, IconName, Metrics,
-    TextField, Theme, Type,
+    button, drag_area, field, floating, focus_ring, icon_button, keep_focus, row_stops,
+    scroll_area, scrollbar, FieldEvent, IconName, Metrics, TextField, Theme, Type,
 };
 
 use incipit_vault::fields::Status;
@@ -180,6 +180,8 @@ pub struct ReaderView {
     redraw: Entity<TextField>,
     redrawing_for: Option<u64>,
     contents: bool,
+    /// The scroll of the contents.
+    rail_scroll: ScrollHandle,
     margin: bool,
     /// The width there is for the book itself, beside the margin and the contents.
     pub(self) room: f32,
@@ -346,6 +348,7 @@ impl ReaderView {
             redraw,
             redrawing_for: None,
             contents: std::env::var_os("INCIPIT_CONTENTS").is_some(),
+            rail_scroll: ScrollHandle::new(),
             margin: true,
             room: f32::MAX,
             drawn,
@@ -1193,11 +1196,19 @@ impl ReaderView {
         let here = entries.iter().rposition(|e| e.page <= top);
         let status = self.mapping_status(t, window, cx);
         let mapping = self.mapping_entry();
+        scroll_area(&self.rail_scroll);
+        // The lines are one stop for Tab, the arrows going from one to the next.
+        let stops = row_stops("contents", 0..entries.len(), None, window, cx);
         let rows = entries.iter().enumerate().map(|(index, entry)| {
             let page = entry.page;
-            let mappable = self.hovered_entry == Some(index) || here == Some(index);
+            let (focus, ring) = stops.row(index, window);
+            // The line the keyboard is on (or in) has the button too, as the one under the pointer.
+            let mappable = self.hovered_entry == Some(index)
+                || here == Some(index)
+                || focus.contains_focused(window, cx);
             div()
                 .id(("contents", index))
+                .relative()
                 // Its height is its text's: a line is never squeezed to fit the rail.
                 .flex_none()
                 .flex()
@@ -1217,6 +1228,8 @@ impl ReaderView {
                 .when(here == Some(index), |row| row.bg(t.selected))
                 .hover(|row| row.bg(t.hover))
                 .cursor_pointer()
+                .track_focus(&focus)
+                .on_mouse_down(MouseButton::Left, keep_focus)
                 .child(div().flex_1().min_w_0().child(entry.title.clone()))
                 .when(mapping == Some(index), |row| {
                     row.child(div().flex_none().p(px(6.0)).child(incipit_ui::spinner(
@@ -1243,6 +1256,7 @@ impl ReaderView {
                     this.moved(cx);
                     cx.notify();
                 }))
+                .when(ring, |row| row.child(focus_ring(t, 6.0, -2.0)))
         });
         div()
             .id("reader-contents-rail")
@@ -1250,6 +1264,8 @@ impl ReaderView {
             .w(px(CONTENTS))
             .h_full()
             .overflow_y_scroll()
+            .track_scroll(&self.rail_scroll)
+            .on_key_down(stops.keys())
             .px(px(8.0))
             .pb(px(16.0))
             .flex()

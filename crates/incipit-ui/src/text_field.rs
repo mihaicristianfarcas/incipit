@@ -639,6 +639,7 @@ impl TextField {
             self.selected = caret.start + 2..caret.end + 2;
         } else {
             window.focus_next(cx);
+            crate::focus::keyboard_moved();
         }
     }
 
@@ -654,6 +655,7 @@ impl TextField {
                 caret.start.saturating_sub(2).max(start)..caret.end.saturating_sub(2).max(start);
         } else {
             window.focus_prev(cx);
+            crate::focus::keyboard_moved();
         }
     }
 

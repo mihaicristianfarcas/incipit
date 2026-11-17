@@ -833,9 +833,14 @@ impl ReaderView {
                 }
             }
         }
-        // INCIPIT_NOTE=figure: the note is a figure's card, which can be redrawn.
+        // INCIPIT_NOTE=figure: the note is a figure's card, which can be redrawn. In an EPUB it
+        // is on a paragraph of the first screen, so it is seen when the book opens.
         let figure = (std::env::var("INCIPIT_NOTE").as_deref() == Ok("figure"))
             .then(|| incipit_scene::schema::example(incipit_scene::Kind::Flow));
+        if let (Some(_), Doc::Epub(book)) = (&figure, &opened.doc) {
+            note = model::first_paragraph(&book.blocks, self.list.logical_scroll_top().item_ix)
+                .or(note);
+        }
         if let Some(anchor) = note {
             let id = self.id();
             self.notes.push(Note {

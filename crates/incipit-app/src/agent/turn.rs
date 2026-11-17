@@ -35,16 +35,16 @@ pub fn undo_problem(error: &incipit_vault::Error) -> String {
     }
 }
 
-/// Whether a file a reply names can be opened, as the earlier app's `vaultLink` decided: a
-/// note, concept, card or figure, what belongs to a book, or the book itself.
+/// Whether a file a reply names can be opened: what belongs to a book, or the book itself, as
+/// the earlier app's `vaultLink` decided, and any Markdown file of the vault, in any folder (a
+/// vault Obsidian made keeps its notes where it likes), but not one in a hidden folder (`.jj/`,
+/// `.incipit/`, `.obsidian/`, `.trash/`, `.git/`) or outside the vault.
 pub fn openable(path: &str) -> bool {
     let parts: Vec<&str> = path.split('/').collect();
-    let markdown = path.ends_with(".md");
-    match parts.as_slice() {
-        ["notes" | "concepts" | "cards" | "figures", _, ..] => markdown,
-        ["library", book, _, ..] => !book.is_empty(),
-        _ => false,
+    if let ["library", book, _, ..] = parts.as_slice() {
+        return !book.is_empty();
     }
+    path.ends_with(".md") && incipit_vault::VaultPath::new(path).is_ok()
 }
 
 /// A file a run changed, as the sheet lists it.
@@ -544,7 +544,8 @@ mod tests {
     }
 
     #[test]
-    fn a_file_a_reply_names_is_opened_where_the_earlier_app_opened_it() {
+    fn a_file_a_reply_names_is_opened_when_it_is_a_markdown_file_of_the_vault_or_belongs_to_a_book()
+    {
         for path in [
             "notes/Waves.md",
             "notes/Physics/Waves.md",
@@ -557,12 +558,33 @@ mod tests {
         ] {
             assert!(openable(path), "{path}");
         }
+        // A Markdown file anywhere in the vault: an Obsidian vault keeps its notes where it likes.
+        for path in [
+            "Welcome.md",
+            "README.md",
+            "Projects/Alpha/Plan.md",
+            "Daily/2026-11-10.md",
+            "Știință/Fizică.md",
+        ] {
+            assert!(openable(path), "{path}");
+        }
         for path in [
             "notes/data.json",
             "log/reviews.jsonl",
-            "README.md",
             "notes/",
             "library/x",
+            "Papers/paper.pdf",
+            "Projects/Alpha",
+            // The places that are not the learner's, and ways out of the vault.
+            ".jj/repo/notes.md",
+            ".incipit/agent/INDEX.md",
+            ".obsidian/templates/Daily.md",
+            ".trash/Old idea.md",
+            ".git/info/README.md",
+            "notes/.hidden.md",
+            "../Outside.md",
+            "notes/../../Outside.md",
+            "/Outside.md",
         ] {
             assert!(!openable(path), "{path}");
         }

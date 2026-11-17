@@ -497,8 +497,11 @@ fn checked(report: &Report, t: Theme) -> impl IntoElement {
             .text_size(px(Type::META))
             .text_color(t.tertiary)
             .child(format!(
-                "Checked in {} states: nothing wrong{warnings}.",
-                report.states
+                "Checked in {}: nothing wrong{warnings}.",
+                match report.states {
+                    1 => "1 state".to_owned(),
+                    n => format!("{n} states"),
+                }
             ))
     } else {
         div()

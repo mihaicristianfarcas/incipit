@@ -45,17 +45,23 @@ pub fn init(cx: &mut App) {
 }
 
 fn move_keyboard(back: bool, cx: &mut App) {
-    let Some(window) = cx.active_window() else {
+    // The window in front, or the only one when none is (a window opened to be looked at has
+    // not been given the keyboard by the system).
+    let Some(window) = cx.active_window().or_else(|| cx.windows().first().copied()) else {
         return;
     };
-    let _ = window.update(cx, |_, window, cx| {
-        if back {
-            window.focus_prev(cx);
-        } else {
-            window.focus_next(cx);
-        }
-        keyboard_moved();
-        window.refresh();
+    // The key is being dispatched inside an update of the window, which cannot be updated again
+    // until that is done.
+    cx.defer(move |cx| {
+        let _ = window.update(cx, |_, window, cx| {
+            if back {
+                window.focus_prev(cx);
+            } else {
+                window.focus_next(cx);
+            }
+            keyboard_moved();
+            window.refresh();
+        });
     });
 }
 

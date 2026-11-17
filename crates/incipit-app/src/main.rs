@@ -102,6 +102,40 @@ impl Page {
     }
 }
 
+/// How long a run that only looks waits for a page to settle before the picture: 1.5 seconds, or
+/// INCIPIT_WAIT seconds, for what takes time (a model's answer).
+fn shot_wait() -> Duration {
+    std::env::var("INCIPIT_WAIT")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .map_or(Duration::from_millis(1500), Duration::from_secs_f32)
+}
+
+/// The keys INCIPIT_KEYS names, as GPUI writes them (`tab`, `shift-tab`, `down`); one it cannot read
+/// is said and left out.
+fn keys_named(words: &str) -> Vec<gpui::Keystroke> {
+    words
+        .split_whitespace()
+        .filter_map(|word| match gpui::Keystroke::parse(word) {
+            Ok(key) => Some(key),
+            Err(e) => {
+                eprintln!("INCIPIT_KEYS: {word}: {e}");
+                None
+            }
+        })
+        .collect()
+}
+
+/// Presses the keys as if typed, one to a frame: each meets the window as the one before left it.
+fn press(mut keys: Vec<gpui::Keystroke>, window: &mut Window, cx: &mut App) {
+    if keys.is_empty() {
+        return;
+    }
+    window.dispatch_keystroke(keys.remove(0), cx);
+    window.refresh();
+    window.on_next_frame(move |window, cx| press(keys, window, cx));
+}
+
 const PAGES: [(Page, &str, &str, IconName); 10] = [
     (Page::Today, "nav-today", "Today", IconName::Clock),
     (Page::Library, "nav-library", "Library", IconName::Display),
@@ -170,18 +204,23 @@ impl Root {
             // Nothing says "the page has settled" (fonts shaped, the fade over), so the picture is
             // taken after a fixed moment.
             cx.spawn_in(window, async move |_, cx| {
-                // INCIPIT_WAIT=seconds waits longer, for what takes time (a model's answer).
-                let wait = std::env::var("INCIPIT_WAIT")
-                    .ok()
-                    .and_then(|s| s.parse::<f32>().ok())
-                    .map_or(Duration::from_millis(1500), Duration::from_secs_f32);
-                cx.background_executor().timer(wait).await;
+                cx.background_executor().timer(shot_wait()).await;
                 let _ = cx.update(|window, cx| {
                     if let Err(e) = incipit_ui::snapshot(window, std::path::Path::new(&path)) {
                         eprintln!("snapshot not saved: {e}");
                     }
                     cx.quit();
                 });
+            })
+            .detach();
+        }
+        if let Ok(keys) = std::env::var("INCIPIT_KEYS") {
+            let keys = keys_named(&keys);
+            // Nothing says "the page's data has arrived" either, so the first key is pressed after
+            // half the moment the picture waits for; the others follow, one to a frame.
+            cx.spawn_in(window, async move |_, cx| {
+                cx.background_executor().timer(shot_wait() / 2).await;
+                let _ = cx.update(|window, cx| press(keys, window, cx));
             })
             .detach();
         }

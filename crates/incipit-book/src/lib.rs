@@ -17,5 +17,5 @@ pub use anchor::Anchor;
 pub use dark::Dark;
 pub use epub::{Block, Book, Rich, Span};
 pub use index::{Passage, Source, TextIndex};
-pub use pdf::{Cut, Entry, Glyph, Line, Page, PageText, Pdf};
+pub use pdf::{library_file, Cut, Entry, Glyph, Line, Page, PageText, Pdf};
 pub use worker::{PdfInfo, PdfWorker};

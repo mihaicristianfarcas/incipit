@@ -43,6 +43,7 @@ mod progress;
 mod providers;
 mod quiz;
 mod reader;
+mod resources;
 mod review;
 mod settings;
 mod stage;
@@ -669,6 +670,10 @@ pub fn theme(window: &Window) -> Theme {
     t
 }
 
+/// The app's identifier, one for every system: the macOS bundle's, the Windows registry's and the
+/// Linux window class and desktop file's name. It is kept in a file the package scripts read too.
+const APP_ID: &str = include_str!("../../../packaging/identifier");
+
 fn main() {
     gpui_platform::application()
         .with_assets(incipit_ui::Assets)
@@ -678,7 +683,7 @@ fn main() {
             incipit_ui::typeset_with(cx, math::typeset);
             let mut options = incipit_ui::window_options(
                 "Incipit",
-                "dev.mihaicristian.incipit",
+                APP_ID.trim(),
                 1180.0,
                 780.0,
                 (720.0, 480.0),

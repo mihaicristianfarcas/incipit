@@ -134,9 +134,38 @@ pub fn make(
     })
 }
 
+/// What the learner is told when every try was refused: the first three reasons, as the earlier
+/// app said them, so they can see what went wrong.
+pub fn refused(problems: &[String]) -> String {
+    let reasons: Vec<&str> = problems.iter().take(3).map(String::as_str).collect();
+    if reasons.is_empty() {
+        "The model's figure did not pass the checks, so it is not shown. Try again, or a shorter \
+         passage."
+            .to_owned()
+    } else {
+        format!(
+            "The model's figure did not pass the checks, so it is not shown: {}. Try again, or a \
+             shorter passage.",
+            reasons.join("; ")
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refusal_names_the_first_three_reasons() {
+        let problems: Vec<String> = ["one", "two", "three", "four"]
+            .iter()
+            .map(|p| p.to_string())
+            .collect();
+        let said = refused(&problems);
+        assert!(said.contains(": one; two; three."), "{said}");
+        assert!(!said.contains("four"), "{said}");
+        assert!(!refused(&[]).contains(':'));
+    }
     use incipit_llm::{Abilities, Answer, Model, Status};
     use std::sync::Mutex;
 

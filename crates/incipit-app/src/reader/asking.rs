@@ -360,10 +360,8 @@ impl ReaderView {
                             note.waiting = false;
                             note.words.clear();
                             note.problem = Some(match e {
-                                incipit_llm::Error::Invalid { .. } => {
-                                    "The model's figure did not pass the checks, so it is not \
-                                     shown. Try again, or a shorter passage."
-                                        .to_owned()
+                                incipit_llm::Error::Invalid { problems, .. } => {
+                                    crate::figures::refused(&problems)
                                 }
                                 other => other.to_string(),
                             });

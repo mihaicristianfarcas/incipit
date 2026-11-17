@@ -173,8 +173,12 @@ pub fn y_range(plot: &Plot) -> (f32, f32) {
     if hi < 0.0 && -hi < span * 0.35 {
         hi = 0.0;
     }
+    // Padding goes on the sides away from zero: bars or values that start at zero start the
+    // axis there, with no row of numbers below it that nothing reaches.
     let pad = (hi - lo).abs() * 0.04;
-    nice_extent(lo - pad, hi + pad, 5)
+    let below = if lo == 0.0 { 0.0 } else { pad };
+    let above = if hi == 0.0 { 0.0 } else { pad };
+    nice_extent(lo - below, hi + above, 5)
 }
 
 /// The part of the segment from `a` to `b` inside `r` (Liang–Barsky), if any.

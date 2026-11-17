@@ -593,6 +593,19 @@ mod tests {
     }
 
     #[test]
+    fn bars_that_stand_on_zero_start_the_automatic_y_range_there() {
+        let p = plot(json!({
+            "x": { "label": "", "min": 0, "max": 4 },
+            "y": { "label": "", "min": 0, "max": 0 },
+            "layers": [bars(&["1", "6", "2"], &[])],
+        }));
+        let (lo, hi) = y_range(&p);
+        assert_eq!(lo, 0.0, "{lo} {hi}");
+        assert!(hi >= 6.0, "{lo} {hi}");
+        assert!(checked(&p).ok(), "{:#?}", checked(&p));
+    }
+
+    #[test]
     fn bars_missing_a_height_are_refused() {
         let mut b = bars(&["1", "2"], &[]);
         b["xs"] = json!(["1", "2", "3"]);

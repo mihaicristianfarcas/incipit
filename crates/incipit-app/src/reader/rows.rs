@@ -96,7 +96,7 @@ impl ReaderView {
         let (part, margin) = if pdf {
             self.page(index, t, window, cx)
         } else {
-            self.block(index, t, cx)
+            self.block(index, t, window, cx)
         };
         div()
             .w_full()
@@ -208,7 +208,11 @@ impl ReaderView {
                     } else {
                         CARD.0
                     };
-                    cards.push((top - 8.0, room, self.card(note, t, cx).into_any_element()));
+                    cards.push((
+                        top - 8.0,
+                        room,
+                        self.card(note, t, window, cx).into_any_element(),
+                    ));
                 }
             }
             if let Some(anchor) = self
@@ -327,7 +331,13 @@ impl ReaderView {
     }
 
     /// An EPUB's block, and the margin's cards for the passages that start in it.
-    fn block(&self, index: usize, t: Theme, cx: &mut Context<Self>) -> (AnyElement, AnyElement) {
+    fn block(
+        &self,
+        index: usize,
+        t: Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (AnyElement, AnyElement) {
         let State::Open(Opened {
             doc: Doc::Epub(book),
             ..
@@ -373,7 +383,7 @@ impl ReaderView {
             .filter(starts_here)
             .filter(|n| n.in_margin())
         {
-            cards.push(self.card(note, t, cx).into_any_element());
+            cards.push(self.card(note, t, window, cx).into_any_element());
         }
         let composer = self
             .composing

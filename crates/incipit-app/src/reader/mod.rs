@@ -64,8 +64,9 @@ use gpui::{
 use incipit_book::{Anchor, Block, Book, Entry, Page, PdfInfo, PdfWorker};
 use incipit_llm::Cancel;
 use incipit_ui::{
-    button, drag_area, field, floating, focus_ring, icon_button, keep_focus, row_stops,
-    scroll_area, scrollbar, FieldEvent, IconName, Metrics, TextField, Theme, Type,
+    button, drag_area, field, floating, focus_handle, focus_ring, icon_button, keep_focus, ringed,
+    row_stops, scroll_area, scrollbar, FieldEvent, IconName, Metrics, Radius, TextField, Theme,
+    Type,
 };
 
 use incipit_vault::fields::Status;
@@ -1402,12 +1403,23 @@ impl ReaderView {
         }
     }
 
-    /// A note's card in the margin: one line when closed, whole when open.
-    fn card(&self, note: &Note, t: Theme, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+    /// A note's card in the margin: one line when closed, whole when open. Tab reaches it, and
+    /// Return or Space open or close it. (Each card is a stop of its own: the cards are on
+    /// different pages of a list that draws only those near the screen, so they are not a list
+    /// the arrows could go along.)
+    fn card(
+        &self,
+        note: &Note,
+        t: Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
         if let Some(concept) = &note.concept {
-            return self.concept_card(note, concept, t, cx);
+            return self.concept_card(note, concept, t, window, cx);
         }
         let id = note.id;
+        let focus = focus_handle(format!("margin-note-{id}"), window, cx);
+        let ring = ringed(&focus, window);
         let open = self.open == Some(id);
         let quote: String = note
             .anchors
@@ -1417,12 +1429,15 @@ impl ReaderView {
             .join(" ");
         let card = incipit_ui::card(t)
             .id(("note", id as usize))
+            .relative()
             .w(px(MARGIN))
             .p(px(10.0))
             .flex()
             .flex_col()
             .gap(px(4.0))
             .cursor_pointer()
+            .track_focus(&focus)
+            .on_mouse_down(MouseButton::Left, keep_focus)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open = if this.open == Some(id) {
                     None
@@ -1430,7 +1445,10 @@ impl ReaderView {
                     Some(id)
                 };
                 cx.notify();
-            }));
+            }))
+            .when(ring, |card| {
+                card.child(focus_ring(t, Radius::ROW + 1.0, -2.0))
+            });
         if !open {
             let line = match (&note.figure, &note.asked) {
                 (Some(figure), _) => figure.title().to_owned(),

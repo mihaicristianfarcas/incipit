@@ -39,7 +39,8 @@ pub use controls::*;
 pub use diff::diff;
 pub use focus::{
     arrow_step, clicked, focus_handle, focus_ring, keep_focus, keyboard_focus, keyboard_moved,
-    ringed, scroll_area, scroll_areas, scroll_into_view, scrollbar, scrolled, Scrolled, Span,
+    ringed, row_stops, scroll_area, scroll_areas, scroll_into_view, scrollbar, scrolled, RowStops,
+    Scrolled, Span,
 };
 pub use formula::{typeset_with, Typeset, Typesetter};
 pub use icon::{icon, Assets, Icon, IconName, IconSize};

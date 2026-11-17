@@ -1,14 +1,17 @@
 //! The keyboard, as in asides: Tab reaches whatever can be clicked (a group,
-//! like a segmented control or a list, is one stop its arrows go through),
-//! and a ring shows what has the keyboard only after a key moved it there; a
-//! click hides it, as in macOS, and a click on a button leaves the keyboard
-//! where it was. GPUI does not move the keyboard on Tab itself: `init` binds
-//! Tab and Shift+Tab to do it. What the keyboard moves to is scrolled into
-//! view, in the scroll areas a page says it drew (`scroll_area`). And the
-//! scroll areas' bars, which GPUI does not draw: a bar follows a scroll area,
-//! or anything else that can say how far along it is (`Scrolled`).
+//! like a segmented control or a list of rows, is one stop its arrows go
+//! through: `row_stops`), and a ring shows what has the keyboard only after a
+//! key moved it there; a click hides it, as in macOS, and a click on a button
+//! leaves the keyboard where it was. GPUI does not move the keyboard on Tab
+//! itself: `init` binds Tab and Shift+Tab to do it. What the keyboard moves to
+//! is scrolled into view, in the scroll areas a page says it drew
+//! (`scroll_area`). And the scroll areas' bars, which GPUI does not draw: a bar
+//! follows a scroll area, or anything else that can say how far along it is
+//! (`Scrolled`).
 
 use std::cell::{Cell, RefCell};
+use std::fmt::Display;
+use std::rc::Rc;
 
 use gpui::{
     actions, canvas, div, point, prelude::*, px, quad, size, App, BorderStyle, Bounds,
@@ -201,6 +204,78 @@ pub fn scroll_into_view(
         area.set_offset(point(offset.x, y));
         // Drawn again next frame (`refresh` does nothing while drawing).
         window.request_animation_frame();
+    }
+}
+
+/// A list of like rows (the pages in a sidebar, books, notes) as one stop for
+/// Tab: only one row is in the tab order, and the arrows, Home and End move
+/// the keyboard along the rows. Each row has a focus handle of its own, so
+/// Return and Space press the row as a click does, and its ring shows where
+/// the keyboard is.
+#[derive(Clone)]
+pub struct RowStops {
+    handles: Rc<[FocusHandle]>,
+    stop: usize,
+}
+
+/// The rows of a list, `ids` (each unique in the list, named for its handle
+/// under `key`). Tab reaches the row at `stop`, or if there is none, the one
+/// the keyboard was last on (the first, to begin with).
+pub fn row_stops(
+    key: &str,
+    ids: impl IntoIterator<Item = impl Display>,
+    stop: Option<usize>,
+    window: &mut Window,
+    cx: &mut App,
+) -> RowStops {
+    let handles: Rc<[FocusHandle]> = ids
+        .into_iter()
+        .map(|id| focus_handle(format!("{key}-{id}"), window, cx))
+        .collect();
+    let last = window.use_keyed_state(ElementId::Name(format!("{key}-last").into()), cx, |_, _| {
+        0usize
+    });
+    if let Some(on) = handles.iter().position(|h| h.contains_focused(window, cx)) {
+        last.update(cx, |last, _| *last = on);
+    }
+    let stop = stop.unwrap_or_else(|| *last.read(cx));
+    RowStops {
+        stop: stop_row(stop, handles.len()),
+        handles,
+    }
+}
+
+/// The row Tab reaches: `wanted`, or the last row if the list has become
+/// shorter than that.
+fn stop_row(wanted: usize, count: usize) -> usize {
+    wanted.min(count.saturating_sub(1))
+}
+
+impl RowStops {
+    /// Row `at`'s focus handle, to track in the row (a tab stop only if it is
+    /// the list's), and whether its ring shows.
+    pub fn row(&self, at: usize, window: &Window) -> (FocusHandle, bool) {
+        let focus = self.handles[at].clone().tab_stop(at == self.stop);
+        let ring = ringed(&focus, window);
+        (focus, ring)
+    }
+
+    /// The list's keys, for its container: the arrows go to the row after or
+    /// before (Home and End to the first and the last), whether the keyboard
+    /// is on a row or on something in one.
+    pub fn keys(&self) -> impl Fn(&KeyDownEvent, &mut Window, &mut App) + 'static {
+        let handles = self.handles.clone();
+        move |e, window, cx| {
+            let at = handles.iter().position(|h| h.contains_focused(window, cx));
+            let Some(to) = arrow_step(e, at, handles.len(), false) else {
+                return;
+            };
+            cx.stop_propagation();
+            keyboard_moved();
+            window.focus(&handles[to], cx);
+            // Already there (the end of the list): the ring is drawn anyway.
+            window.refresh();
+        }
     }
 }
 
@@ -405,6 +480,29 @@ mod tests {
             (step("down", None, 0, false), step("a", Some(0), 3, false)),
             (None, None)
         );
+    }
+
+    #[test]
+    fn tab_reaches_the_row_asked_for_or_else_the_last_one_there_is() {
+        assert_eq!(stop_row(0, 5), 0);
+        assert_eq!(stop_row(3, 5), 3);
+        // The list became shorter than where the keyboard was.
+        assert_eq!(stop_row(7, 5), 4);
+        // An empty list has no row: the stop is never used.
+        assert_eq!(stop_row(2, 0), 0);
+    }
+
+    #[test]
+    fn the_keyboard_goes_to_the_first_row_or_the_last_from_outside_a_list() {
+        // From nothing the first arrow enters at the first row, or back at the last.
+        assert_eq!(step("down", None, 4, false), Some(0));
+        assert_eq!(step("up", None, 4, false), Some(3));
+        assert_eq!(step("down", None, 1, false), Some(0));
+        // The ends stop it, and an empty list has nowhere to go.
+        assert_eq!(step("up", Some(0), 4, false), Some(0));
+        assert_eq!(step("down", Some(3), 4, false), Some(3));
+        assert_eq!(step("down", None, 0, false), None);
+        assert_eq!(step("end", None, 0, false), None);
     }
 
     #[test]

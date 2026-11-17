@@ -344,9 +344,13 @@ and the one before of the window's tab stops. A control is a tab stop by
 having a focus handle (`focus_handle`), shows a ring only while the keyboard,
 not a click, put it there (`ringed`, `focus_ring`; a click anywhere hides the
 ring), and a press on it leaves the keyboard where it was (`keep_focus`).
-Return and Space on a control do what a click does. What the keyboard moves to
-is scrolled into view, in the scroll areas the page said it drew
-(`scroll_area`; `page` does it for its own).
+Return and Space on a control do what a click does. A list of like rows is one
+tab stop, not one for each row (`row_stops`): each row has a focus handle, so
+Return and Space press it, but only one is in the tab order, the page shown in
+the sidebar or the row the keyboard was last on, and the arrows, Home and End
+move the keyboard along the rows. What the keyboard moves to is scrolled into
+view, in the scroll areas the page said it drew (`scroll_area`; `page` does it
+for its own).
 
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,

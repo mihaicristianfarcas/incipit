@@ -719,3 +719,20 @@ fn renaming_a_note_carries_the_links_to_it_and_changes_nothing_else_in_the_notes
         Some(moved.id())
     );
 }
+
+#[test]
+fn a_note_that_says_kind_book_outside_the_library_is_a_note_and_keeps_saying_it() {
+    let (_dir, vault) = opened();
+    assert_eq!(vault.count(Some(Kind::Book)), 0);
+    let dune = doc(&vault, "Shelf/Dune.md");
+    assert_eq!(dune.kind(), Kind::Note);
+    assert_eq!(dune.title(), "Dune");
+    let text = write(&vault, "Shelf/Dune.md", |note| {
+        note.set_body("On my shelf, nearly done. See [[Ideas]].\n");
+    });
+    assert_eq!(
+        text,
+        fixture::SHELF.replace("shelf.", "shelf, nearly done.")
+    );
+    assert_eq!(doc(&vault, "Shelf/Dune.md").kind(), Kind::Note);
+}

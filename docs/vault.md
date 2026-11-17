@@ -78,7 +78,8 @@ something differently:
 - A file whose name a system refuses (`?`, `:`, `"`, `*`, `<`, `>`, `|`, a
   name ending in a dot or a space, `CON`) is not read and is not listed, so
   that a vault opens on every system.
-- A `kind` property names the kind of a note in any folder.
+- A `kind` of `concept`, `card` or `figure` makes a note that kind in any
+  folder.
 
 ## A document
 
@@ -99,7 +100,10 @@ updated: 2026-11-10T09:12:00Z
 …
 ```
 
-- `kind` says what the record is. Without it, the folder says.
+- `kind` says what the record is. Without it, the folder says. A `book`,
+  `annotation` or `session` is only said inside `library/`; a note anywhere
+  else that has `kind: book` (a reading list's) is a note, and its property
+  stays as written.
 - A file written by hand, without an `id`, gets one made from its path,
   which holds for as long as the file stays where it is.
 - Properties the app does not know, their order and their comments are

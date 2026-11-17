@@ -5,7 +5,8 @@
 //! A file says its kind in its `kind` property. Without one, its folder says, so files made by
 //! hand or in Obsidian are read sensibly: anything in `cards/` is a card, and a Markdown file in
 //! no known folder is a note. A `kind` the app does not know is read as the folder's kind with
-//! that word as its type, when the kind has such a type (`kind: explain` in `annotations/`).
+//! that word as its type, when the kind has such a type (`kind: explain` in `annotations/`). A
+//! `kind` of book, annotation or session counts only inside `library/` (`said_at`).
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -103,6 +104,16 @@ impl Kind {
         }
     }
 
+    /// The kind a file's `kind` property names, when it may name it at this place. A book, an
+    /// annotation and a session only mean something inside `library/`, beside the book they are
+    /// about; a note anywhere else that says `kind: book` (a reading list's, say) is still a
+    /// note, and its property stays as it was written.
+    pub fn said_at(name: &str, path: &VaultPath) -> Option<Kind> {
+        let kind = Kind::from_name(name)?;
+        let of_a_book = matches!(kind, Kind::Book | Kind::Annotation | Kind::Session);
+        (!of_a_book || path.parts().next() == Some("library")).then_some(kind)
+    }
+
     /// The kind a Markdown file in this place has when its properties do not say.
     pub fn of_path(path: &VaultPath) -> Kind {
         let parts: Vec<&str> = path.parts().collect();
@@ -194,6 +205,27 @@ mod tests {
         assert_eq!(kind_at("notes/Physics/Waves.md"), Kind::Note);
         assert_eq!(kind_at("Daily/2026-11-10.md"), Kind::Note);
         assert_eq!(kind_at("library/sicp/notes.md"), Kind::Note);
+    }
+
+    #[test]
+    fn a_kind_that_belongs_to_a_book_is_only_said_inside_the_library() {
+        let at = |path: &str| VaultPath::new(path).unwrap();
+        for (name, kind) in [
+            ("book", Kind::Book),
+            ("annotation", Kind::Annotation),
+            ("session", Kind::Session),
+        ] {
+            assert_eq!(Kind::said_at(name, &at("library/sicp/book.md")), Some(kind));
+            assert_eq!(Kind::said_at(name, &at("library/x/y/z.md")), Some(kind));
+            assert_eq!(Kind::said_at(name, &at("Reading list/Dune.md")), None);
+            assert_eq!(Kind::said_at(name, &at("notes/Dune.md")), None);
+        }
+        // The others may be said anywhere, as before.
+        assert_eq!(
+            Kind::said_at("concept", &at("Ideas/Entropy.md")),
+            Some(Kind::Concept)
+        );
+        assert_eq!(Kind::said_at("explain", &at("library/x/a.md")), None);
     }
 
     #[test]

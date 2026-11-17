@@ -199,7 +199,7 @@ impl Doc {
         let folder_kind = Kind::of_path(&path);
         let kind = properties
             .text("kind")
-            .and_then(|name| Kind::from_name(&name))
+            .and_then(|name| Kind::said_at(&name, &path))
             .unwrap_or(folder_kind);
         let id = properties
             .text("id")
@@ -576,6 +576,26 @@ mod tests {
             back.properties().keys().collect::<Vec<_>>(),
             ["id", "kind", "type", "tags", "created", "updated"]
         );
+    }
+
+    #[test]
+    fn a_note_outside_the_library_that_says_it_is_a_book_is_a_note_and_says_it_still() {
+        let text = "---\nkind: book\nstatus: reading\n---\nOn my shelf.\n";
+        let mut doc = Doc::parse(path("Reading list/Dune.md"), text).unwrap();
+        assert_eq!(doc.kind(), Kind::Note);
+        assert_eq!(doc.title(), "Dune");
+        assert_eq!(doc.doc_type(), Some("note"));
+        doc.set_body("On my shelf, again.\n");
+        doc.set_tags(vec!["scifi".into()]);
+        assert_eq!(
+            doc.to_text(),
+            "---\nkind: book\nstatus: reading\ntags:\n  - scifi\n---\nOn my shelf, again.\n"
+        );
+        // In the library it is what it says.
+        let record = Doc::parse(path("library/dune/book.md"), text).unwrap();
+        assert_eq!(record.kind(), Kind::Book);
+        let session = Doc::parse(path("Daily/Session.md"), "---\nkind: session\n---\n").unwrap();
+        assert_eq!(session.kind(), Kind::Note);
     }
 
     #[test]

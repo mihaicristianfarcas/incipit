@@ -276,8 +276,9 @@ impl ReaderView {
                         Some("figures") => this.figure_changed(event.doc.as_ref(), cx),
                         _ => {}
                     },
-                    // Another vault is open: the sittings were in the one that was.
-                    Happened::Opened => this.end_sittings(cx),
+                    // Another vault is open: the sittings were in the one that was, and so is
+                    // its book.
+                    Happened::Opened => this.vault_opened(cx),
                 }
             });
         let (drawn, pages) = unbounded();
@@ -641,6 +642,19 @@ impl ReaderView {
                 break;
             }
         }
+    }
+
+    /// Closes the book: the reader shows what it shows with no book, and what was to happen
+    /// once the book opened (a page to go to, a quiz) is dropped with it.
+    fn close_book(&mut self, cx: &mut Context<Self>) {
+        self.book = None;
+        self.go_to = None;
+        self.quiz_chapter = None;
+        self.open = None;
+        self.redrawing_for = None;
+        // With no book to open, this lets go of the book's notes, answers and session.
+        self.open_book(cx);
+        cx.notify();
     }
 
     /// Open the sample book of the kind chosen, off the window's thread.

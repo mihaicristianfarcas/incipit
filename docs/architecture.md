@@ -205,7 +205,9 @@ for up to three minutes after the learner last did something with it
 as the earlier app's reader pinged for three minutes after the last
 scroll (`sittings` in `incipit-learn`). A sitting ends six minutes after
 time stopped counting, when the chapter changes, when another vault is
-opened or when the app quits, and one of a minute or more becomes a `read` line of
+opened (which also closes the book, if it is one of the vault that was
+left; a sample book stays) or when the app quits, and one of a minute or
+more becomes a `read` line of
 `log/activity.jsonl` with the place it ended at. The earlier app's reader
 reported on a timer from the browser; here the only timer is the one set
 for the moment the next sitting goes quiet. Progress and the finish

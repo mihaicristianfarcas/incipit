@@ -3,7 +3,9 @@
 //! window is the one in use, and the learner did something with it lately. The earlier app's
 //! reader reported on a timer from the browser; here the reader reports when something happens
 //! (it was scrolled, a place was jumped to, something was selected, the window became active or
-//! inactive), and the one timer that exists is set for the moment a sitting goes quiet.
+//! inactive), and the one timer that exists is set for the moment a sitting goes quiet. When another
+//! vault is opened the sittings end where they began, and a book of the vault that was left is
+//! closed (a sample book, which is in no vault, stays).
 //!
 //! The sittings' rules (the three minutes after the learner last did something, the six quiet
 //! minutes, the chapter) are in `incipit_learn::sittings`; the lines they make are in
@@ -13,16 +15,31 @@ use std::time::Duration;
 
 use gpui::{Context, Subscription, Task, Window};
 use incipit_learn::{Beat, Ended, Sittings};
-use incipit_vault::{Book, DocId, Vault};
+use incipit_vault::{Book, DocId, Kind, Vault};
 
 use super::model::Doc;
 use super::place::{chapter_at, item_of, place_of, Places, LINE};
-use super::{ReaderView, State};
+use super::{ReaderView, Shelved, State};
 use crate::study::now;
 
 /// The place is written this long after the book stops moving: a deadline, not a check, so that
 /// scrolling does not write a file at every step.
 const SETTLE: Duration = Duration::from_millis(400);
+
+/// Whether `book` is one of a vault that is not the one open now: it has a record, and `vault`
+/// (when one is open) has no record of a book of that id with that file. A sample book has no
+/// record, belongs to no vault, and stays.
+pub(super) fn left_behind(book: Option<&Shelved>, vault: Option<&Vault>) -> bool {
+    let Some((shelved, id)) = book.and_then(|b| Some((b, b.id.as_ref()?))) else {
+        return false;
+    };
+    let there = vault.and_then(|vault| {
+        let doc = vault.get(id).filter(|doc| doc.kind() == Kind::Book)?;
+        let record = doc.fields::<Book>().unwrap_or_default();
+        crate::library::book_file(vault, &doc, &record)
+    });
+    there.as_ref() != Some(&shelved.file)
+}
 
 pub(super) struct Reading {
     sittings: Sittings,
@@ -201,6 +218,16 @@ impl ReaderView {
         self.wake_when_quiet(cx);
     }
 
+    /// Another vault is open: the sittings were in the one that was, and a book of that one is
+    /// closed, so the reader shows what it shows with no book.
+    pub(super) fn vault_opened(&mut self, cx: &mut Context<Self>) {
+        self.end_sittings(cx);
+        let vault = self.workspace.read(cx).vault.clone();
+        if left_behind(self.book.as_ref(), vault.as_ref()) {
+            self.close_book(cx);
+        }
+    }
+
     /// Ends every sitting and writes them: the vault is being closed, or the app is quitting.
     pub fn end_sittings(&mut self, cx: &mut Context<Self>) {
         let ended = self.reading.sittings.end_all(now());
@@ -302,5 +329,89 @@ impl ReaderView {
         if let Err(e) = vault.update(&doc) {
             eprintln!("The book's length was not kept: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    fn vault_in(folder: &Path, name: &str) -> Vault {
+        Vault::create(&folder.join(name)).unwrap()
+    }
+
+    /// The book the Library would offer for `file`, added to `vault`.
+    fn shelved(vault: &Vault, folder: &Path, file: &str) -> Shelved {
+        let path = folder.join(file);
+        std::fs::write(&path, "%PDF-1.4 a made-up book").unwrap();
+        let doc = crate::library::add_book(vault, &path).unwrap();
+        let record = doc.fields::<Book>().unwrap_or_default();
+        Shelved {
+            id: Some(doc.id().clone()),
+            title: doc.title(),
+            file: crate::library::book_file(vault, &doc, &record).unwrap(),
+            epub: false,
+        }
+    }
+
+    /// Copies a folder and what is in it.
+    fn copy(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.path().is_dir() {
+                copy(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn a_book_of_the_vault_that_was_left_is_closed_and_one_of_the_vault_open_is_kept() {
+        let folder = tempfile::tempdir().unwrap();
+        let (left, open) = (
+            vault_in(folder.path(), "left"),
+            vault_in(folder.path(), "open"),
+        );
+        let book = shelved(&left, folder.path(), "Waves.pdf");
+        // Still in the vault it is in, also when that vault is opened again.
+        assert!(!left_behind(Some(&book), Some(&left)));
+        // The vault now open has no such book, or none at all.
+        assert!(left_behind(Some(&book), Some(&open)));
+        assert!(left_behind(Some(&book), None));
+    }
+
+    #[test]
+    fn a_copy_of_the_vault_has_the_book_and_it_is_still_the_other_vaults_file() {
+        let folder = tempfile::tempdir().unwrap();
+        let left = vault_in(folder.path(), "left");
+        let book = shelved(&left, folder.path(), "Waves.pdf");
+        copy(
+            &left.root().join("library"),
+            &folder.path().join("copy/library"),
+        );
+        let copy = Vault::create(&folder.path().join("copy")).unwrap();
+        assert!(copy.get(book.id.as_ref().unwrap()).is_some());
+        assert!(left_behind(Some(&book), Some(&copy)));
+    }
+
+    #[test]
+    fn a_sample_book_belongs_to_no_vault_and_stays_and_with_no_book_there_is_nothing_to_close() {
+        let folder = tempfile::tempdir().unwrap();
+        let vault = vault_in(folder.path(), "open");
+        let sample = Shelved {
+            id: None,
+            title: "Relativity".into(),
+            file: folder.path().join("book.epub"),
+            epub: true,
+        };
+        assert!(!left_behind(Some(&sample), Some(&vault)));
+        assert!(!left_behind(Some(&sample), None));
+        assert!(!left_behind(None, Some(&vault)));
+        assert!(!left_behind(None, None));
     }
 }

@@ -29,6 +29,7 @@
 //! the sheet open to explain the selection back), INCIPIT_QUIZ=choose|check|pretest
 //! (the quiz sheet on the chapter on screen once the book is open: the choice, or a quiz or a
 //! pretest written by the model) or demo|done (a made-up quiz, at its start or finished),
+//! INCIPIT_CONNECTOR=demo|kept|writing|failed (the Connect sheet on made-up connections),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_PART=n (start at that page or block),
 //! INCIPIT_MAP=n (map line n of the contents, from 0, into concepts once the book is open),
 //! INCIPIT_FIND_BOOK=words (the find bar on those words once the book is open), INCIPIT_SELECT=1
@@ -194,6 +195,8 @@ pub struct ReaderView {
     explain: Entity<crate::explain::ExplainView>,
     /// The sheet where a passage is practised.
     practice: Entity<crate::practice::PracticeView>,
+    /// The sheet where a passage is tied to the world.
+    connector: Entity<crate::connector::ConnectorView>,
     /// Find in the book.
     finding: finding::Finding,
     _draft_events: Subscription,
@@ -272,6 +275,11 @@ impl ReaderView {
         if let Ok(which) = std::env::var("INCIPIT_PRACTICE") {
             practice.update(cx, |practice, cx| practice.show_demo(&which, cx));
         }
+        let connector = cx
+            .new(|cx| crate::connector::ConnectorView::new(workspace.clone(), models.clone(), cx));
+        if let Ok(which) = std::env::var("INCIPIT_CONNECTOR") {
+            connector.update(cx, |connector, cx| connector.show_demo(&which, cx));
+        }
         let quiz = cx.new(|cx| crate::quiz::QuizView::new(workspace.clone(), models.clone(), cx));
         match std::env::var("INCIPIT_QUIZ").as_deref() {
             Ok("demo") => quiz.update(cx, |quiz, cx| quiz.show_demo(false, cx)),
@@ -324,6 +332,7 @@ impl ReaderView {
             drafter,
             explain,
             practice,
+            connector,
             finding,
             _draft_events: draft_events,
             _reply_events: reply_events,
@@ -1276,6 +1285,13 @@ impl ReaderView {
                     .icon(IconName::Gamepad)
                     .tooltip("A worked example of the skill it teaches, then problems to try")
                     .on_click(cx.listener(|this, _, _, cx| this.practise(cx))),
+            )
+            .child(
+                button("reader-connect", "Connect", t)
+                    .ghost()
+                    .icon(IconName::Link)
+                    .tooltip("Examples that tie it to the world today and to your own goals")
+                    .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),
             );
         Some(deferred(anchored().position(at).snap_to_window().child(menu)).into_any_element())
     }
@@ -1572,6 +1588,7 @@ impl Render for ReaderView {
             .child(self.drafter.clone())
             .child(self.explain.clone())
             .child(self.practice.clone())
+            .child(self.connector.clone())
     }
 }
 

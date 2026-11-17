@@ -4,7 +4,8 @@
 //! deck, each tied to its concept (`drafts`), and quizzes on a chapter, before one or across the concepts known least, with short answers
 //! graded by the model and every answer kept as evidence (`quiz`), and a concept explained back
 //! in the learner's own words, graded and kept as a note (`explain`), and a worked example with
-//! practice problems (`practice`). Each tool has the earlier app's instructions and form, sends
+//! practice problems (`practice`), and examples that tie a passage or a concept to the world and to
+//! the learner's goals (`connect`). Each tool has the earlier app's instructions and form, sends
 //! the book's text as material (`context`) and writes to the vault only through `incipit-vault`.
 //! The model work blocks, so it runs on a call's own thread (`Models::work`). Nothing here
 //! draws.
@@ -13,6 +14,7 @@
 //! here `learner`), as material apart from the instructions.
 
 pub mod answers;
+pub mod connect;
 pub mod context;
 pub mod drafts;
 pub mod explain;

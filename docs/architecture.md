@@ -135,6 +135,17 @@ nothing. A finished practice is a `quiz` line of mode `practice`, so it counts
 toward its concept like a quiz, and can be kept as a note of exercises with the
 solutions folded.
 
+**Connect ties an idea to the world.** From a selected passage or a concept's
+page (`connector` in the app, `learning/connect.rs` for what the model is told
+and what is kept), the model writes three short pieces: a current example the
+idea explains, how it shows up in what the learner does or wants to do (the
+paragraph about them, `learning/learner.rs`, is material), and a link to
+another field or a concept they have (the titles of the first 200 concepts of
+the vault are material too). Each is shown under its kind and can be kept as a
+note of type `connection` with the passage quoted after it, about its concepts,
+each made if it is new. These are not the links the agent suggests between notes
+(`connect` in the app).
+
 **A quiz can be written in a note.** A fenced `quiz` block of YAML
 (`incipit_vault::quiz`, [vault.md](vault.md)) is listed under the note's text
 and played in the same quiz sheet as a chapter's quiz, as a check on no book;

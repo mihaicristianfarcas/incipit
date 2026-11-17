@@ -81,7 +81,7 @@ pub struct ExplainView {
 impl EventEmitter<Closed> for ExplainView {}
 
 /// The passage as the top of the sheet quotes it.
-fn quoted(passage: &str) -> String {
+pub(crate) fn quoted(passage: &str) -> String {
     let head: String = passage.chars().take(QUOTED).collect();
     if passage.chars().nth(QUOTED).is_some() {
         format!("“{head}…”")

@@ -357,6 +357,16 @@ impl ReaderView {
         });
     }
 
+    /// Connect the selection to the world and to the learner's goals: concrete examples, each of
+    /// which can be kept as a note. The text around it goes along, as the earlier app sent it (5,000
+    /// characters at most are used).
+    pub(super) fn connect(&mut self, cx: &mut Context<Self>) {
+        self.study_selection(cx, |this, about, cx| {
+            this.connector
+                .update(cx, |connector, cx| connector.start(about, cx));
+        });
+    }
+
     /// Explain back the concept whose card in the margin is `note`, with its summary.
     pub(super) fn explain_concept(&mut self, note: u64, cx: &mut Context<Self>) {
         let Some(card) = self.notes.iter().find(|n| n.id == note) else {

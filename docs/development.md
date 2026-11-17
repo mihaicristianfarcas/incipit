@@ -19,7 +19,8 @@ On Windows, `tools/setup` does not run (it is a shell script). By hand:
 unpack `pdfium-win-arm64.tgz` (or `-x64`) of the same pinned build into
 `lib\`, copy `lib\bin\pdfium.dll` to `lib\lib\pdfium.dll`, and put the two
 sample books in `samples\`. The arm64 archive's SHA-256 is
-`8614b10c6a780acc3ae9fdd425d6b61f9d22ae84301b19e1ac82f573930c217c`. The
+`8614b10c6a780acc3ae9fdd425d6b61f9d22ae84301b19e1ac82f573930c217c`, the x64
+archive's `cee2b0e9990bc67c0721774932961b9dbf2766046c10eec925acd4cfba6fdfe3`. The
 build needs `clang` on the `PATH` (the one Visual Studio's build tools or
 LLVM install).
 
@@ -98,6 +99,7 @@ INCIPIT_PAGE=figure INCIPIT_KIND=sequence INCIPIT_AT=3 INCIPIT_SHOT=shots/figure
 |---|---|
 | `cargo run -p incipit-scene --example figure -- kinds` | Lists the figure kinds; `schema KIND` prints the JSON Schema a model fills in, `guide KIND` the instructions it gets, `example KIND` the built-in example, `check FILE` what the checks say of a spec |
 | `cargo run -p incipit-vault --example obsidian_vault -- FOLDER` | Writes a made-up Obsidian vault into an empty folder (it refuses any other): the one the vault crate's tests open, for opening in the app with `INCIPIT_OBSIDIAN` or `INCIPIT_VAULT` |
+| `tools/package-mac`, `tools/package-windows`, `tools/package-linux` | Make the package for that system: a disk image, an installer, an AppImage ([packaging.md](packaging.md)) |
 | `cargo run -p incipit-math --example probe -- FILE` | Typesets each line of a file as LaTeX and prints the ones that fail |
 | `cargo run -p incipit-book --example look -- lib/lib FILE.pdf` | Opens a PDF and prints its size, timings and first text; `look - FILE.epub` does the same for an EPUB |
 

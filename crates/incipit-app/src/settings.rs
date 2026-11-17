@@ -1,4 +1,5 @@
-//! Settings: the folder the vault is in, the learner's profile, and the model that answers. Each
+//! Settings: the folder the vault is in (and the choices to open another folder, or an Obsidian
+//! vault where it is), the learner's profile, and the model that answers. Each
 //! way to reach a model is a row saying whether it can be used now and, if not, what to do; the
 //! learner picks one. Signing in happens in the browser, started from here. The profile form here
 //! also says whether the flashcards' schedule is fitted to the learner (`crate::fitted`), with the
@@ -63,6 +64,16 @@ impl Render for SettingsView {
             t,
         )
         .into_any_element();
+        let obsidian = setting(
+            "Obsidian",
+            Some("Open the folder you use with Obsidian, where it is.".into()),
+            button("settings-obsidian", "Open an Obsidian vault", t).on_click(cx.listener(
+                |this, _, _, cx| this.workspace.update(cx, |w, cx| w.choose_obsidian(cx)),
+            )),
+            t,
+        )
+        .into_any_element();
+        let problem_opening = self.workspace.read(cx).problem.clone();
         let providers = crate::providers::rows(&self.models, t, cx);
         let models = self.models.read(cx);
         let link = models.link.clone();
@@ -72,10 +83,16 @@ impl Render for SettingsView {
             .flex_col()
             .gap(px(22.0))
             .child(page_header("Settings", None, None, t))
-            .child(section("Vault", t).child(rows([vault], t)).child(footnote(
-                "Everything you make is plain files in this folder.",
-                t,
-            )))
+            .child(
+                section("Vault", t)
+                    .child(rows([vault, obsidian], t))
+                    .children(problem_opening.map(|p| footnote(p, t).text_color(t.danger)))
+                    .child(footnote(
+                        "Everything you make is plain files in this folder. A folder that \
+                         already has files in it is opened as it is.",
+                        t,
+                    )),
+            )
             .child(
                 section("Profile", t)
                     .child(footnote(

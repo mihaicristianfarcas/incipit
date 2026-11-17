@@ -30,8 +30,11 @@ A Markdown file in no known folder is a note.
 
 ## Opening a vault Obsidian made
 
-A folder that already holds files is opened where it is, with every file as
-it is. Opening and browsing write nothing to the learner's files: no
+"Open an Obsidian vault", in the first run and in Settings, takes the folder
+Obsidian opens, the one with the hidden `.obsidian` folder in it, and says what
+to pick when the folder is another (`is_obsidian_vault`). Any other folder is
+chosen as it is, and the same holds for it. A folder that already holds files
+is opened where it is, with every file as it is. Opening and browsing write nothing to the learner's files: no
 property is added, no file is renamed or moved, nothing in `.obsidian/` is
 touched. The folders that appear are the app's own, `.jj/` (the history) and
 `.incipit/` (generated files), which Obsidian leaves out as it leaves out

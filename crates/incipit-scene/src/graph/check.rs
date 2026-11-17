@@ -129,7 +129,7 @@ pub fn samples(graph: &Graph) -> Vec<Sample> {
 mod tests {
     use serde_json::{json, Value};
 
-    use super::super::layout::{nodes, shrink};
+    use super::super::layout::{group_box, nodes, shrink};
     use super::super::{example, Graph};
     use crate::check::{check, Report};
     use crate::draw::{Frame, Item, Mark, Rough, Text, WIDTH};
@@ -222,6 +222,30 @@ mod tests {
                 assert!((w[0].cy - w[1].cy).abs() < 0.01);
             }
         }
+    }
+
+    #[test]
+    fn a_row_leaves_room_between_the_boxes_of_two_groups_side_by_side() {
+        let ids = ["s0", "s1", "s2", "s3", "s4", "s5"];
+        let g = graph(json!({
+            "layout": "row",
+            "nodes": row(&ids, "cell"),
+            "groups": [
+                { "id": "a", "label": "server A", "nodes": ["s0", "s1", "s2"] },
+                { "id": "b", "label": "server B", "nodes": ["s3", "s4", "s5"] },
+            ],
+        }));
+        let at = nodes(&g, &Rough, &mut Vec::new());
+        let left = group_box(&at[..3].iter().collect::<Vec<_>>()).unwrap();
+        let right = group_box(&at[3..].iter().collect::<Vec<_>>()).unwrap();
+        assert!(
+            right.x - (left.x + left.w) >= 8.0,
+            "the boxes are apart: {left:?} {right:?}"
+        );
+        // Within a group the cells keep their usual gap.
+        let (a, b) = (at[0].rect(), at[1].rect());
+        assert!(b.x - (a.x + a.w) < 30.0, "{a:?} {b:?}");
+        assert!(checked(&g).errors.is_empty(), "{:#?}", checked(&g));
     }
 
     #[test]

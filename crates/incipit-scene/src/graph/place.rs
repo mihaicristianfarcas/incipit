@@ -22,6 +22,9 @@ const PAD_BOTTOM: f32 = 30.0;
 const GROUP_PAD: f32 = 18.0;
 /// The least gap nodes are pushed apart to.
 const GAP: f32 = 16.0;
+/// What a row adds where it passes from one group to another (or into or out of one): the two
+/// boxes' sides beyond their nodes (`layout::group_box`) and a gap between them.
+const BETWEEN_GROUPS: f32 = 2.0 * 16.0 + 12.0;
 const SEPARATE_ROUNDS: usize = 80;
 /// The force simulation's settings.
 const LINK_DISTANCE: f32 = 90.0;
@@ -121,16 +124,30 @@ fn raw(graph: &Graph, sizes: &[Size]) -> Raw {
             most: f32::INFINITY,
         },
         Arrange::Row => {
-            // Cells are set touching, other shapes with a gap; the push apart that follows
-            // leaves at least `GAP` between any two, cells too, as in the earlier app.
+            // Cells are set `GAP` apart, where the earlier app set them touching and its push
+            // apart left that gap: pushing here would also close the room left where the row
+            // passes from one group to another, for both groups' boxes. Other shapes have a
+            // wider gap.
+            let group_of = |id: &str| {
+                graph
+                    .groups
+                    .iter()
+                    .position(|g| g.nodes.iter().any(|n| n == id))
+            };
             let mut x = 0.0;
+            let mut before: Option<Option<usize>> = None;
             let at = graph
                 .nodes
                 .iter()
                 .zip(sizes)
                 .map(|(node, s)| {
+                    let group = group_of(&node.id);
+                    if before.is_some_and(|b| b != group) {
+                        x += BETWEEN_GROUPS;
+                    }
+                    before = Some(group);
                     let at = (x + s.w / 2.0, 0.0);
-                    x += s.w + if node.shape == Shape::Cell { 0.0 } else { 26.0 };
+                    x += s.w + if node.shape == Shape::Cell { GAP } else { 26.0 };
                     at
                 })
                 .collect();

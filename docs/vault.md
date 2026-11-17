@@ -110,6 +110,9 @@ updated: 2026-11-10T09:12:00Z
   `annotation` or `session` is only said inside `library/`; a note anywhere
   else that has `kind: book` (a reading list's) is a note, and its property
   stays as written.
+- Writing a document moves its `updated` to now only when `updated` is
+  already a time in RFC 3339, as the vault writes it. A note written by hand
+  or in Obsidian keeps its own dates in their own form, and none is added.
 - A file written by hand, without an `id`, gets one made from its path,
   which holds for as long as the file stays where it is.
 - Properties the app does not know, their order and their comments are

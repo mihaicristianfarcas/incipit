@@ -4,6 +4,8 @@
 //! (and on the Reader, the find bar of the book open, with a key of its own).
 //! For checks without clicking, environment switches open a page in a given state and save a
 //! picture of the window: docs/development.md lists them.
+//! A PDF or EPUB given to the program (named in its arguments) is added to the library and opened
+//! in the reader (`open_with`).
 
 // A release build on Windows is a window, not a console program with a window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
@@ -37,6 +39,7 @@ mod note_links;
 mod note_quizzes;
 mod notes;
 mod notes_demo;
+mod open_with;
 mod practice;
 mod profile_form;
 mod progress;
@@ -230,6 +233,12 @@ impl Root {
                 cx.notify();
             },
         )
+        .detach();
+        // Books given to the app that could not be added: the Library says why.
+        cx.subscribe(&library, |this: &mut Self, _, _: &library::Refused, cx| {
+            this.page = Page::Library;
+            cx.notify();
+        })
         .detach();
         let notes =
             cx.new(|cx| notes::NotesView::new(workspace.clone(), models.clone(), window, cx));
@@ -447,6 +456,13 @@ impl Root {
             brain,
             today,
         }
+    }
+
+    /// Books given to the app from outside: the Library adds them (or finds them) and the first
+    /// opens in the reader.
+    fn give(&mut self, files: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
+        self.library
+            .update(cx, |library, cx| library.give(files, cx));
     }
 
     /// Goes to a page. Opening Review starts a sitting: its queue is built then, as the earlier
@@ -723,6 +739,12 @@ fn main() {
                 async {}
             })
             .detach();
+            // Books named in the program's arguments: the file "Open With" chose on Windows and
+            // Linux (and whatever a person types after the program's name).
+            let named = open_with::files_from_args(std::env::args_os().skip(1));
+            if !named.is_empty() {
+                let _ = window.update(cx, |root, _, cx| root.give(named, cx));
+            }
             // A run that only takes a picture stays behind whatever the person is working in.
             if std::env::var_os("INCIPIT_SHOT").is_none() {
                 cx.activate(true);

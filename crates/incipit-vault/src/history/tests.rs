@@ -23,6 +23,17 @@ fn new_history() -> (tempfile::TempDir, History) {
 }
 
 #[test]
+fn git_is_kept_out_of_the_history_folder_whenever_the_history_is_started_or_opened() {
+    let (dir, history) = new_history();
+    let ignore = dir.path().join(".jj/.gitignore");
+    assert_eq!(fs::read_to_string(&ignore).unwrap(), "/*\n");
+    drop(history);
+    fs::remove_file(&ignore).unwrap();
+    History::load(dir.path()).unwrap();
+    assert_eq!(fs::read_to_string(&ignore).unwrap(), "/*\n");
+}
+
+#[test]
 fn closing_a_sitting_makes_one_entry_with_the_files_it_touched() {
     let (dir, history) = new_history();
     let root = history.root().to_path_buf();

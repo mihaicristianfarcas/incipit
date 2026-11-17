@@ -7,8 +7,10 @@
 //! The repository is `.jj/` inside the vault, with jj's Git backend kept inside it (a bare Git
 //! repository in `.jj/repo/store/git`), not colocated: the vault holds one hidden folder, there
 //! is no Git index or `HEAD` to keep in step, and Git tools can still read the history with
-//! `git --git-dir .jj/repo/store/git`. jj's own native backend is meant for jj's tests, so the
-//! Git one is the one that is safe for a learner's years of notes.
+//! `git --git-dir .jj/repo/store/git`. A `.gitignore` inside `.jj/` keeps a Git repository the
+//! vault may also be (an Obsidian vault with a Git plugin) from seeing it. jj's own native
+//! backend is meant for jj's tests, so the Git one is the one that is safe for a learner's years
+//! of notes.
 //!
 //! jj runs with this module's settings, never the learner's own jj or Git configuration, and
 //! records no machine or user name in its operations: a vault can be shared without them.
@@ -219,6 +221,17 @@ pub(crate) struct Locked<'a> {
     pub(crate) wc: Commit,
 }
 
+/// Keeps Git out of the history's folder. A vault is often a Git repository too (an Obsidian
+/// vault with a plugin for it), and `.jj/` holds a repository of its own. jj's command writes
+/// this file when it makes a repository and its library does not.
+fn keep_git_out(root: &Path) -> Result<()> {
+    let ignore = root.join(".jj").join(".gitignore");
+    if ignore.exists() {
+        return Ok(());
+    }
+    crate::fsio::write_atomic(&ignore, b"/*\n")
+}
+
 impl History {
     /// Starts a history in a folder (which must exist and have no `.jj` yet).
     pub fn init(root: &Path) -> Result<History> {
@@ -229,6 +242,7 @@ impl History {
             gix::hash::Kind::Sha1,
         ))
         .jj("starting the vault's history")?;
+        keep_git_out(root)?;
         Ok(History {
             root: workspace.workspace_root().to_path_buf(),
             workspace: Mutex::new(workspace),
@@ -250,6 +264,7 @@ impl History {
             &default_working_copy_factories(),
         )
         .jj("opening the vault's history")?;
+        keep_git_out(root)?;
         Ok(History {
             root: workspace.workspace_root().to_path_buf(),
             workspace: Mutex::new(workspace),

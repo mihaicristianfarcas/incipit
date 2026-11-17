@@ -41,6 +41,12 @@ use crate::search::{Hit, SearchIndex};
 /// sees where things go. A folder that already holds something is not given them.
 const FOLDERS: [&str; 6] = ["notes", "concepts", "cards", "figures", "library", "log"];
 
+/// What keeps Git out of the app's folder, in a file of its own inside it: a vault is often a Git
+/// repository too (an Obsidian vault with a plugin for it), and the generated files in the folder
+/// are no part of the learner's notes. A file that ignores everything ignores itself as well, as
+/// the one jj writes in `.jj/` does, so the learner's own `.gitignore` is never touched.
+const GIT_IGNORE_ALL: &str = "*\n";
+
 /// What a system leaves in a folder by itself, which does not make the folder one in use.
 const LEFT_BY_THE_SYSTEM: [&str; 3] = [".DS_Store", "Thumbs.db", "desktop.ini"];
 
@@ -76,6 +82,17 @@ fn holds_something(folder: &Path) -> bool {
             })
         })
     })
+}
+
+/// Makes the app's folder in a vault, with the file that keeps Git out of it, and gives its place.
+fn prepare_app_folder(root: &Path) -> Result<PathBuf> {
+    let folder = root.join(APP_FOLDER);
+    std::fs::create_dir_all(&folder).map_err(|e| Error::io("make the folder", &folder, e))?;
+    let ignore = folder.join(".gitignore");
+    if !ignore.exists() {
+        fsio::write_atomic(&ignore, GIT_IGNORE_ALL.as_bytes())?;
+    }
+    Ok(folder)
 }
 
 /// Whether a folder is a vault Obsidian keeps: it has the `.obsidian` folder that Obsidian makes
@@ -207,10 +224,11 @@ impl Vault {
         } else {
             &FOLDERS
         };
-        for folder in usual.iter().chain([&APP_FOLDER]) {
+        for folder in usual {
             let at = root.join(folder);
             std::fs::create_dir_all(&at).map_err(|e| Error::io("make the folder", &at, e))?;
         }
+        prepare_app_folder(&root)?;
         let history = History::init(&root)?;
         history.close_sitting("The vault begins")?;
         Self::start(root, history)
@@ -220,8 +238,7 @@ impl Vault {
     pub fn open(path: &Path) -> Result<Vault> {
         let root = dunce::canonicalize(path).map_err(|e| Error::io("open", path, e))?;
         let history = History::load(&root)?;
-        std::fs::create_dir_all(root.join(APP_FOLDER))
-            .map_err(|e| Error::io("make the folder", root.join(APP_FOLDER), e))?;
+        prepare_app_folder(&root)?;
         Self::start(root, history)
     }
 
@@ -251,7 +268,7 @@ impl Vault {
     }
 
     /// The app's hidden folder for generated indexes and caches (`.incipit/`): never versioned,
-    /// never read as documents, and safe to delete.
+    /// never read as documents, ignored by Git, and safe to delete.
     pub fn app_folder(&self) -> PathBuf {
         self.inner.root.join(APP_FOLDER)
     }
@@ -268,7 +285,8 @@ impl Vault {
     /// it out. `name` is a plain file name, not a path.
     pub fn write_generated(&self, name: &str, bytes: &[u8]) -> Result<()> {
         generated_name(name)?;
-        fsio::write_atomic(&self.app_folder().join(name), bytes)
+        let folder = prepare_app_folder(&self.inner.root)?;
+        fsio::write_atomic(&folder.join(name), bytes)
     }
 
     /// Changes from now on, as they happen.

@@ -1,0 +1,78 @@
+#!/bin/sh
+# Makes the Windows installer: target/package/Incipit-VERSION-ARCH-setup.exe, one file a learner runs
+# (no administrator's password: it installs for the person who runs it).
+#
+# On Windows, in Git Bash, from a prompt that has Rust, Visual Studio's build tools (with the Windows
+# SDK, whose fxc.exe GPUI's release build needs) and NSIS (https://nsis.sourceforge.io):
+#
+#   tools/package-windows
+#
+# It builds the program for the machine's own kind of processor (x64 or arm64, MSVC toolchain, the C
+# runtime inside the program, so no Visual C++ package is needed on the learner's PC), and puts it,
+# pdfium's DLL and the licences in the installer. pdfium's DLL is lib\lib\pdfium.dll, put there by
+# hand as docs/development.md says (tools/setup does not run on Windows).
+#
+# GPUI's release build compiles its shaders with fxc.exe, which only a Windows host has, so a Windows
+# program cannot be built on a Mac or Linux. The installer itself can: on any system with NSIS
+# (`makensis`), a program built elsewhere is packed with
+#
+#   INCIPIT_EXE=path/to/incipit.exe INCIPIT_ARCH=x64 INCIPIT_PDFIUM=path/to/pdfium.dll tools/package-windows
+#
+# Unsigned: Windows SmartScreen warns about a program from an unknown publisher until it is signed
+# (docs/packaging.md); the script signs nothing.
+set -eu
+. "$(dirname "$0")/package-common"
+
+makensis=$(command -v makensis || true)
+if [ -z "$makensis" ] && [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
+    makensis="/c/Program Files (x86)/NSIS/makensis.exe"
+fi
+[ -n "$makensis" ] || package_fail "NSIS makes the installer and is not installed (https://nsis.sourceforge.io; winget install NSIS.NSIS; brew install makensis)"
+
+version=$(package_version)
+if [ -n "${INCIPIT_EXE:-}" ]; then
+    # Packing a program built elsewhere.
+    exe=$INCIPIT_EXE
+    arch=${INCIPIT_ARCH:-}
+    pdfium=${INCIPIT_PDFIUM:-}
+    [ -n "$arch" ] && [ -n "$pdfium" ] || package_fail "INCIPIT_EXE needs INCIPIT_ARCH (x64 or arm64) and INCIPIT_PDFIUM (pdfium.dll) beside it"
+else
+    case "$(uname -s)" in
+        MINGW* | MSYS* | CYGWIN*) ;;
+        *) package_fail "the program is built on Windows; to pack one built elsewhere see the top of this file" ;;
+    esac
+    triple=$(rustc -vV | sed -n 's/^host: //p')
+    case "$triple" in
+        x86_64-pc-windows-msvc) arch=x64 ;;
+        aarch64-pc-windows-msvc) arch=arm64 ;;
+        *) package_fail "the Rust toolchain is for $triple; it must be the MSVC one for x64 or arm64 (rustup default stable-msvc)" ;;
+    esac
+    pdfium="$package_root/lib/lib/pdfium.dll"
+    [ -f "$pdfium" ] || package_fail "pdfium.dll is missing from lib\\lib; docs/development.md says where to get it"
+    package_static_runtime=yes
+    package_build ""
+    exe="$(package_target_dir "")/incipit.exe"
+fi
+[ -f "$exe" ] || package_fail "no program at $exe"
+[ -f "$pdfium" ] || package_fail "no pdfium.dll at $pdfium"
+
+# The folder NSIS runs in: the files to install under app\, the icon and the script, so no path
+# in the script or on the command line has to be told from Git Bash's to Windows'.
+stage="$package_out/windows"
+rm -rf "$stage"
+mkdir -p "$stage/app"
+cp "$exe" "$stage/app/incipit.exe"
+cp "$pdfium" "$stage/app/pdfium.dll"
+package_licenses "$stage/app/licenses"
+cp "$package_root/packaging/icon/incipit.ico" "$stage/incipit.ico"
+cp "$package_root/packaging/windows/incipit.nsi" "$stage/incipit.nsi"
+
+installer="Incipit-$version-$arch-setup.exe"
+number="$(echo "$version" | sed 's/[-+].*//').0"
+(cd "$stage" && "$makensis" -V2 -DVERSION="$version" -DVERSION_NUMBER="$number" \
+    -DIDENTIFIER="$(package_identifier)" -DOUT="..\\$installer" incipit.nsi)
+rm -rf "$stage"
+(cd "$package_out" && shasum -a 256 "$installer" >"$installer.sha256" 2>/dev/null || sha256sum "$installer" >"$installer.sha256")
+
+echo
+echo "Installer: $package_out/$installer ($(package_size "$package_out/$installer"))"

@@ -31,9 +31,9 @@ package_build() {
     fi
     export CARGO_ENCODED_RUSTFLAGS
     if [ -n "$triple" ]; then
-        cargo build --profile dist -p incipit-app --target "$triple" --manifest-path "$package_root/Cargo.toml"
+        cargo build --locked --profile dist -p incipit-app --target "$triple" --manifest-path "$package_root/Cargo.toml"
     else
-        cargo build --profile dist -p incipit-app --manifest-path "$package_root/Cargo.toml"
+        cargo build --locked --profile dist -p incipit-app --manifest-path "$package_root/Cargo.toml"
     fi
 }
 

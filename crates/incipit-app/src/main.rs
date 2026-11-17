@@ -640,7 +640,8 @@ impl Root {
         }
     }
 
-    fn sidebar(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The pages, as one stop for Tab (the page shown), the arrows going from one to the next.
+    fn sidebar(&self, t: Theme, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The cards page belongs to Review.
         let here = if self.page == Page::Cards {
             Page::Review
@@ -648,19 +649,21 @@ impl Root {
             self.page
         };
         let at = PAGES.iter().position(|p| p.0 == here);
-        let mut list = incipit_ui::nav_list(&self.glide, at, t);
+        let stops = incipit_ui::row_stops("sidebar", PAGES.iter().map(|p| p.1), at, window, cx);
+        let mut list = incipit_ui::nav_list(&self.glide, at, t).on_key_down(stops.keys());
         for (index, (page, id, label, glyph)) in PAGES.into_iter().enumerate() {
             let on = here == page;
+            let (focus, ring) = stops.row(index, window);
             list = list.child(
-                incipit_ui::nav_row(id, label, glyph, on, index, &self.glide, false, t).when(
-                    !on,
-                    |row| {
+                incipit_ui::nav_row(id, label, glyph, on, index, &self.glide, ring, t)
+                    .track_focus(&focus)
+                    .on_mouse_down(MouseButton::Left, incipit_ui::keep_focus)
+                    .when(!on, |row| {
                         row.on_click(cx.listener(move |this, _, _, cx| {
                             this.go(page, cx);
                             cx.notify();
                         }))
-                    },
-                ),
+                    }),
             );
         }
         incipit_ui::sidebar(t).child(list)
@@ -716,7 +719,7 @@ impl Render for Root {
             .font_family(incipit_ui::ui_font())
             .text_color(t.primary)
             .text_size(px(Type::BODY))
-            .child(self.sidebar(t, cx))
+            .child(self.sidebar(t, window, cx))
             .child(
                 div()
                     .flex_1()

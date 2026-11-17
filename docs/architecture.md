@@ -230,10 +230,11 @@ learner is and how they learn. Two of its settings change review: the day's
 new cards and the recall a card is scheduled to fall to (`study.rs`). Every
 request that adapts to the learner carries the earlier app's paragraph about
 them as material (`learning/learner.rs`). Before the app opens, the first run
-(`first_run.rs`) asks where the vault is kept, how to reach a model (the rows
-of Settings, `providers.rs`) and about the learner (`profile_form.rs`, also in
-Settings); the earlier app needed only the last, since it was started from a
-terminal in its folder. The first run shows while no vault is open and while
+(`first_run.rs`) asks where the vault is kept (a new folder, an Obsidian vault
+opened where it is, or another folder; Settings has the last two), how to reach
+a model (the rows of Settings, `providers.rs`) and about the learner
+(`profile_form.rs`, also in Settings); the earlier app needed only the last,
+since it was started from a terminal in its folder. The first run shows while no vault is open and while
 the open vault's profile is not marked done; the model step is left out when
 a model already works, and it and the last step can be skipped.
 

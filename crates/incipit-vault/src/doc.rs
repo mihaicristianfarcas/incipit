@@ -539,6 +539,14 @@ mod tests {
     }
 
     #[test]
+    fn a_tag_property_may_be_written_with_its_hash_and_is_counted_once_with_the_text() {
+        let text = "---\ntags: [\"#physics\", Waves]\n---\nAbout #waves and #light.\n";
+        let doc = Doc::parse(path("Waves.md"), text).unwrap();
+        assert_eq!(doc.tags(), ["#physics", "Waves"]);
+        assert_eq!(doc.all_tags(), ["physics", "Waves", "light"]);
+    }
+
+    #[test]
     fn a_file_without_properties_gets_its_kind_from_its_folder_and_an_id_from_its_path() {
         let doc = Doc::parse(path("concepts/Derivative.md"), "How fast it changes.\n").unwrap();
         assert_eq!(doc.kind(), Kind::Concept);

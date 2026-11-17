@@ -2,16 +2,18 @@
 //! like a segmented control or a list, is one stop its arrows go through),
 //! and a ring shows what has the keyboard only after a key moved it there; a
 //! click hides it, as in macOS, and a click on a button leaves the keyboard
-//! where it was. What the keyboard moves to is scrolled into view. And the
+//! where it was. GPUI does not move the keyboard on Tab itself: `init` binds
+//! Tab and Shift+Tab to do it. What the keyboard moves to is scrolled into
+//! view, in the scroll areas a page says it drew (`scroll_area`). And the
 //! scroll areas' bars, which GPUI does not draw: a bar follows a scroll area,
 //! or anything else that can say how far along it is (`Scrolled`).
 
 use std::cell::{Cell, RefCell};
 
 use gpui::{
-    canvas, div, point, prelude::*, px, quad, size, App, BorderStyle, Bounds, DispatchPhase,
-    ElementId, FocusHandle, HitboxBehavior, KeyDownEvent, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, ScrollHandle, Window,
+    actions, canvas, div, point, prelude::*, px, quad, size, App, BorderStyle, Bounds,
+    DispatchPhase, ElementId, FocusHandle, HitboxBehavior, KeyBinding, KeyDownEvent,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, ScrollHandle, Window,
 };
 
 use crate::theme::{rgba, Theme};
@@ -25,6 +27,36 @@ thread_local! {
     /// The window's scroll areas, as last drawn: what the keyboard moves to
     /// is scrolled into view in the one it is in.
     static SCROLL_AREAS: RefCell<Vec<ScrollHandle>> = const { RefCell::new(Vec::new()) };
+}
+
+actions!(incipit_focus, [FocusNext, FocusPrevious]);
+
+/// Once, when the app starts: Tab and Shift+Tab move the keyboard to the next
+/// and the one before of what can be clicked, in the window in front, and show
+/// the ring there. A text field that holds a Tab of its own (a list item it
+/// indents) is asked first.
+pub fn init(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("tab", FocusNext, None),
+        KeyBinding::new("shift-tab", FocusPrevious, None),
+    ]);
+    cx.on_action(|_: &FocusNext, cx| move_keyboard(false, cx));
+    cx.on_action(|_: &FocusPrevious, cx| move_keyboard(true, cx));
+}
+
+fn move_keyboard(back: bool, cx: &mut App) {
+    let Some(window) = cx.active_window() else {
+        return;
+    };
+    let _ = window.update(cx, |_, window, cx| {
+        if back {
+            window.focus_prev(cx);
+        } else {
+            window.focus_next(cx);
+        }
+        keyboard_moved();
+        window.refresh();
+    });
 }
 
 /// The keyboard moved the focus: what has it shows a ring, scrolled into
@@ -45,9 +77,16 @@ pub fn keyboard_focus() -> bool {
 }
 
 /// The scroll areas drawn, for what the keyboard moves to to be scrolled
-/// into view.
+/// into view: these and no others. A window that draws its pages afresh each
+/// frame starts the frame with none (`scroll_areas([])`), and each page adds
+/// its own (`scroll_area`) as it is drawn.
 pub fn scroll_areas(areas: impl IntoIterator<Item = ScrollHandle>) {
     SCROLL_AREAS.set(areas.into_iter().collect());
+}
+
+/// A scroll area drawn in this frame, besides the others.
+pub fn scroll_area(area: &ScrollHandle) {
+    SCROLL_AREAS.with_borrow_mut(|areas| areas.push(area.clone()));
 }
 
 /// A control's focus handle, in the tab order: kept under `id` while the
@@ -107,22 +146,31 @@ pub fn focus_ring(t: Theme, radius: f32, outset: f32) -> impl IntoElement {
 /// it, or its top.
 fn reveal(bounds: Bounds<Pixels>, window: &mut Window) {
     let clip = window.content_mask().bounds;
-    // In a scroll area it is clipped to it: inside it across, from its top
-    // down. The strip above a page is not.
     let area = SCROLL_AREAS.with_borrow(|areas| {
-        areas
-            .iter()
-            .find(|a| {
-                let view = a.bounds();
-                clip.left() >= view.left() - px(1.0)
-                    && clip.right() <= view.right() + px(1.0)
-                    && clip.top() >= view.top() - px(1.0)
-            })
-            .cloned()
+        let views: Vec<_> = areas.iter().map(ScrollHandle::bounds).collect();
+        innermost(clip, &views).map(|at| areas[at].clone())
     });
     if let Some(area) = area {
         scroll_into_view(&area, bounds, px(12.0), window);
     }
+}
+
+/// The scroll area, of `views` (their bounds), that something drawn clipped
+/// to `clip` is in: clipped to it, inside it across and from its top down (the
+/// strip above a page is not in it). Of areas inside one another, the
+/// smallest.
+fn innermost(clip: Bounds<Pixels>, views: &[Bounds<Pixels>]) -> Option<usize> {
+    let size = |v: &Bounds<Pixels>| f32::from(v.size.width) * f32::from(v.size.height);
+    views
+        .iter()
+        .enumerate()
+        .filter(|(_, view)| {
+            clip.left() >= view.left() - px(1.0)
+                && clip.right() <= view.right() + px(1.0)
+                && clip.top() >= view.top() - px(1.0)
+        })
+        .min_by(|(_, a), (_, b)| size(a).total_cmp(&size(b)))
+        .map(|(at, _)| at)
 }
 
 /// Scrolls `area` to show all of `bounds` (drawn in it), `margin` clear of
@@ -313,6 +361,7 @@ pub fn scrolled(
     scroll: &ScrollHandle,
     t: Theme,
 ) -> impl IntoElement {
+    scroll_area(scroll);
     div()
         .flex_1()
         .min_h_0()
@@ -350,6 +399,23 @@ mod tests {
             (step("down", None, 0, false), step("a", Some(0), 3, false)),
             (None, None)
         );
+    }
+
+    #[test]
+    fn a_key_is_in_the_scroll_area_it_is_clipped_to_and_the_smallest_of_them() {
+        let area =
+            |x: f32, y: f32, w: f32, h: f32| Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
+        let page = area(200.0, 40.0, 800.0, 700.0);
+        let list = area(200.0, 120.0, 300.0, 400.0);
+        let views = [page, list];
+        // A row of the list is clipped to the list, which is inside the page too.
+        assert_eq!(innermost(area(200.0, 130.0, 300.0, 40.0), &views), Some(1));
+        // One beside it is only in the page.
+        assert_eq!(innermost(area(520.0, 130.0, 300.0, 40.0), &views), Some(0));
+        // The sidebar, and the strip above the page, are in none.
+        assert_eq!(innermost(area(0.0, 130.0, 200.0, 40.0), &views), None);
+        assert_eq!(innermost(area(200.0, 0.0, 800.0, 40.0), &views), None);
+        assert_eq!(innermost(area(200.0, 130.0, 300.0, 40.0), &[]), None);
     }
 
     #[test]

@@ -39,7 +39,7 @@ pub use controls::*;
 pub use diff::diff;
 pub use focus::{
     arrow_step, clicked, focus_handle, focus_ring, keep_focus, keyboard_focus, keyboard_moved,
-    ringed, scroll_areas, scroll_into_view, scrollbar, scrolled, Scrolled, Span,
+    ringed, scroll_area, scroll_areas, scroll_into_view, scrollbar, scrolled, Scrolled, Span,
 };
 pub use formula::{typeset_with, Typeset, Typesetter};
 pub use icon::{icon, Assets, Icon, IconName, IconSize};
@@ -53,7 +53,8 @@ static UI_FONT: OnceLock<SharedString> = OnceLock::new();
 static MONO_FONT: OnceLock<SharedString> = OnceLock::new();
 
 /// Once, when the app starts, before a window opens: fonts, the text field's
-/// keys, and how GPUI blends over glass (`glass::blend_alpha_over`).
+/// keys, Tab and Shift+Tab (`focus::init`), and how GPUI blends over glass
+/// (`glass::blend_alpha_over`).
 pub fn init(cx: &mut App) {
     glass::blend_alpha_over();
     let names: std::collections::HashSet<String> =
@@ -101,6 +102,7 @@ pub fn init(cx: &mut App) {
     let _ = UI_FONT.set(ui);
     let _ = MONO_FONT.set(mono);
     text_field::bind_keys(cx);
+    focus::init(cx);
 }
 
 pub fn ui_font() -> SharedString {

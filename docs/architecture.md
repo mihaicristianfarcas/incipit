@@ -338,6 +338,16 @@ couple of kilobytes of index instead of opening a hundred files, and are taken
 out before its change is looked at. How well a concept is known is the app's to
 work out (`Concepts`), so it is given to the index.
 
+**The keyboard reaches everything that can be clicked.** GPUI does not move
+the keyboard on Tab, so `incipit_ui::focus` binds Tab and Shift+Tab to the next
+and the one before of the window's tab stops. A control is a tab stop by
+having a focus handle (`focus_handle`), shows a ring only while the keyboard,
+not a click, put it there (`ringed`, `focus_ring`; a click anywhere hides the
+ring), and a press on it leaves the keyboard where it was (`keep_focus`).
+Return and Space on a control do what a click does. What the keyboard moves to
+is scrolled into view, in the scroll areas the page said it drew
+(`scroll_area`; `page` does it for its own).
+
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,
 so that no code under a license of Zed's own is linked.

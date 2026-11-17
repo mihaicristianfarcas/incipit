@@ -61,7 +61,10 @@ mod workspace;
 use std::time::Duration;
 
 use futures::StreamExt;
-use gpui::{actions, div, prelude::*, px, AnyElement, App, Context, Entity, KeyBinding, Window};
+use gpui::{
+    actions, div, prelude::*, px, AnyElement, App, Context, Entity, KeyBinding, MouseButton,
+    MouseDownEvent, Window,
+};
 use incipit_ui::{Glide, IconName, Theme, Type};
 use incipit_vault::{DocId, Kind};
 
@@ -591,6 +594,13 @@ impl Root {
         }
     }
 
+    /// A click hides the ring the keyboard showed.
+    fn ring_hidden(&mut self, cx: &mut Context<Self>) {
+        if incipit_ui::clicked() {
+            cx.notify();
+        }
+    }
+
     fn sidebar(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
         // The cards page belongs to Review.
         let here = if self.page == Page::Cards {
@@ -621,10 +631,16 @@ impl Root {
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(window);
+        // Each page says which scroll areas it draws as it is drawn, below.
+        incipit_ui::scroll_areas([]);
         if self.first_run.read(cx).step(cx).is_some() {
             return div()
                 .size_full()
                 .flex()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| this.ring_hidden(cx)),
+                )
                 .font_family(incipit_ui::ui_font())
                 .text_color(t.primary)
                 .text_size(px(Type::BODY))
@@ -654,6 +670,10 @@ impl Render for Root {
         div()
             .size_full()
             .flex()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, _, cx| this.ring_hidden(cx)),
+            )
             .font_family(incipit_ui::ui_font())
             .text_color(t.primary)
             .text_size(px(Type::BODY))

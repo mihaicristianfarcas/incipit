@@ -164,6 +164,14 @@ pub fn add_book(vault: &Vault, file: &Path) -> Result<Doc, String> {
     Ok(added)
 }
 
+/// Where a book's file is in the vault: beside its record, under the name the record holds. None
+/// when the record names no file.
+pub fn book_file(vault: &Vault, doc: &Doc, book: &Book) -> Option<PathBuf> {
+    let (name, folder) = book.file.as_ref().zip(doc.path().parent())?;
+    let path = folder.join(name).ok()?;
+    Some(vault.root().join(path.as_str()))
+}
+
 impl LibraryView {
     pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
         let subscription =
@@ -205,11 +213,7 @@ impl LibraryView {
             .into_iter()
             .map(|doc| {
                 let book = doc.fields::<Book>().unwrap_or_default();
-                let folder = doc.path().parent();
-                let file = book.file.as_ref().zip(folder).and_then(|(name, folder)| {
-                    let path = folder.join(name).ok()?;
-                    Some(vault.root().join(path.as_str()))
-                });
+                let file = book_file(&vault, &doc, &book);
                 let id = doc.id().clone();
                 let state = states.remove(&id).unwrap_or(BookState {
                     progress: None,

@@ -8,6 +8,10 @@
 //! relative to the linking document, or else from the root. Case does not matter. Links in
 //! properties count too (`about: ["[[Derivative]]"]`), as they do in Obsidian.
 //!
+//! When a document moves, the links written with its file name or its path follow it (as in the
+//! earlier app and in Obsidian). A Wiki link that reaches it through its id, a title that is not
+//! its file name, or an alias still does afterwards, so it is left as it was written.
+//!
 //! Two targets the earlier app had are read as well: `[[figure:<id>]]` is the figure with that
 //! id (by id, so it follows the figure when its file moves), and a name ending in a picture's
 //! extension is a picture kept in `attachments/` (`picture_paths`; whether the file is there is
@@ -238,6 +242,13 @@ impl Graph {
 
     /// The document a link written in the document at `from` points at.
     pub(crate) fn resolve(&self, link: &Link, from: &VaultPath) -> Option<DocId> {
+        self.resolve_by(link, from, false)
+    }
+
+    /// The document a link reaches, `by_file_name` only: a Wiki link counts only when it is
+    /// written with the document's file name or its path, not with its id, a title that is not
+    /// its file name, or an alias.
+    fn resolve_by(&self, link: &Link, from: &VaultPath, by_file_name: bool) -> Option<DocId> {
         let names = &self.names;
         if link.target.is_empty() {
             // `[[#Heading]]`: a place in the same document.
@@ -274,6 +285,9 @@ impl Graph {
         }
         if let Some(found) = names.stems.get(&target) {
             return self.closest(found, from);
+        }
+        if by_file_name {
+            return None;
         }
         let as_id = DocId::from(link.target.trim());
         if names.ids.contains(&as_id) {
@@ -313,8 +327,8 @@ impl Graph {
     }
 
     /// The documents whose text must change when documents move (`moves`: id to new path), with
-    /// their new body and properties: links to a moved document follow it, and a moved
-    /// document's relative Markdown links still reach what they reached.
+    /// their new body and properties: links written with a moved document's file name or path
+    /// follow it, and a moved document's relative Markdown links still reach what they reached.
     pub(crate) fn carry_links<'a>(
         &self,
         docs: impl Iterator<Item = &'a Doc>,
@@ -331,7 +345,9 @@ impl Graph {
                 if figure_id(link).is_some() {
                     return None;
                 }
-                let to = self.resolve(link, &from_old)?;
+                // A link that reaches the document by its id, a title or an alias still does
+                // after the move, so it is left as written.
+                let to = self.resolve_by(link, &from_old, link.style == LinkStyle::Wiki)?;
                 let to_moved = moves.contains_key(&to);
                 let relative_md =
                     link.style == LinkStyle::Markdown && !link.target.starts_with('/');
@@ -462,6 +478,50 @@ mod tests {
             .iter()
             .any(|b| b.place == Place::Property("about".into())));
         assert_eq!(g.unresolved().len(), 1);
+    }
+
+    #[test]
+    fn a_link_that_reaches_a_moved_document_by_alias_title_or_id_is_left_as_written() {
+        let docs = [
+            doc(
+                "notes/Old.md",
+                "---\nid: n1\naliases: [Former name]\n---\n",
+            ),
+            doc("cards/first.md", "---\nid: c1\ntitle: Old card\n---\n"),
+            doc(
+                "notes/Other.md",
+                "[[Former name]] [[n1|by id]] [[Old]] [[notes/Old#Part|path]] [[Old card]] [[c1]]\n\
+                 [md](Old.md)\n",
+            ),
+        ];
+        let g = graph(&docs);
+        let moves = HashMap::from([
+            (
+                docs[0].id().clone(),
+                VaultPath::new("notes/New.md").unwrap(),
+            ),
+            (docs[1].id().clone(), VaultPath::new("cards/c2.md").unwrap()),
+        ]);
+        let changed = g.carry_links(docs.iter(), &moves);
+        let other = changed
+            .iter()
+            .find(|d| d.path().as_str() == "notes/Other.md")
+            .unwrap();
+        assert_eq!(
+            other.body(),
+            "[[Former name]] [[n1|by id]] [[New]] [[notes/New#Part|path]] [[Old card]] [[c1]]\n\
+             [md](New.md)\n"
+        );
+        // Left as written, they still reach the documents.
+        let after = [
+            doc("notes/New.md", "---\nid: n1\naliases: [Former name]\n---\n"),
+            doc("cards/second.md", "---\nid: c1\ntitle: Old card\n---\n"),
+            doc("notes/Other.md", other.body()),
+        ];
+        let g = graph(&after);
+        for text in ["[[Former name]]", "[[n1]]", "[[Old card]]", "[[c1]]"] {
+            assert!(resolve(&g, "notes/Other.md", text).is_some(), "{text}");
+        }
     }
 
     #[test]

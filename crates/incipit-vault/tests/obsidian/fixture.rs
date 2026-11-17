@@ -137,7 +137,7 @@ Learn the basics. ^goal-1
 
 ## Steps
 
-See [[Plan#Goals]] here, [[#Steps]] below and [[Ideas#^abc123|that idea]].
+See [[Plan#Goals]] here, [[#Steps]] below, [[Ideas#^abc123|that idea]] and [[Thoughts]].
 ",
         ),
         text(

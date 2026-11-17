@@ -52,6 +52,34 @@ callouts, trailing spaces and line endings stay exactly as they were. A note
 that is only moved or renamed is not written, and the notes that link to it
 change only the link's name; its heading, block and label stay.
 
+### What is read, and what is read differently
+
+Nested folders (every Markdown file under the vault is a note, titled by its
+file name, in the folder it is in), wiki links with a heading, a block or a
+label (`[[Note#Heading|shown]]`, `[[Note#^block]]`, also in a table as
+`\|`), `[shown](../Note.md#Heading)` links, daily notes (notes like any
+other, linked by their day), `aliases` and `tags` in the properties, and
+`#tags` in the text are read as Obsidian reads them. Where Incipit reads
+something differently:
+
+- A link written with an alias reaches the note that has it. Obsidian lists
+  aliases when a link is typed and does not follow one written by hand.
+- A heading or a block in a link is kept (also when the note is renamed) but
+  not looked up: the link reaches the note.
+- A note embedded in another (`![[Note]]`) is a link to it and counts among
+  its backlinks, but its text is not drawn in place.
+- A picture is drawn only from `attachments/`; one kept anywhere else is a
+  link that reaches nothing yet. So is a link to a file that is not a note
+  (a PDF, a recording).
+- Links between `%%` marks, which Obsidian takes for a comment, are links.
+- A note whose properties are not YAML (a template with `{{date}}` in them)
+  is listed apart as one that cannot be read, with its text, and is never
+  changed; Obsidian shows it as a note.
+- A file whose name a system refuses (`?`, `:`, `"`, `*`, `<`, `>`, `|`, a
+  name ending in a dot or a space, `CON`) is not read and is not listed, so
+  that a vault opens on every system.
+- A `kind` property names the kind of a note in any folder.
+
 ## A document
 
 Every record is one type, a document: a Markdown file whose YAML

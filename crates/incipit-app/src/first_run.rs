@@ -297,7 +297,8 @@ impl FirstRun {
                         .child(div().text_color(t.secondary).child(
                             "Already use Obsidian? Pick the folder you open in it. Your notes are \
                              read where they are, and none is changed until you change it here. \
-                             Incipit adds only two hidden folders of its own.",
+                             Opening it adds only two hidden folders, for Incipit's own history \
+                             and files.",
                         ))
                         .child(
                             div().flex().child(

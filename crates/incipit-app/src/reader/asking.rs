@@ -6,13 +6,12 @@
 use futures::StreamExt;
 use gpui::Context;
 use incipit_book::Anchor;
-use incipit_llm::{Event, Request, Update};
+use incipit_llm::{Event, Update};
 
 use super::model::Note;
 use super::ReaderView;
 use crate::learning::answers::{self, Asked, Way, RELATED};
 use crate::learning::context::BookContext;
-use crate::learning::learner;
 use crate::learning::resources;
 
 pub(super) use crate::learning::answers::EXPLAIN;
@@ -295,18 +294,7 @@ impl ReaderView {
                 ..context
             }
             .cut_to(answers::AROUND);
-            let material: Vec<(String, String)> = learner::add_to(
-                context.add_to(Request::new(""), "the text around the passage"),
-                &learner,
-            )
-            .material
-            .into_iter()
-            .map(|m| (m.label, m.text))
-            .chain(std::iter::once((
-                "the selected passage".to_owned(),
-                passage,
-            )))
-            .collect();
+            let material = crate::figures::passage_material(&learner, context, &passage);
             let started = this.update(cx, |this, cx| {
                 if !this.notes.iter().any(|n| n.id == id) {
                     return None;

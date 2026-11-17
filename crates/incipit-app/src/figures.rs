@@ -5,7 +5,7 @@
 //! is shown: a figure that failed its checks is never drawn. The learner's own words about what
 //! to draw, when they said, go to the model as material in both steps (`WANTED`), as the earlier
 //! app's `generateScene` sent them, and the paragraph about the learner (`learner`) goes the same
-//! way, as the first of the material.
+//! way, after the book's text (`passage_material`).
 //!
 //! This blocks, so it runs on a call's own thread (`Models::work`). The checks here measure text
 //! by rule of thumb, since no window is at hand; the Figure page checks again with real widths.
@@ -14,9 +14,34 @@ use incipit_llm::{structured, Cancel, Error, Event, Provider, Request};
 use incipit_scene::{check, schema, Figure, Kind, Rough};
 use serde_json::{json, Value};
 
+use crate::learning::context::BookContext;
+use crate::learning::learner;
+
 /// The label of the material that holds the learner's own words about what to draw. Without
 /// it the model is left to choose the one figure that best explains the passage.
 pub const WANTED: &str = "what the learner asked to be drawn";
+
+/// What a figure is made from, in the order the model reads it: the book's title, author and
+/// chapter, the text around the passage, the paragraph about the learner (empty when no vault
+/// is open) and the passage itself.
+pub fn passage_material(
+    learner: &str,
+    context: BookContext,
+    passage: &str,
+) -> Vec<(String, String)> {
+    learner::add_to(
+        context.add_to(Request::new(""), "the text around the passage"),
+        learner,
+    )
+    .material
+    .into_iter()
+    .map(|m| (m.label, m.text))
+    .chain(std::iter::once((
+        "the selected passage".to_owned(),
+        passage.to_owned(),
+    )))
+    .collect()
+}
 
 /// Whether the learner said what they want drawn.
 fn said(material: &[(String, String)]) -> bool {
@@ -154,6 +179,38 @@ pub fn refused(problems: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_figure_is_made_from_the_source_the_text_the_learner_and_the_passage_in_that_order() {
+        let context = BookContext {
+            title: Some("Methods".into()),
+            author: None,
+            chapter: Some("Tests".into()),
+            text: "Around it.".into(),
+        };
+        let made = passage_material("Ada is a student.", context.clone(), "A hypothesis.");
+        let labels: Vec<&str> = made.iter().map(|(label, _)| label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "title of the book",
+                "chapter",
+                "the text around the passage",
+                learner::LABEL,
+                "the selected passage"
+            ]
+        );
+        assert_eq!(made[4].1, "A hypothesis.");
+        // No vault, no paragraph about the learner.
+        let alone = passage_material("", BookContext::default(), "A hypothesis.");
+        assert_eq!(
+            alone,
+            [(
+                "the selected passage".to_owned(),
+                "A hypothesis.".to_owned()
+            )]
+        );
+    }
 
     #[test]
     fn a_refusal_names_the_first_three_reasons() {

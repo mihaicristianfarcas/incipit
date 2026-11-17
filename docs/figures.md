@@ -174,13 +174,60 @@ room, a group's box that takes in a node not in it, and text shrunk too
 small to read are errors. The drawing is looked at in each step, or at
 each moment a token leaves or reaches a node and halfway between.
 
+### Diagram
+
+A side view of a physical setup that moves, the drawing a teacher makes
+on a blackboard: a pendulum, a mass on a spring, a block on a slope with
+the forces on it, a gas in a box.
+
+Spec: `params` (as a plot's), `seconds` (how long the clock runs, 0 for
+none), `parts` and `steps`. A part is a `support` (a floor, a ceiling or a
+wall, by the side things are on), a `rod`, a `string`, a `spring`, a
+`block`, a `ball`, a `ramp`, an `arrow` (a force or a velocity) or
+`particles` bouncing inside a block. The first part is on nothing; every
+other part is `on` one listed before it, `at` a distance along it, with
+its own lengths and angles in the setup's units. Nothing gives a
+position: a body on a floor, a slope or a block's top sits on it,
+touching; a body on a rod, string or spring is centred on its point (at
+`end`, its far end); a rod, string, spring or arrow on a body starts from
+its middle. Every length, angle and distance is an expression over the
+parameters, `t` (the clock's seconds) and `end` (the length of what the
+part is on), so a pendulum swings because its string's angle is a
+function of `t`. A block or ball whose `at` is one parameter's name can
+be dragged along what it is on. A diagram has a clock or steps, not both.
+
+Layout (`diagram/solve.rs`, `diagram/layout.rs`, and the drawing's own
+checks in `diagram/collide.rs`): each part is placed from
+the part it is on (`solve`), then the whole setup is fitted to the stage
+once, over every state the checks look at, one unit as long across as up,
+so it neither jumps nor leaves the stage while it moves; the fit is kept
+for the spec, so a frame does not refit. Supports reach just past all that
+hangs from them (one standing on another starts at its foot) and are
+hatched on their solid side; springs are drawn as coils; bodies are drawn
+over what they hang from; labels go beside their parts, clear of the rest.
+
+Checks: 1 to 24 parts, one of them first and every other on a part that
+exists, with no loop; each part on something it can be on (a ramp on a
+floor, particles in a block, nothing on an arrow); at most 4 parameters
+with ranges; expressions that parse and use only the names they may (`t`
+only with a clock, `end` only in `at` along a rod, string, spring, ramp
+or block); 1 to 200 particles; a clock of up to 600 seconds. In the
+drawing, in each step or at 48 moments of the clock, each with the
+parameters at their ends and middle: a value that is not a number, a
+part past the end of what it is on, a length or size of 0 or less (an
+arrow may turn round), a ramp steeper than 80 degrees or flatter than 5,
+a body or a rod too small to see, bodies that run into each other or a
+ramp or go into a support's solid side, and a label with no room are
+errors.
+
 ## Steps
 
-Flow, graph and plot share `steps::Step` (a plot's steps also set
-parameters): one sentence of
+Flow, graph, plot and diagram share `steps::Step` (a plot's and a
+diagram's steps also set parameters): one sentence of
 narration, the ids that appear at that step (`show`) and the ids to light
 (`focus`). An element no step shows is there from the start. Positions
-never depend on the step, so nothing jumps as the learner steps on. The
+never depend on what is shown, so nothing jumps as the learner steps on;
+only what a parameter a step sets moves. The
 checks refuse a step that names an unknown id, shows an element twice, or
 lights one before it appears.
 

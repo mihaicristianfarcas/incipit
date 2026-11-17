@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::diagram::Diagram;
 use crate::draw::{Frame, Measure};
 use crate::flow::Flow;
 use crate::graph::Graph;
@@ -23,6 +24,7 @@ pub enum Figure {
     Flow(Flow),
     Plot(Plot),
     Graph(Graph),
+    Diagram(Diagram),
 }
 
 /// The kinds of figure, in the order a person would look for them.
@@ -32,10 +34,17 @@ pub enum Kind {
     Flow,
     Plot,
     Graph,
+    Diagram,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 4] = [Kind::Sequence, Kind::Flow, Kind::Plot, Kind::Graph];
+    pub const ALL: [Kind; 5] = [
+        Kind::Sequence,
+        Kind::Flow,
+        Kind::Plot,
+        Kind::Graph,
+        Kind::Diagram,
+    ];
 
     /// The name a spec's `kind` field holds.
     pub fn name(self) -> &'static str {
@@ -44,6 +53,7 @@ impl Kind {
             Kind::Flow => "flow",
             Kind::Plot => "plot",
             Kind::Graph => "graph",
+            Kind::Diagram => "diagram",
         }
     }
 
@@ -54,6 +64,7 @@ impl Kind {
             Kind::Flow => "Flow",
             Kind::Plot => "Plot",
             Kind::Graph => "Graph",
+            Kind::Diagram => "Diagram",
         }
     }
 
@@ -71,6 +82,10 @@ impl Kind {
             Kind::Graph => {
                 "a network of nodes and links, with tokens that travel along them: computers, \
                  peers, people, a hash ring, an array"
+            }
+            Kind::Diagram => {
+                "a physical setup that moves, built of parts: pendulums, springs, slopes, \
+                 forces on a body, a gas in a box"
             }
         }
     }
@@ -176,6 +191,7 @@ impl Figure {
             Figure::Flow(f) => f,
             Figure::Plot(k) => k,
             Figure::Graph(g) => g,
+            Figure::Diagram(d) => d,
         }
     }
 
@@ -185,6 +201,7 @@ impl Figure {
             Figure::Flow(_) => Kind::Flow,
             Figure::Plot(_) => Kind::Plot,
             Figure::Graph(_) => Kind::Graph,
+            Figure::Diagram(_) => Kind::Diagram,
         }
     }
 

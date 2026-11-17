@@ -22,7 +22,7 @@ Early. One window, with these pages, on a vault of plain files:
 | Review | Flashcards due today, one at a time, scheduled by FSRS-6, and a mixed quiz across the concepts known least |
 | Brain | The notes, concepts and books as a graph of their links. A node can be dragged and the rest follows, then settles. A selected node has a card with what it links to and a button that opens it, and a field finds nodes by title. A switch turns it into the list of concepts, best known first; a concept's page says how well it is known, what it builds on and leads to, its related concepts, cards and notes, and the passages it came from, and it can be explained back |
 | Math | LaTeX typeset by Typst and drawn in the window, on its own line and inside a sentence |
-| Figure | A figure made from a typed spec, checked, then played, stepped and scrubbed: a sequence, a flow diagram, a plot with parameters to drag, or a network with tokens that travel ([docs/figures.md](docs/figures.md)). The figures made in the reader are listed under it |
+| Figure | A figure made from a typed spec, checked, then played, stepped and scrubbed: a sequence, a flow diagram, a plot with parameters to drag, a network with tokens that travel, or a physical setup that moves ([docs/figures.md](docs/figures.md)). The figures made in the reader are listed under it |
 | Settings | The vault's folder, and which model answers ([docs/models.md](docs/models.md)) |
 
 From any page, ⌘K (Ctrl+K) finds a document or a passage of a book, and ⌘J (Ctrl+J) opens the

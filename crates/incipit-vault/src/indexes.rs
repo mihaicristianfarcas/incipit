@@ -439,6 +439,17 @@ fn book_page(book: &Doc, docs: &[Doc]) -> Generated {
     )
 }
 
+/// The folder a note is in, as the notes table shows it: from `notes/` for the notes made here,
+/// from the root for the others (a vault Obsidian made keeps its notes anywhere).
+fn note_folder(path: &crate::VaultPath) -> String {
+    let mut folders: Vec<&str> = path.parts().collect();
+    folders.pop();
+    if folders.first() == Some(&"notes") {
+        folders.remove(0);
+    }
+    folders.join("/")
+}
+
 fn notes_page(notes: &[&Doc], edges: &Edges) -> Generated {
     let mut lines = vec![
         "# Notes".to_owned(),
@@ -459,11 +470,7 @@ fn notes_page(notes: &[&Doc], edges: &Edges) -> Generated {
             .unwrap_or_default()
     };
     for note in notes {
-        let folder: Vec<&str> = note.path().parts().collect();
-        let folder = folder
-            .get(1..folder.len().saturating_sub(1))
-            .unwrap_or_default()
-            .join("/");
+        let folder = note_folder(note.path());
         lines.push(format!(
             "| [[{}]] | {} | {} | {} | {} | {} | {} |",
             note.title(),
@@ -818,6 +825,24 @@ mod tests {
             text(&files, "brain/unresolved.tsv"),
             "from\ttarget\tline\nnotes/Waves.md\tMissing idea\t1\n"
         );
+    }
+
+    #[test]
+    fn a_note_is_listed_in_the_folder_it_is_in_whether_or_not_that_is_under_notes() {
+        let (_dir, vault) = vault();
+        for at in [
+            "notes/Physics/Waves.md",
+            "Projects/Alpha/Plan.md",
+            "Ideas.md",
+        ] {
+            let path = crate::VaultPath::new(at).unwrap();
+            vault.add(Doc::new_at(Kind::Note, path)).unwrap();
+        }
+        let files = build(&vault, "2026-11-16T09:00:00Z", &|_| None);
+        let notes = text(&files, "notes/INDEX.md");
+        assert!(notes.contains("| [[Waves]] | Physics |"), "{notes}");
+        assert!(notes.contains("| [[Plan]] | Projects/Alpha |"), "{notes}");
+        assert!(notes.contains("| [[Ideas]] |  |"), "{notes}");
     }
 
     #[test]

@@ -11,6 +11,8 @@ use scraper::{ElementRef, Html, Node, Selector};
 
 pub struct Book {
     pub title: String,
+    /// Who the book says wrote it (its first `dc:creator`), when it says.
+    pub author: Option<String>,
     pub blocks: Vec<Block>,
 }
 
@@ -80,6 +82,11 @@ impl Book {
             .next()
             .map(|e| e.text().collect::<String>().trim().to_string())
             .unwrap_or_default();
+        let author = package
+            .select(&Selector::parse("dc\\:creator, creator").unwrap())
+            .next()
+            .map(|e| e.text().collect::<String>().trim().to_string())
+            .filter(|a| !a.is_empty());
         let spine: Vec<String> = package
             .select(&Selector::parse("itemref").unwrap())
             .filter_map(|e| {
@@ -102,7 +109,11 @@ impl Book {
             let mut picture = |src: &str| read(&format!("{base}{src}")).ok();
             walk(body, &mut blocks, &mut picture);
         }
-        Ok(Book { title, blocks })
+        Ok(Book {
+            title,
+            author,
+            blocks,
+        })
     }
 }
 

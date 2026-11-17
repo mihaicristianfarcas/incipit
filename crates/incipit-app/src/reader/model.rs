@@ -180,6 +180,25 @@ pub fn byte_of(text: &str, chars: usize) -> usize {
         .unwrap_or(text.len())
 }
 
+/// The fewest characters a paragraph needs to be worth marking, and the most of its start a
+/// mark covers.
+const WORTH_MARKING: usize = 40;
+const MARK: usize = 90;
+
+/// The start of the first paragraph at or after block `from` that has something to mark, as a
+/// passage: where a made-up note goes so that it is seen when the book opens, whatever the
+/// book says there. Headings, pictures and lines too short to mark are passed over.
+pub fn first_paragraph(blocks: &[(Block, Vec<char>)], from: usize) -> Option<Anchor> {
+    blocks
+        .iter()
+        .enumerate()
+        .skip(from)
+        .find(|(_, (block, chars))| {
+            matches!(block, Block::Paragraph(_)) && chars.len() >= WORTH_MARKING
+        })
+        .map(|(part, (_, chars))| Anchor::of(part, chars, 0, MARK))
+}
+
 /// Where `words` first are in `text`, in characters.
 pub fn find(text: &[char], words: &str) -> Option<(usize, usize)> {
     let words: Vec<char> = words.chars().collect();
@@ -212,6 +231,50 @@ mod tests {
         assert_eq!(s.within(2, 10, false), Some((0, 10)));
         assert_eq!(s.within(3, 10, false), Some((0, 2)));
         assert_eq!(s.within(4, 10, false), None);
+    }
+
+    #[test]
+    fn a_made_up_note_goes_on_the_first_paragraph_with_something_to_mark() {
+        let block = |paragraph: bool, text: &str| {
+            let rich = Rich {
+                text: text.to_owned(),
+                spans: Vec::new(),
+            };
+            let block = if paragraph {
+                Block::Paragraph(rich)
+            } else {
+                Block::Heading {
+                    level: 2,
+                    text: rich,
+                }
+            };
+            (block, text.chars().collect::<Vec<_>>())
+        };
+        let long =
+            "This eBook is for the use of anyone anywhere in the world at no cost. ".repeat(3);
+        let blocks = vec![
+            block(
+                false,
+                "A heading that is long enough to be marked, but is not a paragraph.",
+            ),
+            block(true, "A date."),
+            (
+                Block::Image {
+                    name: "cover.png".into(),
+                    bytes: Vec::new(),
+                },
+                Vec::new(),
+            ),
+            block(true, &long),
+            block(true, &long),
+        ];
+        let anchor = first_paragraph(&blocks, 0).expect("a paragraph to mark");
+        assert_eq!(anchor.part, 3);
+        assert_eq!((anchor.start, anchor.end), (0, MARK));
+        assert_eq!(anchor.quote, long.chars().take(MARK).collect::<String>());
+        // From a later block on, the next one is found; past the last there is none.
+        assert_eq!(first_paragraph(&blocks, 4).map(|a| a.part), Some(4));
+        assert_eq!(first_paragraph(&blocks, 5), None);
     }
 
     #[test]

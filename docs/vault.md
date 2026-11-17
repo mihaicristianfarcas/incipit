@@ -28,6 +28,18 @@ profile.md                   the learner's profile (not a document)
 
 A Markdown file in no known folder is a note.
 
+## Opening a vault Obsidian made
+
+A folder that already holds files is opened where it is, with every file as
+it is. Opening and browsing write nothing to the learner's files: no
+property is added, no file is renamed or moved, nothing in `.obsidian/` is
+touched. The folders that appear are the app's own, `.jj/` (the history) and
+`.incipit/` (generated files), which Obsidian leaves out as it leaves out
+every folder that begins with a dot. The usual folders above are made in an
+empty folder only; in one that holds anything, each appears when something
+is first kept in it. What was there becomes the first entry of the history,
+but for the places the history leaves out (see History).
+
 ## A document
 
 Every record is one type, a document: a Markdown file whose YAML

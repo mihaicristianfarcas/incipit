@@ -8,7 +8,7 @@ you need, instead of listing everything.
 |---|---|
 | `INDEX.md` | generated map: counts, recent changes, the other indexes |
 | `profile.md` | who the learner is: goals, background, level, how they like to learn |
-| `notes/**.md` | the learner's notes, in folders (by subject, book, topic: however they like). **The file name is the title** |
+| `notes/**.md` | the learner's notes, in folders (by subject, book, topic: however they like). **The file name is the title**. A Markdown file anywhere else, outside the folders below, is a note too: a vault that began in Obsidian keeps its notes where Obsidian had them |
 | `notes/INDEX.md` | generated: every note with its tags, links out and backlinks |
 | `concepts/<Name>.md` | one page per concept (the file name is its name); the body explains it. `concepts/INDEX.md` lists them with mastery |
 | `cards/*.md` | flashcards: the body is `## Front` and `## Back` |
@@ -76,7 +76,9 @@ Links are Obsidian links: `[[Note title]]`, `[[Note title|shown text]]`, `[[Conc
 ## Making things for the learner
 
 Everything is a note in `notes/`, so it can go in any folder and link to anything. Make folders
-freely (`notes/Physics/Waves/`, `notes/DDIA/Chapter 5/`); follow the folders the learner already has.
+freely (`notes/Physics/Waves/`, `notes/DDIA/Chapter 5/`); follow the folders the learner already has,
+and where the vault has no `notes/` folder (it began in Obsidian) put a new note beside the notes
+it is about.
 Give every note you make an `about` property linking the books, concepts or notes it is about: their
 pages then list it. Cite book pages as below.
 

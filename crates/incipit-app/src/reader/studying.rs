@@ -311,30 +311,30 @@ impl ReaderView {
         cx.notify();
     }
 
-    /// Practise the selection: a worked example of the skill it teaches, then problems. The text
-    /// around it is gathered first, as the earlier app sent it (8,000 characters at most).
-    pub(super) fn practise(&mut self, cx: &mut Context<Self>) {
+    /// Takes the selection for a study tool that works on a passage: what the earlier app sent
+    /// with it (the passage, where it is, the book's title, author and chapter) and, once it is
+    /// gathered, the text around it (8,000 characters at most are used by the tools that cut it).
+    /// `start` is called with that, on the reader, when it is all in.
+    fn study_selection(
+        &mut self,
+        cx: &mut Context<Self>,
+        start: impl FnOnce(&mut Self, About, &mut Context<Self>) + 'static,
+    ) {
         let anchors = self.anchors();
         self.selection = None;
         self.menu = None;
         let Some(first) = anchors.first() else {
             return;
         };
-        let passage = anchors
-            .iter()
-            .map(|a| a.quote.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
         let about = About {
             concept: None,
-            passage: Some(passage),
+            passage: Some(passage_of(&anchors)),
             source: self.passage_source(first),
             context: BookContext::default(),
         };
         let context = self.book_context(Some(first.part), cx);
         let text = self.text_around(first.part);
-        let practice = self.practice.clone();
-        cx.spawn(async move |_, cx| {
+        cx.spawn(async move |this, cx| {
             let texts = text.await.unwrap_or_else(|_| Ok(Vec::new()));
             let about = About {
                 context: BookContext {
@@ -343,10 +343,18 @@ impl ReaderView {
                 },
                 ..about
             };
-            practice.update(cx, |practice, cx| practice.start(about, cx));
+            let _ = this.update(cx, |this, cx| start(this, about, cx));
         })
         .detach();
         cx.notify();
+    }
+
+    /// Practise the selection: a worked example of the skill it teaches, then problems.
+    pub(super) fn practise(&mut self, cx: &mut Context<Self>) {
+        self.study_selection(cx, |this, about, cx| {
+            this.practice
+                .update(cx, |practice, cx| practice.start(about, cx));
+        });
     }
 
     /// Explain back the concept whose card in the margin is `note`, with its summary.

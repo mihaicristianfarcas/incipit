@@ -317,16 +317,17 @@ impl BrainView {
         cx.notify();
     }
 
-    /// Opens the sheet to practise concept `id`: a worked example, then problems. It has the
-    /// concept's name, its summary and the book, author and chapter its first passage is in; the
-    /// book is not open here, so no text of it goes.
-    pub(crate) fn practise_concept(&mut self, id: &DocId, cx: &mut Context<Self>) {
-        let Some(vault) = self.workspace.read(cx).vault.clone() else {
-            return;
-        };
-        let Some(doc) = vault.get(id) else {
-            return;
-        };
+    /// What a study sheet is told of concept `id`: its name, `passage` (given its document and
+    /// fields), the first passage it came from and the book's title, author and chapter there.
+    /// The book is not open here, so no text of it goes.
+    fn concept_about(
+        &self,
+        id: &DocId,
+        passage: impl FnOnce(&incipit_vault::Doc, &incipit_vault::Concept) -> Option<String>,
+        cx: &Context<Self>,
+    ) -> Option<crate::explain::About> {
+        let vault = self.workspace.read(cx).vault.clone()?;
+        let doc = vault.get(id)?;
         let fields = doc.fields::<incipit_vault::Concept>().unwrap_or_default();
         let source = fields.sources.first().cloned();
         let mut context = crate::learning::context::BookContext::default();
@@ -336,46 +337,46 @@ impl BrainView {
             context.author = crate::concepts::mapping::author_of(&vault, &book);
             context.chapter = source.chapter.clone();
         }
-        let about = crate::explain::About {
+        Some(crate::explain::About {
             concept: Some(doc.title()),
-            passage: Some(crate::learning::practice::passage_of(
-                None,
-                Some((&doc.title(), &fields.summary)),
-                None,
-            )),
+            passage: passage(&doc, &fields),
             source,
             context,
-        };
-        self.practice
-            .update(cx, |practice, cx| practice.start(about, cx));
+        })
+    }
+
+    /// Opens the sheet to practise concept `id`: a worked example, then problems. It has the
+    /// concept's name, its summary and the book, author and chapter its first passage is in.
+    pub(crate) fn practise_concept(&mut self, id: &DocId, cx: &mut Context<Self>) {
+        let about = self.concept_about(
+            id,
+            |doc, fields| {
+                Some(crate::learning::practice::passage_of(
+                    None,
+                    Some((&doc.title(), &fields.summary)),
+                    None,
+                ))
+            },
+            cx,
+        );
+        if let Some(about) = about {
+            self.practice
+                .update(cx, |practice, cx| practice.start(about, cx));
+        }
     }
 
     /// Opens the sheet to explain concept `id` back, with its summary, and the book, author and
-    /// chapter its first passage is in. The book is not open here, so no text of it goes.
+    /// chapter its first passage is in.
     pub(crate) fn explain_concept(&mut self, id: &DocId, cx: &mut Context<Self>) {
-        let Some(vault) = self.workspace.read(cx).vault.clone() else {
-            return;
-        };
-        let Some(doc) = vault.get(id) else {
-            return;
-        };
-        let fields = doc.fields::<incipit_vault::Concept>().unwrap_or_default();
-        let source = fields.sources.first().cloned();
-        let mut context = crate::learning::context::BookContext::default();
-        if let Some(source) = &source {
-            let book = DocId::from(source.book.as_str());
-            context.title = vault.get(&book).map(|record| record.title());
-            context.author = crate::concepts::mapping::author_of(&vault, &book);
-            context.chapter = source.chapter.clone();
+        let about = self.concept_about(
+            id,
+            |_, fields| Some(fields.summary.clone()).filter(|s| !s.trim().is_empty()),
+            cx,
+        );
+        if let Some(about) = about {
+            self.explain
+                .update(cx, |explain, cx| explain.start(about, cx));
         }
-        let about = crate::explain::About {
-            concept: Some(doc.title()),
-            passage: Some(fields.summary).filter(|s| !s.trim().is_empty()),
-            source,
-            context,
-        };
-        self.explain
-            .update(cx, |explain, cx| explain.start(about, cx));
     }
 
     /// Shows the picture or the list.

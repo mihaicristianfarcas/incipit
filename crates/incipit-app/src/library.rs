@@ -5,15 +5,19 @@
 //! folder), each with how far through it they are. INCIPIT_PAGE=library opens the page;
 //! INCIPIT_OPEN=words opens the first book whose title has those words, without clicking.
 //! Books given to the app from outside (`open_with`) are taken in here too, once a vault is open,
-//! and their problems are said in the page's own line for problems.
+//! and their problems are said in the page's own line for problems. The books are one stop for Tab,
+//! and the arrows go from one to the next.
 
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, PathPromptOptions, Render,
-    ScrollHandle, Subscription, Window,
+    div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, MouseButton,
+    PathPromptOptions, Render, ScrollHandle, Subscription, Window,
 };
-use incipit_ui::{button, card, meter, page, page_header, segmented, Type};
+use incipit_ui::{
+    button, card, focus_ring, keep_focus, meter, page, page_header, row_stops, segmented, Radius,
+    Type,
+};
 use incipit_vault::{Book, Doc, DocId, Kind, Vault, VaultPath};
 
 use crate::open_with::{take_in, Waiting};
@@ -421,7 +425,16 @@ impl Render for LibraryView {
         let add = button("book-add", "Add a book", t)
             .accent()
             .on_click(cx.listener(|this, _, _, cx| this.choose(cx)));
+        // The books are one stop for Tab, the arrows going from one to the next.
+        let stops = row_stops(
+            "library-books",
+            self.books.iter().map(|b| b.id.as_str()),
+            None,
+            window,
+            cx,
+        );
         let rows = self.books.iter().enumerate().map(|(index, book)| {
+            let (focus, ring) = stops.row(index, window);
             let shelved = book.file.clone().map(|file| Shelved {
                 id: Some(book.id.clone()),
                 title: book.title.clone(),
@@ -443,12 +456,15 @@ impl Render for LibraryView {
             .join("  ·  ");
             card(t)
                 .id(("book", index))
+                .relative()
                 .p(px(14.0))
                 .flex()
                 .flex_col()
                 .gap(px(4.0))
                 .cursor_pointer()
                 .hover(|c| c.bg(t.hover))
+                .track_focus(&focus)
+                .on_mouse_down(MouseButton::Left, keep_focus)
                 .child(
                     div()
                         .font_weight(gpui::FontWeight::MEDIUM)
@@ -482,6 +498,9 @@ impl Render for LibraryView {
                         cx.emit(Chosen(shelved));
                     }
                 }))
+                .when(ring, |card| {
+                    card.child(focus_ring(t, Radius::ROW + 1.0, -2.0))
+                })
         });
         let body =
             div()
@@ -539,7 +558,14 @@ impl Render for LibraryView {
                         "No books yet. Add a PDF or an EPUB and it is copied into your vault.",
                     ))
                 })
-                .child(div().flex().flex_col().gap(px(8.0)).children(rows));
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.0))
+                        .on_key_down(stops.keys())
+                        .children(rows),
+                );
         page("library", &self.scroll, 680.0, t, body).into_any_element()
     }
 }

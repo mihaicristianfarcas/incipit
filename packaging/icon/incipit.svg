@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Incipit</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d1dff6"/>
+      <stop offset="1" stop-color="#92b6f0"/>
+    </linearGradient>
+  </defs>
+  <!-- The tile: the macOS icon grid, an 824 square with 100 around it. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sky)"/>
+  <!-- An open book, its pages curving down to the spine. -->
+  <path d="M512 352C440 308 340 302 252 326V716C340 692 440 698 512 742Z" fill="#fbfcff"/>
+  <path d="M512 352C584 308 684 302 772 326V716C684 692 584 698 512 742Z" fill="#eef3fc"/>
+  <path d="M512 352V742" stroke="#92b6f0" stroke-width="6"/>
+  <!-- On the left page the first letter of a text, large: an incipit. -->
+  <g fill="#16213a">
+    <rect x="352" y="436" width="92" height="22" rx="4"/>
+    <rect x="352" y="590" width="92" height="22" rx="4"/>
+    <rect x="387" y="450" width="22" height="154"/>
+  </g>
+  <!-- On the right page its lines. -->
+  <g stroke="#16213a" stroke-width="20" stroke-linecap="round" opacity=".55">
+    <path d="M580 446C620 440 662 440 700 448"/>
+    <path d="M580 506C620 500 662 500 700 508"/>
+    <path d="M580 566C620 560 662 560 700 568"/>
+    <path d="M580 626C610 622 636 622 660 628"/>
+  </g>
+</svg>

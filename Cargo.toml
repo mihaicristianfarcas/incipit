@@ -37,3 +37,11 @@ anyhow = "1"
 # same no-op API under Apache-2.0 (from Helio).
 ztracing = { path = "vendor/ztracing" }
 ztracing_macro = { path = "vendor/ztracing_macro" }
+
+# What the installers carry (docs/packaging.md): the release build, made smaller. The package scripts
+# also remove the build machine's paths from it (`--remap-path-prefix`; Cargo's `trim-paths` is not
+# stable yet). `cargo build --release` stays quick for everyday use.
+[profile.dist]
+inherits = "release"
+strip = "symbols"
+lto = "thin"

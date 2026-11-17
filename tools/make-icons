@@ -1,0 +1,37 @@
+#!/bin/sh
+# Makes the app's icon files from packaging/icon/incipit.svg, on a Mac (QuickLook draws the SVG,
+# ImageMagick cuts the tile's corners and writes the .ico, iconutil writes the .icns):
+#
+#   packaging/icon/incipit.icns   macOS bundle (tools/package-mac)
+#   packaging/icon/incipit.ico    Windows: the program's own icon and the installer's
+#   packaging/icon/incipit.png    Linux: 512 pixels, for the menu and the AppImage
+#
+# The three files are kept in git, so a package is made without this; run it after changing the SVG.
+set -e
+cd "$(dirname "$0")/../packaging/icon"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+# QuickLook draws on white; the tile's own outline (the SVG's rounded square, taken in by a pixel so
+# no white edge is left) is put back as the picture's transparency.
+qlmanage -t -s 1024 -o "$work" incipit.svg >/dev/null
+magick -size 1024x1024 xc:black -fill white -draw "roundrectangle 101,101 922,922 184,184" "$work/mask.png"
+magick "$work/incipit.svg.png" "$work/mask.png" -alpha off -compose CopyOpacity -composite "$work/full.png"
+
+size() { magick "$work/full.png" -resize "$1x$1" -filter Lanczos "$2"; }
+
+set=$work/incipit.iconset
+mkdir "$set"
+for s in 16 32 128 256 512; do
+    size "$s" "$set/icon_${s}x${s}.png"
+    size "$((s * 2))" "$set/icon_${s}x${s}@2x.png"
+done
+iconutil -c icns "$set" -o incipit.icns
+
+for s in 16 24 32 48 64 128 256; do size "$s" "$work/ico-$s.png"; done
+magick "$work"/ico-16.png "$work"/ico-24.png "$work"/ico-32.png "$work"/ico-48.png "$work"/ico-64.png \
+    "$work"/ico-128.png "$work"/ico-256.png incipit.ico
+
+size 512 incipit.png
+ls -l incipit.icns incipit.ico incipit.png

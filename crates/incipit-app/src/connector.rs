@@ -16,7 +16,7 @@ use gpui::{
     Render, ScrollHandle, SharedString, Window,
 };
 use incipit_llm::{Cancel, Update};
-use incipit_ui::{button, card, sheet, spinner, Theme, Type};
+use incipit_ui::{button, card, scrollbar, sheet, spinner, Theme, Type};
 
 use crate::explain::{quoted, About};
 use crate::learning::connect::{self, Connection};
@@ -26,6 +26,19 @@ use crate::workspace::Workspace;
 const WIDTH: f32 = 640.0;
 /// The most height the connections take before they scroll.
 const BODY: f32 = 400.0;
+/// The least height they get, however short the window.
+const LEAST: f32 = 140.0;
+/// What the sheet needs besides the connections: its padding, heading, the passage's four lines,
+/// the line for a problem, the Close button, the gaps between them and some air around the sheet.
+const AROUND: f32 = 360.0;
+/// Room kept at the list's right for its scroll bar.
+const BAR: f32 = 12.0;
+
+/// The height the connections may take in a window `window` tall: what is left once the rest of
+/// the sheet is in it, so that Close stays in view, between `LEAST` and `BODY`.
+fn list_height(window: f32) -> f32 {
+    (window - AROUND).clamp(LEAST, BODY)
+}
 
 enum Stage {
     /// The model is writing the connections.
@@ -286,7 +299,10 @@ impl ConnectorView {
         t: Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // A card keeps the height of what it holds: a list that is shorter than its cards
+        // scrolls, it does not squeeze them.
         card(t)
+            .flex_none()
             .p(px(12.0))
             .gap(px(6.0))
             .child(Self::small(
@@ -378,18 +394,26 @@ impl Render for ConnectorView {
                 .gap(px(12.0))
                 .child(
                     div()
-                        .id("connector-list")
-                        .max_h(px(BODY))
-                        .overflow_y_scroll()
-                        .track_scroll(&self.scroll)
+                        .relative()
                         .flex()
                         .flex_col()
-                        .gap(px(10.0))
-                        .children(open.connections.iter().zip(&open.kept).enumerate().map(
-                            |(which, (connection, kept))| {
-                                self.connection(which, connection, *kept, t, cx)
-                            },
-                        )),
+                        .child(
+                            div()
+                                .id("connector-list")
+                                .max_h(px(list_height(window.viewport_size().height.as_f32())))
+                                .overflow_y_scroll()
+                                .track_scroll(&self.scroll)
+                                .flex()
+                                .flex_col()
+                                .gap(px(10.0))
+                                .pr(px(BAR))
+                                .children(open.connections.iter().zip(&open.kept).enumerate().map(
+                                    |(which, (connection, kept))| {
+                                        self.connection(which, connection, *kept, t, cx)
+                                    },
+                                )),
+                        )
+                        .child(scrollbar("connector-bar", &self.scroll, t)),
                 )
                 .children(
                     open.problem
@@ -480,6 +504,13 @@ fn made_up() -> Vec<Connection> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_connections_get_what_the_window_leaves_between_a_card_and_the_most_they_need() {
+        assert_eq!(list_height(1200.0), BODY);
+        assert_eq!(list_height(AROUND + 250.0), 250.0);
+        assert_eq!(list_height(300.0), LEAST);
+    }
 
     #[test]
     fn the_made_up_connections_are_one_of_each_kind_and_can_be_kept() {

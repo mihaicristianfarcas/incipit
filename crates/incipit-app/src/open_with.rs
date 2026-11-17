@@ -100,7 +100,14 @@ pub fn take_in(vault: &Vault, files: &[PathBuf]) -> Taken {
             Ok(book) => {
                 taken.open.get_or_insert_with(|| book.id().clone());
             }
-            Err(why) => taken.problems.push(format!("{}: {why}", file.display())),
+            // The file's name says which it was; its whole path would run over several lines.
+            Err(why) => {
+                let name = file
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| file.display().to_string());
+                taken.problems.push(format!("{name}: {why}"))
+            }
         }
     }
     taken
@@ -416,7 +423,10 @@ mod tests {
         let taken = take_in(&vault, &[text, missing, directory]);
         assert!(taken.open.is_none());
         assert_eq!(taken.problems.len(), 3);
-        assert!(taken.problems[0].contains("notes.txt"), "{taken:?}");
+        assert!(
+            taken.problems[0].starts_with("notes.txt: "),
+            "only the name: {taken:?}"
+        );
         assert!(taken.problems[0].contains("Only PDF and EPUB"), "{taken:?}");
         assert!(taken.problems[1].contains("gone.pdf"), "{taken:?}");
         assert!(taken.problems[1].contains("no such file"), "{taken:?}");

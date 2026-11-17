@@ -2,8 +2,9 @@
 //! icon, a path named on the command line. Each is added to the library the way the Library's
 //! "Add a book" adds one, or found there when that same book is already in it, and the first is
 //! opened in the reader. The Library page does the work with a window (`LibraryView::give`); this
-//! module holds what needs none: which files the program's arguments name, telling a book already
-//! in the library, taking each file in, and keeping files until a vault is open (`Waiting`).
+//! module holds what needs none: which files the system's open event or the program's arguments
+//! name, telling a book already in the library, taking each file in, and keeping files until a
+//! vault is open (`Waiting`).
 //!
 //! A book is "already in the library" when a book of the vault has that very file (the learner
 //! opened the vault's own copy) or a file of the same bytes (the same download again, whatever it
@@ -17,20 +18,41 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use incipit_vault::{Book, Doc, DocId, Kind, Vault};
+use url::Url;
 
 use crate::library::{add_book, book_file};
 
 /// How much of two files is compared at a time.
 const CHUNK: usize = 64 * 1024;
 
-/// The files a program's arguments name, in the order given. An argument that starts with `-` is
-/// an option of the system or of whatever started the program, never a file, and an empty one
-/// names nothing.
+/// The files the system's open event names, in the order given (macOS sends `file:` URLs, which
+/// arrive while the app runs and at its start). The path is the URL's with its percent-encoded
+/// characters decoded. A URL that is not a `file:` one, or names no path on this computer, names
+/// no file: the package asks to open only PDF and EPUB files, so none arrives in practice.
+pub fn files_from_urls(urls: &[String]) -> Vec<PathBuf> {
+    urls.iter().filter_map(|url| path_of_url(url)).collect()
+}
+
+/// The files a program's arguments name, in the order given: paths (Windows and Linux), or
+/// `file:` URLs, which some launchers pass. An argument that starts with `-` is an option of the
+/// system or of whatever started the program, never a file, and an empty one names nothing.
 pub fn files_from_args(args: impl IntoIterator<Item = OsString>) -> Vec<PathBuf> {
     args.into_iter()
         .filter(|arg| !arg.is_empty() && !arg.to_string_lossy().starts_with('-'))
-        .map(PathBuf::from)
+        .filter_map(|arg| match arg.to_str() {
+            Some(text) if text.starts_with("file:") => path_of_url(text),
+            _ => Some(PathBuf::from(arg)),
+        })
         .collect()
+}
+
+/// The path a `file:` URL names, or none for another kind of URL or text that is not one.
+fn path_of_url(url: &str) -> Option<PathBuf> {
+    let url = Url::parse(url).ok()?;
+    if url.scheme() != "file" {
+        return None;
+    }
+    url.to_file_path().ok()
 }
 
 /// Files given to the app that no vault was open for yet, in the order given. A file is kept
@@ -196,6 +218,64 @@ mod tests {
             ]
         );
         assert!(files_from_args(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn the_open_event_names_files_by_urls_with_their_characters_decoded() {
+        let folder = tempfile::tempdir().unwrap();
+        // A name with a space and a letter outside ASCII, as the Finder writes it in a URL.
+        let file = folder.path().join("My Book \u{e9}.pdf");
+        let url = Url::from_file_path(&file).unwrap().to_string();
+        assert!(url.contains("%20") && url.contains("%C3%A9"), "{url}");
+        assert_eq!(files_from_urls(&[url.clone(), url]), [file.clone(), file]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_url_of_the_finder_is_a_path() {
+        let urls = [
+            "file:///books/My%20Book%20%C3%A9.pdf",
+            "file://localhost/books/b.epub",
+        ]
+        .map(String::from);
+        assert_eq!(
+            files_from_urls(&urls),
+            [
+                PathBuf::from("/books/My Book \u{e9}.pdf"),
+                PathBuf::from("/books/b.epub")
+            ]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_url_of_a_windows_path_is_a_path() {
+        let urls = ["file:///C:/Books/My%20Book.pdf".to_owned()];
+        assert_eq!(
+            files_from_urls(&urls),
+            [PathBuf::from(r"C:\Books\My Book.pdf")]
+        );
+    }
+
+    #[test]
+    fn what_is_not_a_file_url_names_no_file() {
+        let urls = [
+            "https://example.org/book.pdf",
+            "incipit://open",
+            "not a url",
+            "",
+        ]
+        .map(String::from);
+        assert!(files_from_urls(&urls).is_empty());
+    }
+
+    #[test]
+    fn an_argument_may_be_a_file_url_as_well_as_a_path() {
+        let folder = tempfile::tempdir().unwrap();
+        let file = folder.path().join("A Book.pdf");
+        let url = Url::from_file_path(&file).unwrap().to_string();
+        let args = vec![OsString::from(url), OsString::from("plain.epub")];
+        assert_eq!(files_from_args(args), [file, PathBuf::from("plain.epub")]);
     }
 
     #[test]

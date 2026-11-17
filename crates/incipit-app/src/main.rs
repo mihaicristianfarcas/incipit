@@ -4,8 +4,8 @@
 //! (and on the Reader, the find bar of the book open, with a key of its own).
 //! For checks without clicking, environment switches open a page in a given state and save a
 //! picture of the window: docs/development.md lists them.
-//! A PDF or EPUB given to the program (named in its arguments) is added to the library and opened
-//! in the reader (`open_with`).
+//! A PDF or EPUB given to the program (named in its arguments, or sent by the system's open event
+//! on macOS) is added to the library and opened in the reader (`open_with`).
 
 // A release build on Windows is a window, not a console program with a window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
@@ -58,6 +58,7 @@ mod workspace;
 
 use std::time::Duration;
 
+use futures::StreamExt;
 use gpui::{actions, div, prelude::*, px, AnyElement, App, Context, Entity, KeyBinding, Window};
 use incipit_ui::{Glide, IconName, Theme, Type};
 use incipit_vault::{DocId, Kind};
@@ -691,63 +692,80 @@ pub fn theme(window: &Window) -> Theme {
 const APP_ID: &str = include_str!("../../../packaging/identifier");
 
 fn main() {
-    gpui_platform::application()
-        .with_assets(incipit_ui::Assets)
-        .run(|cx: &mut App| {
-            incipit_ui::init(cx);
-            // Math in Markdown is typeset by incipit-math.
-            incipit_ui::typeset_with(cx, math::typeset);
-            let mut options = incipit_ui::window_options(
-                "Incipit",
-                APP_ID.trim(),
-                1180.0,
-                780.0,
-                (720.0, 480.0),
-                cx,
-            );
-            options.focus = std::env::var_os("INCIPIT_SHOT").is_none();
-            let window = cx
-                .open_window(options, |window, cx| {
-                    incipit_ui::glass::dress(window);
-                    cx.new(|cx| Root::new(window, cx))
-                })
-                .expect("the window opens");
-            let (find, act, in_book) = if cfg!(target_os = "macos") {
-                ("cmd-k", "cmd-j", "cmd-f")
-            } else {
-                ("ctrl-k", "ctrl-j", "ctrl-f")
-            };
-            cx.bind_keys([
-                KeyBinding::new(find, Find, None),
-                KeyBinding::new(act, Act, None),
-                KeyBinding::new(in_book, FindInBook, None),
-            ]);
-            cx.on_action(move |_: &Find, cx| {
-                let _ = window.update(cx, |root, window, cx| root.find(window, cx));
-            });
-            cx.on_action(move |_: &Act, cx| {
-                let _ = window.update(cx, |root, window, cx| root.act(window, cx));
-            });
-            cx.on_action(move |_: &FindInBook, cx| {
-                let _ = window.update(cx, |root, window, cx| root.find_in_book(window, cx));
-            });
-            // Reading in progress is written before the app goes.
-            cx.on_app_quit(move |cx| {
-                let _ = window.update(cx, |root, _, cx| {
-                    root.reader.update(cx, |reader, cx| reader.end_sittings(cx))
-                });
-                async {}
+    // macOS tells the program which files to open by an event, at its start and while it runs.
+    // GPUI calls the handler on the platform's own turn, with no window at hand, so it only passes
+    // the URLs on to the window's side, which waits on the channel. The event is never raised on
+    // Windows and Linux, which pass the file as an argument.
+    let (opened, arrived) = futures::channel::mpsc::unbounded::<Vec<String>>();
+    let application = gpui_platform::application().with_assets(incipit_ui::Assets);
+    application.on_open_urls(move |urls| {
+        let _ = opened.unbounded_send(urls);
+    });
+    application.run(move |cx: &mut App| {
+        incipit_ui::init(cx);
+        // Math in Markdown is typeset by incipit-math.
+        incipit_ui::typeset_with(cx, math::typeset);
+        let mut options =
+            incipit_ui::window_options("Incipit", APP_ID.trim(), 1180.0, 780.0, (720.0, 480.0), cx);
+        options.focus = std::env::var_os("INCIPIT_SHOT").is_none();
+        let window = cx
+            .open_window(options, |window, cx| {
+                incipit_ui::glass::dress(window);
+                cx.new(|cx| Root::new(window, cx))
             })
-            .detach();
-            // Books named in the program's arguments: the file "Open With" chose on Windows and
-            // Linux (and whatever a person types after the program's name).
-            let named = open_with::files_from_args(std::env::args_os().skip(1));
-            if !named.is_empty() {
-                let _ = window.update(cx, |root, _, cx| root.give(named, cx));
-            }
-            // A run that only takes a picture stays behind whatever the person is working in.
-            if std::env::var_os("INCIPIT_SHOT").is_none() {
-                cx.activate(true);
-            }
+            .expect("the window opens");
+        let (find, act, in_book) = if cfg!(target_os = "macos") {
+            ("cmd-k", "cmd-j", "cmd-f")
+        } else {
+            ("ctrl-k", "ctrl-j", "ctrl-f")
+        };
+        cx.bind_keys([
+            KeyBinding::new(find, Find, None),
+            KeyBinding::new(act, Act, None),
+            KeyBinding::new(in_book, FindInBook, None),
+        ]);
+        cx.on_action(move |_: &Find, cx| {
+            let _ = window.update(cx, |root, window, cx| root.find(window, cx));
         });
+        cx.on_action(move |_: &Act, cx| {
+            let _ = window.update(cx, |root, window, cx| root.act(window, cx));
+        });
+        cx.on_action(move |_: &FindInBook, cx| {
+            let _ = window.update(cx, |root, window, cx| root.find_in_book(window, cx));
+        });
+        // Reading in progress is written before the app goes.
+        cx.on_app_quit(move |cx| {
+            let _ = window.update(cx, |root, _, cx| {
+                root.reader.update(cx, |reader, cx| reader.end_sittings(cx))
+            });
+            async {}
+        })
+        .detach();
+        // Books named in the program's arguments: the file "Open With" chose on Windows and
+        // Linux (and whatever a person types after the program's name, on any system).
+        let named = open_with::files_from_args(std::env::args_os().skip(1));
+        if !named.is_empty() {
+            let _ = window.update(cx, |root, _, cx| root.give(named, cx));
+        }
+        // Books the system asks the program to open once it runs (macOS), taken in as they come.
+        cx.spawn(async move |cx| {
+            let mut arrived = arrived;
+            while let Some(urls) = arrived.next().await {
+                let files = open_with::files_from_urls(&urls);
+                if !files.is_empty()
+                    && window
+                        .update(cx, |root, _, cx| root.give(files, cx))
+                        .is_err()
+                {
+                    // The window is gone: there is nothing left to show a book in.
+                    break;
+                }
+            }
+        })
+        .detach();
+        // A run that only takes a picture stays behind whatever the person is working in.
+        if std::env::var_os("INCIPIT_SHOT").is_none() {
+            cx.activate(true);
+        }
+    });
 }

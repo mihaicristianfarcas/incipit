@@ -126,10 +126,14 @@ Library's line for problems, and nothing else changes.
 
 - **Windows and Linux** pass the file as an argument: the Windows entry runs `incipit.exe "%1"` and the
   desktop file's `Exec` line ends in `%F`. A second launch while Incipit is running starts a second
-  program with its own window, because GPUI has no way for a program to hand its arguments to one that
-  is already running (it has no single-instance mechanism on these systems) and Incipit adds none. Its
-  window opens the vault last opened, as any start does.
-- **macOS** is the part still to come.
+  program with a window of its own, which opens the vault last opened as any start does: GPUI has no
+  single-instance mechanism to hand a program's arguments to one already running, and Incipit adds none.
+- **macOS** sends an event instead (GPUI's `on_open_urls`, with `file:` URLs): when Incipit is
+  started by "Open With" or a file dropped on its icon, and each time a file is given to it while it
+  runs, in which case its one window shows the book. On Windows and Linux GPUI keeps the handler and
+  never calls it, which is why those two use arguments. A file given while the app's window is
+  closed (macOS keeps the program running when its window is) is not taken in: there is no window to
+  show it in, and Incipit does not open one again.
 - With **no vault open yet** (the first run, or a vault that failed to open) the files are kept and
   taken in once a vault is open, so the learner is never asked to give them again.
 

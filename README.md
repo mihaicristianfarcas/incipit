@@ -44,7 +44,8 @@ tools/setup                 # git hooks, pdfium, two sample books
 cargo run -p incipit-app
 ```
 
-More in [docs/development.md](docs/development.md).
+More in [docs/development.md](docs/development.md). The packages a learner installs (macOS, Windows,
+Linux) are made as [docs/packaging.md](docs/packaging.md) says; none is signed or published yet.
 
 ## Changing it
 

@@ -245,6 +245,12 @@ pub fn row_stops(
     }
 }
 
+/// The row a key takes the keyboard to from row `on` of `count`; none when the
+/// keyboard is not on a row of the list, or the key is not one of its keys.
+fn along(e: &KeyDownEvent, on: Option<usize>, count: usize) -> Option<usize> {
+    arrow_step(e, Some(on?), count, false)
+}
+
 /// The row Tab reaches: `wanted`, or the last row if the list has become
 /// shorter than that.
 fn stop_row(wanted: usize, count: usize) -> usize {
@@ -262,12 +268,13 @@ impl RowStops {
 
     /// The list's keys, for its container: the arrows go to the row after or
     /// before (Home and End to the first and the last), whether the keyboard
-    /// is on a row or on something in one.
+    /// is on a row or on something in one. Beside the rows, in the container,
+    /// they are not the list's.
     pub fn keys(&self) -> impl Fn(&KeyDownEvent, &mut Window, &mut App) + 'static {
         let handles = self.handles.clone();
         move |e, window, cx| {
-            let at = handles.iter().position(|h| h.contains_focused(window, cx));
-            let Some(to) = arrow_step(e, at, handles.len(), false) else {
+            let on = handles.iter().position(|h| h.contains_focused(window, cx));
+            let Some(to) = along(e, on, handles.len()) else {
                 return;
             };
             cx.stop_propagation();
@@ -492,17 +499,36 @@ mod tests {
         assert_eq!(stop_row(2, 0), 0);
     }
 
+    fn pressed(keys: &str) -> KeyDownEvent {
+        KeyDownEvent {
+            keystroke: gpui::Keystroke::parse(keys).unwrap(),
+            is_held: false,
+            prefer_character_input: false,
+        }
+    }
+
     #[test]
-    fn the_keyboard_goes_to_the_first_row_or_the_last_from_outside_a_list() {
-        // From nothing the first arrow enters at the first row, or back at the last.
-        assert_eq!(step("down", None, 4, false), Some(0));
-        assert_eq!(step("up", None, 4, false), Some(3));
-        assert_eq!(step("down", None, 1, false), Some(0));
-        // The ends stop it, and an empty list has nowhere to go.
-        assert_eq!(step("up", Some(0), 4, false), Some(0));
-        assert_eq!(step("down", Some(3), 4, false), Some(3));
-        assert_eq!(step("down", None, 0, false), None);
-        assert_eq!(step("end", None, 0, false), None);
+    fn the_arrows_take_the_keyboard_along_the_rows_only_from_a_row() {
+        let go = |keys: &str, on: Option<usize>, count: usize| along(&pressed(keys), on, count);
+        assert_eq!(go("down", Some(1), 4), Some(2));
+        assert_eq!(go("up", Some(1), 4), Some(0));
+        assert_eq!(
+            (go("home", Some(2), 4), go("end", Some(1), 4)),
+            (Some(0), Some(3))
+        );
+        // The ends stop it.
+        assert_eq!(
+            (go("up", Some(0), 4), go("down", Some(3), 4)),
+            (Some(0), Some(3))
+        );
+        // Beside the rows (a button in the same container) the keys are not the list's.
+        assert_eq!(go("down", None, 4), None);
+        assert_eq!(go("end", None, 4), None);
+        // Nor are other keys, or the arrows with a modifier, and an empty list has nowhere to go.
+        assert_eq!(go("a", Some(1), 4), None);
+        assert_eq!(go("cmd-down", Some(1), 4), None);
+        assert_eq!(go("shift-down", Some(1), 4), None);
+        assert_eq!(go("down", Some(0), 0), None);
     }
 
     #[test]

@@ -1,0 +1,82 @@
+#!/bin/sh
+# Makes the Linux package, on Linux: target/package/Incipit-VERSION-ARCH.AppImage, one file a learner
+# makes executable and double-clicks. ARCH is x86_64 or aarch64, the machine's own.
+#
+#   tools/setup                 once: pdfium's library for this machine, which goes inside
+#   tools/package-linux
+#
+# Needs what building Incipit needs on Linux (the packages of the Linux job in
+# .github/workflows/ci.yml), `cargo install cargo-about` (the licence notice) and appimagetool
+# (https://github.com/AppImage/appimagetool/releases: one file, put it on the PATH or in
+# APPIMAGETOOL). Build on the oldest Linux the package should run on: a program built against a
+# newer glibc does not start on an older one.
+#
+# The AppImage holds the program, pdfium's library (usr/lib, found by src/resources.rs), the icon and
+# desktop file, and the licences. It holds nothing of the system's: the window needs the system's
+# own libraries (docs/packaging.md lists them), which a desktop has.
+#
+# The AppDir (the folder the AppImage is made from) is kept at target/package/Incipit.AppDir. To pack
+# a program built elsewhere, or only to look at the AppDir:
+#   INCIPIT_EXE=path/to/incipit INCIPIT_PDFIUM=path/to/libpdfium.so INCIPIT_ARCH=x86_64 tools/package-linux
+set -eu
+. "$(dirname "$0")/package-common"
+
+version=$(package_version)
+identifier=$(package_identifier)
+if [ -n "${INCIPIT_EXE:-}" ]; then
+    exe=$INCIPIT_EXE
+    pdfium=${INCIPIT_PDFIUM:-}
+    arch=${INCIPIT_ARCH:-}
+    [ -n "$pdfium" ] && [ -n "$arch" ] || package_fail "INCIPIT_EXE needs INCIPIT_PDFIUM (libpdfium.so) and INCIPIT_ARCH (x86_64 or aarch64)"
+else
+    [ "$(uname -s)" = Linux ] || package_fail "the program is built on Linux; to pack one built elsewhere see the top of this file"
+    case "$(uname -m)" in
+        x86_64) arch=x86_64 ;;
+        aarch64 | arm64) arch=aarch64 ;;
+        *) package_fail "no package for $(uname -m)" ;;
+    esac
+    pdfium="$package_root/lib/lib/libpdfium.so"
+    [ -f "$pdfium" ] || package_fail "pdfium's library is missing from lib/; run tools/setup"
+    package_build ""
+    exe="$(package_target_dir "")/incipit"
+fi
+[ -f "$exe" ] || package_fail "no program at $exe"
+[ -f "$pdfium" ] || package_fail "no pdfium library at $pdfium"
+
+dir="$package_out/Incipit.AppDir"
+rm -rf "$dir"
+mkdir -p "$dir/usr/bin" "$dir/usr/lib" "$dir/usr/share/applications" "$dir/usr/share/icons/hicolor/512x512/apps" \
+    "$dir/usr/share/licenses/incipit"
+cp "$exe" "$dir/usr/bin/incipit"
+chmod 755 "$dir/usr/bin/incipit"
+cp "$pdfium" "$dir/usr/lib/libpdfium.so"
+cp "$package_root/packaging/icon/incipit.png" "$dir/usr/share/icons/hicolor/512x512/apps/incipit.png"
+package_licenses "$dir/usr/share/licenses/incipit"
+
+# The desktop file is named by the identifier, as Wayland matches a window to its file by that name.
+desktop="$dir/usr/share/applications/$identifier.desktop"
+sed "s/@IDENTIFIER@/$identifier/g" "$package_root/packaging/linux/incipit.desktop.in" >"$desktop"
+# What appimagetool wants at the top of the AppDir: the desktop file, the icon and AppRun.
+cp "$desktop" "$dir/$identifier.desktop"
+cp "$package_root/packaging/icon/incipit.png" "$dir/incipit.png"
+ln -s usr/bin/incipit "$dir/AppRun"
+
+# The system libraries the program needs, for the record: the ones the AppImage does not hold.
+if [ "$(uname -s)" = Linux ] && command -v ldd >/dev/null 2>&1; then
+    echo "The program needs these of the system (a line saying 'not found' is a package missing here):"
+    ldd "$dir/usr/bin/incipit" | sed 's/^/  /' || true
+fi
+
+tool=${APPIMAGETOOL:-$(command -v appimagetool || true)}
+if [ -z "$tool" ]; then
+    echo "The AppDir is at $dir. appimagetool makes the AppImage from it and is not installed:"
+    echo "https://github.com/AppImage/appimagetool/releases (put it on the PATH, or set APPIMAGETOOL)."
+    exit 1
+fi
+image="$package_out/Incipit-$version-$arch.AppImage"
+rm -f "$image"
+ARCH=$arch "$tool" "$dir" "$image"
+(cd "$package_out" && sha256sum "$(basename "$image")" >"$(basename "$image").sha256")
+
+echo
+echo "AppImage: $image ($(package_size "$image"))"

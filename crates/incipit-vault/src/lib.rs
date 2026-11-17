@@ -61,5 +61,5 @@ pub use quiz::{
     attempt_markdown, quiz_blocks, quiz_from_data, quiz_from_yaml, Attempt, NoteQuestion, NoteQuiz,
 };
 pub use search::{Hit, SearchIndex};
-pub use store::{AgentCopy, Embed, Problem, Vault, APP_FOLDER};
+pub use store::{is_obsidian_vault, AgentCopy, Embed, Problem, Vault, APP_FOLDER};
 pub use value::{Properties, Value};

@@ -1,6 +1,7 @@
 //! The first run: three steps before the app opens, each of them skippable but the first, which
-//! the rest cannot do without. 1. Where the vault is kept: a new folder, or one that exists
-//! (the earlier app was started in a folder from a terminal and needed no such step). 2. How to
+//! the rest cannot do without. 1. Where the vault is kept: a new folder, an Obsidian vault opened
+//! where it is, or another folder that exists (the earlier app was started in a folder from a
+//! terminal and needed no such step). 2. How to
 //! reach a model: the same rows as in Settings, with sign-in, and it can be left for later (also
 //! new). 3. Who the learner is and how they learn, the earlier app's welcome page and form; it
 //! can be skipped too, and is kept as `profile.md` in the vault.
@@ -232,6 +233,7 @@ impl FirstRun {
             .detach();
         };
         let existing = workspace.clone();
+        let obsidian = workspace.clone();
         div()
             .flex()
             .flex_col()
@@ -271,7 +273,10 @@ impl FirstRun {
                                         .text_color(t.secondary)
                                         .child(format!("It will be made in {place}")),
                                 )
-                                .child(button("first-run-place", "Change place", t).on_click(change_place)),
+                                .child(
+                                    button("first-run-place", "Change place", t)
+                                        .on_click(change_place),
+                                ),
                         )
                         .child(
                             div().flex().child(
@@ -285,12 +290,34 @@ impl FirstRun {
                 ),
             )
             .child(
+                section("An Obsidian vault", t).child(
+                    card(t)
+                        .p(px(12.0))
+                        .gap(px(10.0))
+                        .child(div().text_color(t.secondary).child(
+                            "Already use Obsidian? Pick the folder you open in it. Your notes are \
+                             read where they are, and none is changed until you change it here. \
+                             Incipit adds only two hidden folders of its own.",
+                        ))
+                        .child(
+                            div().flex().child(
+                                button("first-run-obsidian", "Open an Obsidian vault", t)
+                                    .disabled(opening)
+                                    .on_click(move |_, _, cx| {
+                                        obsidian.update(cx, |w, cx| w.choose_obsidian(cx))
+                                    }),
+                            ),
+                        ),
+                ),
+            )
+            .child(
                 section("A folder you already have", t).child(
                     card(t)
                         .p(px(12.0))
                         .gap(px(10.0))
                         .child(div().text_color(t.secondary).child(
-                            "An empty folder, or one you already use. An Obsidian vault works as it is.",
+                            "An empty folder, or any other folder of notes you already use. What \
+                             is in it is left as it is.",
                         ))
                         .child(
                             div().flex().child(

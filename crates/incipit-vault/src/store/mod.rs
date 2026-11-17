@@ -78,6 +78,12 @@ fn holds_something(folder: &Path) -> bool {
     })
 }
 
+/// Whether a folder is a vault Obsidian keeps: it has the `.obsidian` folder that Obsidian makes
+/// in every vault it opens and keeps its settings in. Incipit never reads or writes what is in it.
+pub fn is_obsidian_vault(folder: &Path) -> bool {
+    folder.join(".obsidian").is_dir()
+}
+
 /// A file that could not be read as a document, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Problem {

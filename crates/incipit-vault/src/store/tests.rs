@@ -634,6 +634,22 @@ fn only_an_empty_folder_is_given_the_usual_folders_and_the_others_make_theirs_wh
 }
 
 #[test]
+fn a_folder_with_obsidians_settings_folder_is_an_obsidian_vault() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(!is_obsidian_vault(dir.path()));
+    fs::write(
+        dir.path().join(".obsidian"),
+        "a file, not Obsidian's folder",
+    )
+    .unwrap();
+    assert!(!is_obsidian_vault(dir.path()));
+    fs::remove_file(dir.path().join(".obsidian")).unwrap();
+    fs::create_dir(dir.path().join(".obsidian")).unwrap();
+    assert!(is_obsidian_vault(dir.path()));
+    assert!(!is_obsidian_vault(&dir.path().join("missing")));
+}
+
+#[test]
 fn a_vault_opens_again_with_its_documents() {
     let (_dir, vault) = new_vault();
     let doc = vault.add(note("Kept", "Still here.\n")).unwrap();

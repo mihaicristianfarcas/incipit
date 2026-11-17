@@ -4,6 +4,8 @@
 //! touched them, by title or by author, as the learner picks (the choice is kept in the app's own
 //! folder), each with how far through it they are. INCIPIT_PAGE=library opens the page;
 //! INCIPIT_OPEN=words opens the first book whose title has those words, without clicking.
+//! Books given to the app from outside (`open_with`) are taken in here too, once a vault is open,
+//! and their problems are said in the page's own line for problems.
 
 use std::path::{Path, PathBuf};
 
@@ -14,6 +16,7 @@ use gpui::{
 use incipit_ui::{button, card, meter, page, page_header, segmented, Type};
 use incipit_vault::{Book, Doc, DocId, Kind, Vault, VaultPath};
 
+use crate::open_with::{take_in, Waiting};
 use crate::progress::{states, words, BookState};
 use crate::reader::Shelved;
 use crate::workspace::{Happened, Workspace};
@@ -98,6 +101,11 @@ pub struct LibraryView {
     problem: Option<String>,
     /// A title to open as soon as it is listed (INCIPIT_OPEN).
     wanted: Option<String>,
+    /// Books given to the app that are not taken in yet: no vault is open, or the ones before
+    /// are still being taken in.
+    waiting: Waiting,
+    /// Books given to the app are being taken in, off the window's thread.
+    taking: bool,
     scroll: ScrollHandle,
     _subscription: Subscription,
 }
@@ -106,6 +114,12 @@ pub struct LibraryView {
 pub struct Chosen(pub Shelved);
 
 impl EventEmitter<Chosen> for LibraryView {}
+
+/// Books given to the app from outside could not be added and none was opened: the Library says
+/// why, so the window shows it.
+pub struct Refused;
+
+impl EventEmitter<Refused> for LibraryView {}
 
 /// The kind of book a file is, from its name: `pdf` or `epub`.
 fn format_of(file: &Path) -> Option<&'static str> {
@@ -187,6 +201,10 @@ impl LibraryView {
                     this.list(cx);
                     cx.notify();
                 }
+                // A vault just opened takes in the books that were waiting for one.
+                if matches!(happened, Happened::Opened) {
+                    this.take_waiting(cx);
+                }
             });
         let mut view = LibraryView {
             workspace,
@@ -194,6 +212,8 @@ impl LibraryView {
             order: Order::load(&crate::workspace::home()),
             problem: None,
             wanted: std::env::var("INCIPIT_OPEN").ok(),
+            waiting: Waiting::default(),
+            taking: false,
             scroll: ScrollHandle::new(),
             _subscription: subscription,
         };
@@ -268,6 +288,43 @@ impl LibraryView {
             cx.emit(Chosen(shelved));
         }
         found
+    }
+
+    /// Books given to the app from outside: each is added, or found when the same book is already
+    /// here, and the first is opened in the reader. With no vault open they wait for one.
+    pub fn give(&mut self, files: Vec<PathBuf>, cx: &mut Context<Self>) {
+        self.waiting.keep(files);
+        self.take_waiting(cx);
+    }
+
+    /// Takes in the books waiting, off the window's thread, when a vault is open and no others
+    /// are being taken in (two runs at once could give two books one folder). Books given while
+    /// it works are taken in when it is done.
+    fn take_waiting(&mut self, cx: &mut Context<Self>) {
+        let vault = self.workspace.read(cx).vault.clone();
+        let files = self.waiting.release(vault.is_some() && !self.taking);
+        let Some(vault) = vault.filter(|_| !files.is_empty()) else {
+            return;
+        };
+        self.taking = true;
+        cx.spawn(async move |this, cx| {
+            let taken = cx
+                .background_executor()
+                .spawn(async move { take_in(&vault, &files) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.taking = false;
+                this.problem = (!taken.problems.is_empty()).then(|| taken.problems.join("\n"));
+                this.list(cx);
+                let opened = taken.open.is_some_and(|id| this.open(&id, cx));
+                if !opened && this.problem.is_some() {
+                    cx.emit(Refused);
+                }
+                cx.notify();
+                this.take_waiting(cx);
+            });
+        })
+        .detach();
     }
 
     /// Ask for book files and add each, off the window's thread.

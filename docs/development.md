@@ -93,6 +93,18 @@ INCIPIT_PAGE=figure INCIPIT_KIND=sequence INCIPIT_AT=3 INCIPIT_SHOT=shots/figure
 
 `shots/` is not in git.
 
+A PDF or EPUB named after the program is added to the library and opened in the reader, which is how
+Windows and Linux hand over the file "Open With" chose. It takes no switch: give it a throwaway vault
+and a sample book, several books in a row if you like, and the first opens.
+
+```sh
+INCIPIT_VAULT=/tmp/shelf cargo run -p incipit-app -- samples/paper.pdf samples/book.epub
+```
+
+Naming the same book again opens the copy already in the library instead of adding another. A file
+that is not a PDF or an EPUB, is missing or cannot be read is said in the Library's line for
+problems. With no vault open (the first run, or none given), the books wait until one is.
+
 ## Tools
 
 | Command | Does |

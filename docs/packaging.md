@@ -117,10 +117,21 @@ not been read.
 ### Opening a book from outside
 
 The macOS bundle, the Windows entries and the Linux desktop file all say Incipit opens PDF and EPUB
-files, as the brief asked, with the lowest rank so it never takes a file type from the reader a person
-already uses. **The program does not yet act on a file it is given**: it starts and shows Today. Handling
-it needs a decision (add the book to the library, or open it loose, as the sample books are) and code
-in the app: the file arrives in the arguments on Windows and Linux and as an event on macOS.
+files, with the lowest rank so it never takes a file type from the reader a person already uses. The
+program adds a PDF or EPUB it is given to the library, as "Add a book" does, and opens it in the
+reader; when the same book is already in the library (the same bytes, whatever the file is called, or
+the vault's own copy) that one opens and nothing is added. Several files given at once are all added
+and the first opens. A file that is not a PDF or an EPUB, is missing or cannot be read is said in the
+Library's line for problems, and nothing else changes.
+
+- **Windows and Linux** pass the file as an argument: the Windows entry runs `incipit.exe "%1"` and the
+  desktop file's `Exec` line ends in `%F`. A second launch while Incipit is running starts a second
+  program with its own window, because GPUI has no way for a program to hand its arguments to one that
+  is already running (it has no single-instance mechanism on these systems) and Incipit adds none. Its
+  window opens the vault last opened, as any start does.
+- **macOS** is the part still to come.
+- With **no vault open yet** (the first run, or a vault that failed to open) the files are kept and
+  taken in once a vault is open, so the learner is never asked to give them again.
 
 ## How GPUI apps are packaged
 

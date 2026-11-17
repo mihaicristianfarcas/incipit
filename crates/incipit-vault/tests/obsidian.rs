@@ -736,3 +736,52 @@ fn a_note_that_says_kind_book_outside_the_library_is_a_note_and_keeps_saying_it(
     );
     assert_eq!(doc(&vault, "Shelf/Dune.md").kind(), Kind::Note);
 }
+
+/// `day` days after the start of 2026, as a time.
+fn day(day: u64) -> SystemTime {
+    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_767_225_600 + day * 86_400)
+}
+
+fn touch(root: &Path, at: &str, time: SystemTime) {
+    fs::File::options()
+        .write(true)
+        .open(root.join(at))
+        .unwrap()
+        .set_modified(time)
+        .unwrap();
+}
+
+#[test]
+fn notes_are_listed_newest_first_by_the_property_or_else_by_the_files_own_time() {
+    let (_dir, root) = obsidian_vault();
+    // Every note was last written on its own day, early in the year; three were written later.
+    let notes: Vec<&str> = fixture::files()
+        .into_iter()
+        .map(|(path, _)| path)
+        .filter(|path| path.ends_with(".md") && !path.starts_with('.'))
+        .collect();
+    for (at, note) in notes.iter().enumerate() {
+        touch(&root, note, day(at as u64));
+    }
+    touch(&root, "Daily/2026-11-11.md", day(330));
+    touch(&root, "Welcome.md", day(305));
+    // This one says when it was updated (1 October), whatever its file says.
+    touch(&root, "Journal/Entry.md", day(1000));
+    let vault = Vault::create(&root).unwrap();
+    let listed: Vec<String> = vault
+        .list_newest(Some(Kind::Note))
+        .iter()
+        .map(|d| d.path().to_string())
+        .collect();
+    assert_eq!(
+        listed[..3],
+        ["Daily/2026-11-11.md", "Welcome.md", "Journal/Entry.md"]
+    );
+    // The rest follow, each older than the one before.
+    let times: Vec<SystemTime> = listed[3..]
+        .iter()
+        .map(|p| fs::metadata(root.join(p)).unwrap().modified().unwrap())
+        .collect();
+    assert!(times.windows(2).all(|pair| pair[0] >= pair[1]));
+    assert_eq!(listed.len(), vault.count(Some(Kind::Note)));
+}

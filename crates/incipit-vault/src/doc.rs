@@ -439,6 +439,14 @@ impl Doc {
         self.properties.text("updated")
     }
 
+    /// When it was last updated, if it says so as the vault writes the time (RFC 3339). A date in
+    /// any other form is the learner's own and says nothing the vault can order by.
+    pub fn updated_time(&self) -> Option<std::time::SystemTime> {
+        let said = self.updated()?;
+        let time = chrono::DateTime::parse_from_rfc3339(said.trim()).ok()?;
+        Some(time.with_timezone(&chrono::Utc).into())
+    }
+
     /// Marks it changed now. Only documents that already say when they were made get the mark,
     /// so a file written by hand keeps the properties it had.
     pub(crate) fn touch(&mut self) {
@@ -536,6 +544,31 @@ mod tests {
         let mut doc = Doc::parse(path("notes/Waves.md"), "One\n").unwrap();
         doc.set_tags(vec!["a".into()]);
         assert_eq!(doc.to_text(), "---\ntags:\n  - a\n---\nOne\n");
+    }
+
+    #[test]
+    fn a_time_is_updated_time_only_when_it_is_written_as_the_vault_writes_it() {
+        let at = |updated: &str| {
+            let text = format!("---\nupdated: {updated}\n---\n");
+            Doc::parse(path("Waves.md"), &text).unwrap().updated_time()
+        };
+        let time = at("2026-11-10T09:12:00Z").unwrap();
+        assert_eq!(at("2026-11-10T11:12:00+02:00"), Some(time));
+        for own in [
+            "2026-11-10",
+            "10 Nov 2026",
+            "2026-11-10 09:12",
+            "yesterday",
+            "''",
+        ] {
+            assert_eq!(at(own), None, "{own}");
+        }
+        assert_eq!(
+            Doc::parse(path("Waves.md"), "Body\n")
+                .unwrap()
+                .updated_time(),
+            None
+        );
     }
 
     #[test]

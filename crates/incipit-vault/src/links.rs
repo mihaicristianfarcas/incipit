@@ -42,7 +42,7 @@ pub struct Link {
 }
 
 /// Byte ranges of fenced code blocks and inline code, which hold no links.
-fn code_ranges(text: &str) -> Vec<Range<usize>> {
+pub(crate) fn code_ranges(text: &str) -> Vec<Range<usize>> {
     let mut ranges = Vec::new();
     let mut fence: Option<(char, usize, usize)> = None; // marker, length, start
     let mut offset = 0;

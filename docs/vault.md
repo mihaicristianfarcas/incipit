@@ -173,6 +173,16 @@ to 12 MB, whatever its name says (`Vault::add_picture`), and linked at the
 cursor as `![[name.png]]`. The Notes page shows what a note embeds under its
 text (`Vault::embeds`).
 
+## Tags
+
+Both of Obsidian's kinds are read: the `tags` property and `#tag` written in
+the text (`Doc::all_tags`; `Doc::tags` is the property alone). A tag is
+letters, digits, `_`, `-` and `/` (`#study/plan` is one tag), is not only
+digits, and stands after a space, a line break or an opening bracket. A
+heading's `#`, a number, a web address's `#fragment`, `[shown](#Heading)` and
+anything in code are not tags. Case does not tell two tags apart. A note is
+found by its tags, and the agent's table of notes lists them.
+
 ## Quizzes in notes
 
 A note can hold a quiz: a fenced `quiz` block of YAML, which the Notes page

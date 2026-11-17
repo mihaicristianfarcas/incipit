@@ -476,7 +476,7 @@ fn notes_page(notes: &[&Doc], edges: &Edges) -> Generated {
             note.title(),
             cell(&folder),
             note.doc_type().unwrap_or("note"),
-            cell(&note.tags().join(", ")),
+            cell(&note.all_tags().join(", ")),
             count(&edges.out, note.id()),
             count(&edges.into, note.id()),
             day(&note.updated().unwrap_or_default()),

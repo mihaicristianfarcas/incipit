@@ -1,8 +1,8 @@
 //! Where a graph's nodes go, as the earlier app set them out: each node is sized to its label,
 //! the arrangement gives raw positions (a force simulation, a circle, a row, a grid), the raw
-//! positions are fitted to the stage, and nodes that still overlap are pushed apart. A circle with
-//! groups keeps each group's nodes together and the groups apart (`groups`), which the earlier app
-//! did not. Everything is deterministic, so the same spec always draws the same picture.
+//! positions are fitted to the stage, and nodes that still overlap are pushed apart. A circle or a
+//! grid with groups keeps each group's nodes together and the groups apart (`groups`), which the
+//! earlier app did not. Everything is deterministic, so the same spec always draws the same picture.
 //!
 //! The force simulation follows d3-force's rules with the earlier app's settings: links pull to
 //! 90 apart at strength 0.7, every pair pushes with strength −380, nodes keep their radius plus
@@ -104,8 +104,9 @@ pub fn size(label: &str, sublabel: &str, shape: Shape, m: &dyn Measure) -> Size 
 
 /// Each node's middle on the stage, in the order of `graph.nodes`.
 pub fn place(graph: &Graph, sizes: &[Size]) -> Vec<(f32, f32)> {
-    let clusters =
-        (graph.layout == Arrange::Circle && !graph.groups.is_empty()).then(|| Clusters::of(graph));
+    let clusters = (matches!(graph.layout, Arrange::Circle | Arrange::Grid)
+        && !graph.groups.is_empty())
+    .then(|| Clusters::of(graph));
     let raw = raw(graph, sizes, clusters.as_ref());
     let fitted = fit(graph, sizes, &raw);
     let mut at = separate(sizes, fitted);
@@ -178,9 +179,12 @@ fn raw(graph: &Graph, sizes: &[Size], clusters: Option<&Clusters>) -> Raw {
         Arrange::Grid => {
             let cols = ((n as f32 * 1.6).sqrt().ceil() as usize).max(1);
             Raw {
-                at: (0..n)
-                    .map(|i| ((i % cols) as f32, (i / cols) as f32))
-                    .collect(),
+                at: match clusters {
+                    Some(clusters) => groups::grid(clusters, cols),
+                    None => (0..n)
+                        .map(|i| ((i % cols) as f32, (i / cols) as f32))
+                        .collect(),
+                },
                 keep_aspect: false,
                 most: f32::INFINITY,
             }

@@ -2,10 +2,11 @@
 //! does this itself, in `place::raw`: it keeps the order given and leaves room where it passes
 //! from one group to another.)
 //!
-//! Two steps. First the arrangement keeps each group's nodes together: a circle takes a group's
-//! nodes one after another, the group where its first node is listed and every other node in the
-//! order given, and leaves an empty place wherever it passes from one group to another, as a row
-//! leaves room there. Then, once the nodes are on the stage, everything is spread about the
+//! Two steps. First the arrangement keeps each group's nodes together: a circle and a grid take a
+//! group's nodes one after another, the group where its first node is listed and every other node
+//! in the order given. A circle leaves an empty place wherever it passes from one group to
+//! another, as a row leaves room there; a grid starts a new row rather than break a group across
+//! two, and a group wider than a row has its rows to itself. Then, once the nodes are on the stage, everything is spread about the
 //! drawing's middle, each group moving whole, so that `BOX_ROOM` is left between every two boxes
 //! and between a box and every node outside it. The spread is worked out exactly from each
 //! pair's distance rather than pushed toward in rounds, so it always holds, and the same spec
@@ -140,6 +141,43 @@ pub fn circle(clusters: &Clusters) -> Vec<(f32, f32)> {
             (a.cos(), a.sin())
         })
         .collect()
+}
+
+/// Raw cells, column and row, of a grid `cols` wide filled row by row in the clusters' order. A
+/// cluster that fits in a row is not broken across two: it starts a new row instead. One wider
+/// than a row starts a new row and has its rows to itself, so no other node is under its box.
+/// Nodes in no group fill the rows as they come.
+pub fn grid(clusters: &Clusters, cols: usize) -> Vec<(f32, f32)> {
+    let cols = cols.max(1);
+    let order = clusters.order();
+    let mut at = vec![(0.0, 0.0); order.len()];
+    let (mut col, mut row) = (0usize, 0usize);
+    let mut k = 0;
+    while k < order.len() {
+        let cluster = clusters.of[order[k]];
+        let run = match cluster {
+            None => 1,
+            Some(_) => order[k..]
+                .iter()
+                .take_while(|i| clusters.of[**i] == cluster)
+                .count(),
+        };
+        if col > 0 && col + run > cols {
+            (col, row) = (0, row + 1);
+        }
+        for &i in &order[k..k + run] {
+            if col == cols {
+                (col, row) = (0, row + 1);
+            }
+            at[i] = (col as f32, row as f32);
+            col += 1;
+        }
+        if run > cols {
+            col = cols;
+        }
+        k += run;
+    }
+    at
 }
 
 /// Spreads the nodes on the stage about the drawing's middle, each cluster and each node in no
@@ -387,6 +425,48 @@ mod tests {
         for (i, p) in at.iter().enumerate() {
             assert!((turn(*p) - i as f32 / 4.0).abs() < 1e-4, "{i}: {at:?}");
         }
+    }
+
+    #[test]
+    fn a_grid_starts_a_new_row_rather_than_break_a_group_and_gives_a_wide_one_its_rows() {
+        // n0 | n1 n2 | n3 n4 n5 n6 n7 | n8, four across: n0 and the pair share the first row,
+        // the five take the next two to themselves, and n8 comes after them.
+        let c = clusters(
+            json!([{ "id": "pair", "label": "", "nodes": ["n1", "n2"] },
+                   { "id": "five", "label": "", "nodes": ["n3", "n4", "n5", "n6", "n7"] }]),
+            9,
+        );
+        let at = grid(&c, 4);
+        assert_eq!(
+            at,
+            vec![
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (2.0, 0.0),
+                (0.0, 1.0),
+                (1.0, 1.0),
+                (2.0, 1.0),
+                (3.0, 1.0),
+                (0.0, 2.0),
+                (0.0, 3.0),
+            ]
+        );
+        // A group that does not fit what is left of a row starts the next.
+        let c = clusters(
+            json!([{ "id": "g", "label": "", "nodes": ["n2", "n3", "n4"] }]),
+            6,
+        );
+        assert_eq!(
+            grid(&c, 4),
+            vec![
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (0.0, 1.0),
+                (1.0, 1.0),
+                (2.0, 1.0),
+                (3.0, 1.0),
+            ]
+        );
     }
 
     #[test]

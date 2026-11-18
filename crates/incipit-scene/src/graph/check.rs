@@ -379,6 +379,17 @@ mod tests {
     }
 
     #[test]
+    fn a_grid_keeps_each_groups_nodes_together_and_the_groups_apart() {
+        for shape in ["cell", "box", "database"] {
+            for n in [5, 8, 12] {
+                for g in grouped("grid", shape, n) {
+                    kept_apart(&g);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_circle_with_groups_still_goes_clockwise_in_the_order_given() {
         let g = graph(json!({
             "layout": "circle",

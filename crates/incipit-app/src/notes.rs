@@ -27,7 +27,7 @@ use gpui::{
 };
 use incipit_ui::{
     button, field, focus_ring, icon_button, keep_focus, row_stops, scroll_area, FieldEvent,
-    IconName, Pasted, TextField, Theme, Type,
+    IconName, Pasted, Stop, TextField, Theme, Type,
 };
 use incipit_vault::attachments::{picture_type, MAX_PICTURE_BYTES};
 use incipit_vault::{Doc, DocId, Kind, Origin, Vault, VaultPath};
@@ -662,7 +662,7 @@ impl NotesView {
         let stops = row_stops(
             "note-rows",
             self.notes.iter().map(|n| n.id.as_str()),
-            None,
+            Stop::Start(0),
             window,
             cx,
         );

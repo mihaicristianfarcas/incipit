@@ -40,7 +40,7 @@ pub use diff::diff;
 pub use focus::{
     arrow_step, clicked, focus_handle, focus_ring, keep_focus, keyboard_focus, keyboard_moved,
     ringed, row_stops, scroll_area, scroll_areas, scroll_into_view, scrollbar, scrolled, tab,
-    tab_from_page, FocusNext, FocusPrevious, RowStops, Scrolled, Span,
+    tab_from_page, FocusNext, FocusPrevious, RowStops, Scrolled, Span, Stop,
 };
 pub use formula::{typeset_with, Typeset, Typesetter};
 pub use icon::{icon, Assets, Icon, IconName, IconSize};

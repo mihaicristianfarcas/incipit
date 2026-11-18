@@ -20,11 +20,16 @@ const PAD_TOP: f32 = 34.0;
 const PAD_BOTTOM: f32 = 30.0;
 /// Room a group's box takes around its nodes.
 const GROUP_PAD: f32 = 18.0;
+/// How far a group's box reaches past its nodes (`layout::group_box`): at either side, above
+/// (where its label goes) and below.
+pub const BOX_SIDE: f32 = 16.0;
+pub const BOX_ABOVE: f32 = 24.0;
+pub const BOX_BELOW: f32 = 14.0;
 /// The least gap nodes are pushed apart to.
 const GAP: f32 = 16.0;
 /// What a row adds where it passes from one group to another (or into or out of one): the two
-/// boxes' sides beyond their nodes (`layout::group_box`) and a gap between them.
-const BETWEEN_GROUPS: f32 = 2.0 * 16.0 + 12.0;
+/// boxes' sides beyond their nodes and a gap between them.
+const BETWEEN_GROUPS: f32 = 2.0 * BOX_SIDE + 12.0;
 const SEPARATE_ROUNDS: usize = 80;
 /// The force simulation's settings.
 const LINK_DISTANCE: f32 = 90.0;

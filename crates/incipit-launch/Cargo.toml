@@ -1,0 +1,19 @@
+[package]
+name = "incipit-launch"
+description = "One program for each app folder: a later launch hands its files to the program running, with no window in it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Unix sockets and Windows named pipes behind one interface (the module doc says why this one).
+interprocess = { version = "2.4.8", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+dunce = "1.0.5"
+# The named pipe's security descriptor is written as a string of UTF-16, as Windows reads it.
+widestring = "1.2.1"
+
+[dev-dependencies]
+tempfile = "3.27.0"

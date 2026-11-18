@@ -14,10 +14,10 @@
 use futures::StreamExt;
 use gpui::{
     div, prelude::*, px, AnyElement, Context, Entity, EventEmitter, IntoElement, Render,
-    Subscription, Window,
+    ScrollHandle, Subscription, Window,
 };
 use incipit_llm::{Cancel, Update};
-use incipit_ui::{button, field, sheet, switch, FieldEvent, TextField, Theme, Type};
+use incipit_ui::{button, field, scroll_area, sheet, switch, FieldEvent, TextField, Theme, Type};
 
 use crate::learning::drafts::{self, Asked, Draft, Meta, Named};
 use crate::models::Models;
@@ -79,6 +79,8 @@ pub struct DrafterView {
     run: u64,
     /// The first draft's front takes the keyboard when the sheet is drawn next.
     focus_first: bool,
+    /// The scroll of the list of drafts.
+    scroll: ScrollHandle,
 }
 
 impl EventEmitter<Closed> for DrafterView {}
@@ -101,6 +103,7 @@ impl DrafterView {
             open: None,
             run: 0,
             focus_first: false,
+            scroll: ScrollHandle::new(),
         }
     }
 
@@ -440,6 +443,7 @@ impl DrafterView {
                     .id("drafts-list")
                     .max_h(px(LIST))
                     .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
                     .flex()
                     .flex_col()
                     .gap(px(14.0))
@@ -537,7 +541,10 @@ impl Render for DrafterView {
                     .child(quote)
             }))
             .child(self.body(open, t, cx));
-        sheet("drafts", WIDTH, t, content).into_any_element()
+        scroll_area(&self.scroll);
+        sheet("drafts", WIDTH, t, content)
+            .on_escape(cx.listener(|this, _, _, cx| this.close(cx)))
+            .into_any_element()
     }
 }
 

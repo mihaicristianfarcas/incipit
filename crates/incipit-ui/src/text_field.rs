@@ -256,6 +256,11 @@ impl TextField {
         self.focus.is_focused(window)
     }
 
+    /// The field's focus handle, for a sheet to give the keyboard to as it opens.
+    pub fn handle(field: &Entity<TextField>, cx: &App) -> FocusHandle {
+        field.read(cx).focus.clone()
+    }
+
     /// Put the keyboard in `field`.
     pub fn focus(field: &Entity<TextField>, window: &mut Window, cx: &mut App) {
         let handle = field.read(cx).focus.clone();

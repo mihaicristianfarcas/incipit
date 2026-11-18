@@ -564,7 +564,9 @@ impl Render for ExplainView {
                     ),
             )
             .child(body);
-        sheet("explain", WIDTH, t, content).into_any_element()
+        sheet("explain", WIDTH, t, content)
+            .on_escape(cx.listener(|this, _, _, cx| this.close(cx)))
+            .into_any_element()
     }
 }
 

@@ -20,7 +20,7 @@
 use futures::StreamExt;
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, ScrollHandle, Window};
 use incipit_llm::{Cancel, Event, Job, Update};
-use incipit_ui::{button, field, segmented, sheet, IconName, TextField, Theme, Type};
+use incipit_ui::{button, field, scroll_area, segmented, sheet, IconName, TextField, Theme, Type};
 use incipit_vault::fields::{Mode, Session as Kept, Speaker, Turn};
 use incipit_vault::{Doc, Kind, Source};
 
@@ -725,7 +725,13 @@ impl ReaderView {
                     ),
             )
             .child(buttons);
-        Some(sheet("session", WIDTH, t, content).into_any_element())
+        scroll_area(&session.scroll);
+        Some(
+            sheet("session", WIDTH, t, content)
+                .initial(TextField::handle(&self.reply, cx))
+                .on_escape(cx.listener(|this, _, _, cx| this.close_session(cx)))
+                .into_any_element(),
+        )
     }
 }
 

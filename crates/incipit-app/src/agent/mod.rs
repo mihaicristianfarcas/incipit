@@ -50,7 +50,9 @@ use gpui::{
     KeyDownEvent, Render, ScrollHandle, SharedString, Subscription, Window,
 };
 use incipit_llm::Update;
-use incipit_ui::{button, field, sheet, spinner, FieldEvent, IconName, TextField, Theme, Type};
+use incipit_ui::{
+    button, field, scroll_area, sheet, spinner, FieldEvent, IconName, TextField, Theme, Type,
+};
 use incipit_vault::{rfc3339, AgentRun, Vault, VaultPath};
 
 use crate::learning::learner;
@@ -1006,6 +1008,7 @@ impl Render for AgentView {
             )
             .child(body)
             .child(buttons);
-        sheet("agent", WIDTH, t, content)
+        scroll_area(&self.scroll);
+        sheet("agent", WIDTH, t, content).initial(TextField::handle(&self.words, cx))
     }
 }

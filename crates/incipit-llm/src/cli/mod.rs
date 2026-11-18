@@ -197,8 +197,9 @@ pub(crate) fn copy_images(images: &[PathBuf], dir: &Path) -> Result<Vec<PathBuf>
 /// only, as Windows has no sh to run them.
 #[cfg(all(test, unix))]
 pub(crate) mod fake {
-    use std::os::unix::fs::PermissionsExt;
+    use std::io::Write;
     use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
 
     /// Writes an executable sh script named `name` in `dir`. It records its arguments, one per
     /// line, in `<name>.args` and its stdin in `<name>.stdin` beside itself, then runs `body`.
@@ -207,8 +208,25 @@ pub(crate) mod fake {
         let text = format!(
             "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done > \"$0.args\"\ncat > \"$0.stdin\"\n{body}\n"
         );
-        std::fs::write(&path, text).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Written by a program of its own, so this one never holds the file open for writing:
+        // a program another test starts meanwhile would hold it too until it runs, and running
+        // the script then fails on Linux with "Text file busy".
+        let mut writer = Command::new("sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(&path)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writer
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(text.as_bytes())
+            .unwrap();
+        assert!(
+            writer.wait().unwrap().success(),
+            "the script was not written"
+        );
         path
     }
 

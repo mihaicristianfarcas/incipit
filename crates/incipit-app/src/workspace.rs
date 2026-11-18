@@ -9,6 +9,12 @@
 //! is (`Vault::create`); an Obsidian vault is chosen on its own (`choose_obsidian`), and a folder
 //! without Obsidian's `.obsidian` is refused with words saying what to pick. INCIPIT_OBSIDIAN
 //! opens a folder the way that choice does, so both outcomes can be looked at without a dialog.
+//!
+//! A vault another program has open is not opened (`incipit_vault::Error::Held`): the learner is
+//! told so, where every other failure to open is said, and the app goes on as with no vault. The
+//! vault open here is asked for again without being opened twice, and one that a part of the app
+//! still holds after another was opened is used again (`Vault::already_open`), rather than be
+//! refused by this program's own lock.
 
 use std::path::{Path, PathBuf};
 
@@ -17,6 +23,10 @@ use futures::StreamExt;
 use gpui::{Context, EventEmitter, PathPromptOptions};
 use incipit_vault::{Event, KnownVaults, Vault};
 
+/// What the learner is told when the vault is open in another program.
+pub const HELD: &str =
+    "This vault is open in another Incipit window. Close it there, or open another vault.";
+
 pub struct Workspace {
     pub vault: Option<Vault>,
     /// Why the last attempt to open a vault failed, in words for the learner.
@@ -24,6 +34,9 @@ pub struct Workspace {
     /// A vault is being opened (its files read, its history started): the first run waits for it
     /// rather than ask where the vault is.
     pub opening: bool,
+    /// Counts the vaults opened, so the changes of one that is no longer open stop being passed
+    /// on, even when the same vault is opened again.
+    opened: u64,
     home: PathBuf,
 }
 
@@ -57,6 +70,7 @@ impl Workspace {
             vault: None,
             problem: None,
             opening: false,
+            opened: 0,
             home: home(),
         };
         let asked = std::env::var_os("INCIPIT_VAULT").map(PathBuf::from);
@@ -75,8 +89,16 @@ impl Workspace {
 
     /// Open the vault in `folder`, making it one if it is not yet, and clean up the working
     /// copies its agent's runs left when the app quit during them. Reading a vault's files and
-    /// starting its history take a moment, so it happens off the window's thread.
+    /// starting its history take a moment, so it happens off the window's thread. The vault open
+    /// already stays as it is.
     pub fn open(&mut self, folder: &Path, cx: &mut Context<Self>) {
+        let asked = Vault::already_open(folder);
+        let same = |vault: &Vault| asked.as_ref().is_some_and(|a| a.root() == vault.root());
+        if self.vault.as_ref().is_some_and(same) {
+            self.problem = None;
+            cx.notify();
+            return;
+        }
         let folder = folder.to_path_buf();
         let home = self.home.clone();
         self.opening = true;
@@ -85,6 +107,10 @@ impl Workspace {
             let opened = cx
                 .background_executor()
                 .spawn(async move {
+                    // Its runs were cleaned up and its sittings kept when it was first opened.
+                    if let Some(vault) = Vault::already_open(&at) {
+                        return Ok(vault);
+                    }
                     let vault = if at.join(".jj").exists() {
                         Vault::open(&at)
                     } else {
@@ -109,14 +135,12 @@ impl Workspace {
                         }
                         crate::notes_demo::add(&vault);
                         this.remember(&vault);
+                        this.opened += 1;
                         this.listen(&vault, cx);
                         this.vault = Some(vault);
                         this.problem = None;
                     }
-                    Err(e) => {
-                        this.problem =
-                            Some(format!("{} could not be opened: {e}", folder.display()))
-                    }
+                    Err(e) => this.problem = Some(not_opened(&folder, &e)),
                 }
                 cx.emit(Happened::Opened);
                 cx.notify();
@@ -141,7 +165,7 @@ impl Workspace {
     /// The vault's changes, from its channel to the window, for as long as it is the open one.
     fn listen(&self, vault: &Vault, cx: &mut Context<Self>) {
         let changes = vault.subscribe();
-        let root = vault.root().to_path_buf();
+        let opened = self.opened;
         let (send, mut receive) = unbounded();
         let thread = std::thread::Builder::new()
             .name("vault-events".into())
@@ -159,7 +183,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             while let Some(event) = receive.next().await {
                 let still_open = this.update(cx, |this, cx| {
-                    let open = this.vault.as_ref().is_some_and(|v| v.root() == root);
+                    let open = this.opened == opened;
                     if open {
                         cx.emit(Happened::Changed(event));
                     }
@@ -234,6 +258,14 @@ impl Workspace {
             let _ = this.update(cx, |this, cx| then(this, folder, cx));
         })
         .detach();
+    }
+}
+
+/// What the learner is told when the vault in `folder` could not be opened.
+fn not_opened(folder: &Path, error: &incipit_vault::Error) -> String {
+    match error {
+        incipit_vault::Error::Held { .. } => HELD.to_owned(),
+        e => format!("{} could not be opened: {e}", folder.display()),
     }
 }
 
@@ -314,6 +346,22 @@ mod tests {
         assert!(check_obsidian(&opened).is_ok());
         let missing = check_obsidian(&parent.path().join("gone")).unwrap_err();
         assert!(missing.ends_with("is not a folder."), "{missing}");
+    }
+
+    #[test]
+    fn a_vault_open_in_another_program_is_said_in_words_and_other_failures_name_the_folder() {
+        let parent = tempfile::tempdir().unwrap();
+        let folder = parent.path().join("Shelf");
+        let first = Vault::create(&folder).unwrap();
+        let refused = Vault::open(&folder).unwrap_err();
+        assert_eq!(
+            not_opened(&folder, &refused),
+            "This vault is open in another Incipit window. Close it there, or open another vault."
+        );
+        drop(first);
+        let gone = parent.path().join("gone");
+        let missing = Vault::open(&gone).unwrap_err();
+        assert!(not_opened(&gone, &missing).contains("gone could not be opened"));
     }
 
     #[test]

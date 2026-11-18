@@ -373,6 +373,7 @@ mod tests {
         assert!(text.contains("dailyNew: 35"), "{text}");
         assert!(text.ends_with("I like proofs first.\n"), "{text}");
         assert!(vault.list(Some(crate::Kind::Note)).is_empty());
+        drop(vault);
         let reopened = Vault::open(dir.path()).unwrap();
         assert_eq!(reopened.profile(), mine);
         assert!(reopened.list(None).is_empty());

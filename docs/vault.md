@@ -22,11 +22,26 @@ log/activity.jsonl           one line per thing the learner did
 log/agents.jsonl             the agent's runs: a line each time one starts or changes
 profile.md                   the learner's profile (not a document)
 .jj/                         the history
-.incipit/                    generated indexes and caches; safe to delete
+.incipit/                    generated indexes and caches, and the vault's lock; safe to delete while no program has the vault open
 .trash/                      what was deleted
 ```
 
 A Markdown file in no known folder is a note.
+
+## One program at a time
+
+A vault is open in one program at a time. While Incipit has it open, it holds
+the system's lock on `.incipit/lock` (an empty file, never removed): a second
+program that opens the vault (a build run from the checkout, or one with an
+app folder of its own, `INCIPIT_HOME`) is refused, and the learner is told the
+vault is open in another Incipit window.
+The system lets go of the lock when the program ends, a crash too, and the app
+lets go when it opens another vault and nothing of it still holds the one it
+had (a model's answer being written to it, for one). In one program the same
+folder is opened once: asked again, the vault it has is used
+(`Vault::already_open`). On a file system that cannot lock (some network
+shares), a vault opens without the lock. Deleting `.incipit/` while the vault
+is open takes the lock away until it is opened again.
 
 ## Opening a vault Obsidian made
 
@@ -394,7 +409,8 @@ Fields with nothing in them are left out. The earlier app's `started` is
 
 ## Generated files
 
-`.incipit/` holds what the app derives from the vault's files. Nothing in
+`.incipit/` holds what the app derives from the vault's files, and the lock
+that keeps the vault to one program (see One program at a time). Nothing in
 it is a source of truth: deleting it, or any file in it, only means the
 app makes it again. History leaves it out and its changes are not
 announced. The vault writes these files whole (`Vault::write_generated`).

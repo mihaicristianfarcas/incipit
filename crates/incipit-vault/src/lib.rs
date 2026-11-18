@@ -6,8 +6,10 @@
 //! `Vault::open` and `Vault::create` give a handle that holds the index of every document, the
 //! links between them and a search index, writes changes to disk whole, announces them to
 //! subscribers, picks up edits other programs make, and keeps history with Jujutsu through
-//! jj-lib (`history`). `create` on a folder that holds files, an Obsidian vault for one, opens it
-//! where it is and changes none of them. An agent works in a working copy of its own
+//! jj-lib (`history`). A vault is open in one program at a time: the handle holds a lock in the
+//! vault's app folder, and a folder another program has open is refused (`Error::Held`).
+//! `create` on a folder that holds files, an Obsidian vault for one, opens it where it is and
+//! changes none of them. An agent works in a working copy of its own
 //! (`Vault::agent_copy`), and what it changed passes `checks` before it lands. The list of
 //! vaults the app knows is `known`, apart from any vault.
 //!

@@ -857,11 +857,12 @@ mod tests {
 
     #[test]
     fn the_keys_a_run_is_told_to_press_are_read_as_gpui_spells_them() {
-        let keys = keys_named("tab  shift-tab\tdown enter space cmd-k");
+        // Ctrl, not Cmd: GPUI spells the platform's own key "cmd" on macOS and "super" on Linux.
+        let keys = keys_named("tab  shift-tab\tdown enter space ctrl-k");
         let spelled: Vec<String> = keys.iter().map(|k| k.unparse()).collect();
         assert_eq!(
             spelled,
-            ["tab", "shift-tab", "down", "enter", "space", "cmd-k"]
+            ["tab", "shift-tab", "down", "enter", "space", "ctrl-k"]
         );
         assert!(keys_named("").is_empty());
     }

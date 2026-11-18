@@ -236,13 +236,22 @@ pub struct RowStops {
     stop: usize,
 }
 
+/// Which row of a list Tab reaches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    /// This one, whatever the keyboard did: the page shown in a sidebar.
+    Fixed(usize),
+    /// The row the keyboard was last on; this one while it never was on one: the chapter the
+    /// reader is in, in the contents.
+    Start(usize),
+}
+
 /// The rows of a list, `ids` (each unique in the list, named for its handle
-/// under `key`). Tab reaches the row at `stop`, or if there is none, the one
-/// the keyboard was last on (the first, to begin with).
+/// under `key`), and the one Tab reaches (`stop`).
 pub fn row_stops(
     key: &str,
     ids: impl IntoIterator<Item = impl Display>,
-    stop: Option<usize>,
+    stop: Stop,
     window: &mut Window,
     cx: &mut App,
 ) -> RowStops {
@@ -251,14 +260,14 @@ pub fn row_stops(
         .map(|id| focus_handle(format!("{key}-{id}"), window, cx))
         .collect();
     let last = window.use_keyed_state(ElementId::Name(format!("{key}-last").into()), cx, |_, _| {
-        0usize
+        None::<usize>
     });
     if let Some(on) = handles.iter().position(|h| h.contains_focused(window, cx)) {
-        last.update(cx, |last, _| *last = on);
+        last.update(cx, |last, _| *last = Some(on));
     }
-    let stop = stop.unwrap_or_else(|| *last.read(cx));
+    let last = *last.read(cx);
     RowStops {
-        stop: stop_row(stop, handles.len()),
+        stop: stop_row(stop, last, handles.len()),
         handles,
     }
 }
@@ -269,9 +278,13 @@ fn along(e: &KeyDownEvent, on: Option<usize>, count: usize) -> Option<usize> {
     arrow_step(e, Some(on?), count, false)
 }
 
-/// The row Tab reaches: `wanted`, or the last row if the list has become
-/// shorter than that.
-fn stop_row(wanted: usize, count: usize) -> usize {
+/// The row Tab reaches in a list of `count` rows, where the keyboard was last on row `last`
+/// of it, if it ever was: the last row if the list has become shorter than the row meant.
+fn stop_row(stop: Stop, last: Option<usize>, count: usize) -> usize {
+    let wanted = match stop {
+        Stop::Fixed(row) => row,
+        Stop::Start(row) => last.unwrap_or(row),
+    };
     wanted.min(count.saturating_sub(1))
 }
 
@@ -508,13 +521,19 @@ mod tests {
     }
 
     #[test]
-    fn tab_reaches_the_row_asked_for_or_else_the_last_one_there_is() {
-        assert_eq!(stop_row(0, 5), 0);
-        assert_eq!(stop_row(3, 5), 3);
-        // The list became shorter than where the keyboard was.
-        assert_eq!(stop_row(7, 5), 4);
+    fn tab_reaches_the_row_that_is_fixed_or_where_the_keyboard_was_last_or_else_where_it_starts() {
+        // The page shown is the stop, wherever the keyboard was.
+        assert_eq!(stop_row(Stop::Fixed(2), None, 5), 2);
+        assert_eq!(stop_row(Stop::Fixed(2), Some(4), 5), 2);
+        // The chapter the reader is in, until the keyboard has been on a row; then that row.
+        assert_eq!(stop_row(Stop::Start(3), None, 5), 3);
+        assert_eq!(stop_row(Stop::Start(3), Some(0), 5), 0);
+        assert_eq!(stop_row(Stop::Start(0), None, 5), 0);
+        // The list became shorter than the row meant.
+        assert_eq!(stop_row(Stop::Fixed(7), None, 5), 4);
+        assert_eq!(stop_row(Stop::Start(1), Some(9), 5), 4);
         // An empty list has no row: the stop is never used.
-        assert_eq!(stop_row(2, 0), 0);
+        assert_eq!(stop_row(Stop::Start(2), None, 0), 0);
     }
 
     fn pressed(keys: &str) -> KeyDownEvent {

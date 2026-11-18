@@ -16,7 +16,7 @@ use gpui::{
 };
 use incipit_ui::{
     button, card, focus_ring, keep_focus, meter, page, page_header, row_stops, segmented, Radius,
-    Type,
+    Stop, Type,
 };
 use incipit_vault::{Book, Doc, DocId, Kind, Vault, VaultPath};
 
@@ -429,7 +429,7 @@ impl Render for LibraryView {
         let stops = row_stops(
             "library-books",
             self.books.iter().map(|b| b.id.as_str()),
-            None,
+            Stop::Start(0),
             window,
             cx,
         );

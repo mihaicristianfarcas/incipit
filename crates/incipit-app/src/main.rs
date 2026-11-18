@@ -649,7 +649,8 @@ impl Root {
             self.page
         };
         let at = PAGES.iter().position(|p| p.0 == here);
-        let stops = incipit_ui::row_stops("sidebar", PAGES.iter().map(|p| p.1), at, window, cx);
+        let stop = at.map_or(incipit_ui::Stop::Start(0), incipit_ui::Stop::Fixed);
+        let stops = incipit_ui::row_stops("sidebar", PAGES.iter().map(|p| p.1), stop, window, cx);
         let mut list = incipit_ui::nav_list(&self.glide, at, t).on_key_down(stops.keys());
         for (index, (page, id, label, glyph)) in PAGES.into_iter().enumerate() {
             let on = here == page;

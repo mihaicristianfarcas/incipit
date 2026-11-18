@@ -65,8 +65,8 @@ use incipit_book::{Anchor, Block, Book, Entry, Page, PdfInfo, PdfWorker};
 use incipit_llm::Cancel;
 use incipit_ui::{
     button, drag_area, field, floating, focus_handle, focus_ring, icon_button, keep_focus, ringed,
-    row_stops, scroll_area, scrollbar, FieldEvent, IconName, Metrics, Radius, TextField, Theme,
-    Type,
+    row_stops, scroll_area, scrollbar, FieldEvent, IconName, Metrics, Radius, Stop, TextField,
+    Theme, Type,
 };
 
 use incipit_vault::fields::Status;
@@ -1199,7 +1199,13 @@ impl ReaderView {
         let mapping = self.mapping_entry();
         scroll_area(&self.rail_scroll);
         // The lines are one stop for Tab, the arrows going from one to the next.
-        let stops = row_stops("contents", 0..entries.len(), None, window, cx);
+        let stops = row_stops(
+            "contents",
+            0..entries.len(),
+            Stop::Start(here.unwrap_or(0)),
+            window,
+            cx,
+        );
         let rows = entries.iter().enumerate().map(|(index, entry)| {
             let page = entry.page;
             let (focus, ring) = stops.row(index, window);

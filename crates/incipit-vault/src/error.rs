@@ -58,6 +58,10 @@ pub enum Error {
     /// A name that cannot be used (empty, too long, or taken).
     #[error("{0}")]
     Name(String),
+    /// The vault is held by another program, or already open in this one: one program at a time
+    /// has a vault open, until it ends or opens another.
+    #[error("{} is open in another program", path.display())]
+    Held { path: PathBuf },
     /// Watching the vault's folder for edits made elsewhere could not start.
     #[error("could not watch the vault's folder for edits made elsewhere: {0}")]
     Watch(String),

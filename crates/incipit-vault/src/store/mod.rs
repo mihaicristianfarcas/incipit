@@ -4,12 +4,16 @@
 //! and then into the index, and is announced. Edits made by other programs come in through
 //! the file watcher and are reconciled with the index (`reconcile`).
 //!
-//! There are no globals: each `Vault` is its own folder, index, history and watcher, so two can
-//! be open in one process. A `Vault` is cheap to clone and can be used from any thread; one lock
-//! keeps the index and the files in step, so a write and the watcher never interleave.
+//! Each `Vault` is its own folder, index, history and watcher, so two can be open in one process.
+//! One folder is open in one program at a time (`hold`): opening one that another program has
+//! open is refused, and the only thing the process keeps about its vaults is which folders it
+//! has open, so a part of it that still holds one can be given it back (`already_open`). A
+//! `Vault` is cheap to clone and can be used from any thread; one lock keeps the index and the
+//! files in step, so a write and the watcher never interleave.
 
 mod copies;
 mod guide;
+mod hold;
 mod pictures;
 mod reconcile;
 mod sitting;
@@ -166,6 +170,9 @@ pub(crate) struct Inner {
     pub(crate) timing: Mutex<timing::Timing>,
     /// Kept so it watches as long as the vault is open; dropping it ends the watching thread.
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
+    /// The vault is this program's while it is open. Last, so it is let go after everything
+    /// else of the vault has been dropped.
+    _hold: hold::Hold,
 }
 
 impl Inner {
@@ -210,6 +217,7 @@ impl Vault {
     /// folder also gets the usual folders. One that already holds something, an Obsidian vault
     /// for one, is opened where it is: its files stay exactly as they are and become the first
     /// entry in history, and the only folders that appear are the history's and the app's own.
+    /// Refused with `Error::Held` while another program is making or has opened the same folder.
     pub fn create(path: &Path) -> Result<Vault> {
         std::fs::create_dir_all(path).map_err(|e| Error::io("make the folder", path, e))?;
         let root = dunce::canonicalize(path).map_err(|e| Error::io("open", path, e))?;
@@ -219,30 +227,44 @@ impl Vault {
                 root.display()
             )));
         }
+        // Looked at before the app's folder (and the lock in it) is made.
         let usual: &[&str] = if holds_something(&root) {
             &[]
         } else {
             &FOLDERS
         };
+        let held = hold::take(&root)?;
         for folder in usual {
             let at = root.join(folder);
             std::fs::create_dir_all(&at).map_err(|e| Error::io("make the folder", &at, e))?;
         }
-        prepare_app_folder(&root)?;
         let history = History::init(&root)?;
         history.close_sitting("The vault begins")?;
-        Self::start(root, history)
+        Self::start(root, history, held)
     }
 
-    /// Opens a vault made before.
+    /// Opens a vault made before. Refused with `Error::Held` while another program has it open,
+    /// and while this one has: `already_open` gives that one back.
     pub fn open(path: &Path) -> Result<Vault> {
         let root = dunce::canonicalize(path).map_err(|e| Error::io("open", path, e))?;
+        // A folder that is no vault is left as it is, with no app folder made in it.
+        if !root.join(".jj").is_dir() {
+            return Err(Error::NotAVault { path: root });
+        }
+        // Held before the history is read: reading it can write.
+        let held = hold::take(&root)?;
         let history = History::load(&root)?;
-        prepare_app_folder(&root)?;
-        Self::start(root, history)
+        Self::start(root, history, held)
     }
 
-    fn start(root: PathBuf, history: History) -> Result<Vault> {
+    /// The vault in `folder` when this program has it open already (a part of it still holds
+    /// it), so it is used again rather than refused by its own lock.
+    pub fn already_open(folder: &Path) -> Option<Vault> {
+        let root = dunce::canonicalize(folder).ok()?;
+        hold::open_here(&root).map(|inner| Vault { inner })
+    }
+
+    fn start(root: PathBuf, history: History, held: hold::Hold) -> Result<Vault> {
         let inner = Arc::new(Inner {
             root,
             state: Mutex::new(State::default()),
@@ -250,6 +272,7 @@ impl Vault {
             subscribers: Subscribers::default(),
             timing: Mutex::new(timing::Timing::new(timing::SETTLE, timing::IDLE)),
             watcher: Mutex::new(None),
+            _hold: held,
         });
         // Watching starts before the first read, so an edit made while reading is not missed:
         // it is reconciled once the read is done.
@@ -259,6 +282,7 @@ impl Vault {
             let mut state = inner.lock();
             reconcile::load(&inner, &mut state);
         }
+        hold::note_open(&inner);
         Ok(Vault { inner })
     }
 

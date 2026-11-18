@@ -4467,6 +4467,7 @@ dependencies = [
  "image",
  "incipit-book",
  "incipit-graph",
+ "incipit-launch",
  "incipit-learn",
  "incipit-llm",
  "incipit-math",

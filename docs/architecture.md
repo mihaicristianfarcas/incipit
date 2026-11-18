@@ -368,6 +368,20 @@ Tab's own work: it steps as it would and, if that left the sheet, comes back in
 at the other end. A sheet that has no Escape of its own is told what it does
 (`on_escape`).
 
+**One program for each app folder, one program in each vault.** The earlier
+app held a vault through its server, and a second server could not take the
+same port. Here two locks of the system's own do it, let go when a program
+ends, a crash too. A program holds `running.lock` in its app folder while it
+listens for later launches (`incipit-launch`): a launch that finds it held
+hands its books to that program and ends before it opens a window, on every
+system, since GPUI hands a second open to the program running only on macOS
+(`front.rs`, `open_with.rs`). And an open vault holds `.incipit/lock` in the
+vault (`incipit-vault`), so programs with app folders of their own, or a
+build run from the checkout, are still kept off one vault, and the learner is
+told it is open in another window. A program holds the app folder's lock only
+while it listens, so a lock held always has a program to reach; a launch that
+cannot reach it within a second runs on its own.
+
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,
 so that no code under a license of Zed's own is linked.

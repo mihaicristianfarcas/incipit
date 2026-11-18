@@ -126,7 +126,7 @@ pub struct Refused;
 impl EventEmitter<Refused> for LibraryView {}
 
 /// The kind of book a file is, from its name: `pdf` or `epub`.
-fn format_of(file: &Path) -> Option<&'static str> {
+pub(crate) fn format_of(file: &Path) -> Option<&'static str> {
     match file.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "pdf" => Some("pdf"),
         "epub" => Some("epub"),

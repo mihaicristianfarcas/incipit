@@ -13,7 +13,7 @@ been externally audited.
 
 ## What is trusted
 
-Incipit runs on your computer with your files. It treats three things as
+Incipit runs on your computer with your files. It treats four things as
 untrusted, because they come from somewhere else:
 
 - **Books.** A PDF or EPUB can be crafted. PDFs are parsed by pdfium, a
@@ -26,6 +26,12 @@ untrusted, because they come from somewhere else:
   home folder, no network ([docs/models.md](docs/models.md)).
 - **Text inside books given to a model.** A book can contain text meant to
   steer a model. It is passed as material, not as instructions.
+- **What a later launch sends.** The program running hears later launches on
+  a local socket only the same user can reach (a Unix socket only its owner
+  may write to, or a named pipe open only to its owner and closed to other
+  computers). What arrives is read up to a short limit, anything not of the
+  form is dropped, and only paths to PDF and EPUB files that are there are
+  taken, as books ([docs/packaging.md](docs/packaging.md#opening-a-book-from-outside)).
 
 A problem in any of these (a book that makes the app crash, run code or
 read files it should not; a reply that does) is a vulnerability.

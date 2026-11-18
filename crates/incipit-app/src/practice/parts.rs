@@ -5,7 +5,7 @@ use gpui::{
     div, prelude::*, px, AnyElement, Context, IntoElement, KeyDownEvent, Render, SharedString,
     Window,
 };
-use incipit_ui::{button, field, sheet, spinner, TextField, Theme, Type};
+use incipit_ui::{button, field, scroll_area, sheet, spinner, TextField, Theme, Type};
 
 use super::*;
 
@@ -429,6 +429,7 @@ impl Render for PracticeView {
                     ),
             )
             .child(stage);
+        scroll_area(&self.scroll);
         sheet("practice", WIDTH, t, content).into_any_element()
     }
 }

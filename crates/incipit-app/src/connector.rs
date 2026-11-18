@@ -16,7 +16,7 @@ use gpui::{
     Render, ScrollHandle, SharedString, Window,
 };
 use incipit_llm::{Cancel, Update};
-use incipit_ui::{button, card, scrollbar, sheet, spinner, Theme, Type};
+use incipit_ui::{button, card, scroll_area, scrollbar, sheet, spinner, Theme, Type};
 
 use crate::explain::{quoted, About};
 use crate::learning::connect::{self, Connection};
@@ -456,6 +456,7 @@ impl Render for ConnectorView {
                     .map(|passage| Self::small(quoted(passage), t).line_clamp(4)),
             )
             .child(stage);
+        scroll_area(&self.scroll);
         sheet("connector", WIDTH, t, content).into_any_element()
     }
 }

@@ -28,12 +28,12 @@ use std::collections::HashSet;
 use futures::StreamExt;
 use gpui::{
     div, prelude::*, px, AnyElement, Context, Entity, EventEmitter, FocusHandle, IntoElement,
-    KeyDownEvent, MouseButton, Render, Subscription, Window,
+    KeyDownEvent, MouseButton, Render, ScrollHandle, Subscription, Window,
 };
 use incipit_llm::{Cancel, Update};
 use incipit_ui::{
-    button, field, focus_handle, focus_ring, keep_focus, ringed, sheet, FieldEvent, IconName,
-    Radius, TextField, Theme, Type,
+    button, field, focus_handle, focus_ring, keep_focus, ringed, scroll_area, sheet, FieldEvent,
+    IconName, Radius, TextField, Theme, Type,
 };
 use incipit_vault::DocId;
 
@@ -133,6 +133,9 @@ pub struct QuizView {
     focus: FocusHandle,
     /// The sheet takes the keyboard when it is drawn next.
     focus_sheet: bool,
+    /// The scroll of a question and its answer, and of the list of what to revisit.
+    scroll: ScrollHandle,
+    missed_scroll: ScrollHandle,
     /// The short answer's field takes the keyboard when it is drawn next.
     focus_reply: bool,
     _events: Subscription,
@@ -185,6 +188,8 @@ impl QuizView {
             reply,
             focus: cx.focus_handle(),
             focus_sheet: false,
+            scroll: ScrollHandle::new(),
+            missed_scroll: ScrollHandle::new(),
             focus_reply: false,
             _events: events,
             _opened: opened,
@@ -924,6 +929,7 @@ impl QuizView {
             .id("quiz-body")
             .max_h(px(BODY))
             .overflow_y_scroll()
+            .track_scroll(&self.scroll)
             .flex()
             .flex_col()
             .gap(px(12.0))
@@ -1116,6 +1122,7 @@ impl QuizView {
                                 .id("quiz-missed-list")
                                 .max_h(px(BODY - 60.0))
                                 .overflow_y_scroll()
+                                .track_scroll(&self.missed_scroll)
                                 .flex()
                                 .flex_col()
                                 .children(rows),
@@ -1213,6 +1220,8 @@ impl Render for QuizView {
                 cx.listener(|this, event: &KeyDownEvent, window, cx| this.key(event, window, cx)),
             )
             .child(content);
+        scroll_area(&self.scroll);
+        scroll_area(&self.missed_scroll);
         sheet("quiz", WIDTH, t, content).into_any_element()
     }
 }

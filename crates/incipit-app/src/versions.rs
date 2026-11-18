@@ -15,7 +15,8 @@ use gpui::{
     KeyDownEvent, MouseButton, Render, ScrollHandle, SharedString, Window,
 };
 use incipit_ui::{
-    button, focus_handle, focus_ring, keep_focus, ringed, segmented, sheet, Radius, Theme, Type,
+    button, focus_handle, focus_ring, keep_focus, ringed, scroll_area, segmented, sheet, Radius,
+    Theme, Type,
 };
 use incipit_vault::{rfc3339, DocId, Version};
 
@@ -69,6 +70,8 @@ pub struct VersionsView {
     /// since changed, is passed over.
     run: u64,
     scroll: ScrollHandle,
+    /// The scroll of the list of versions.
+    list_scroll: ScrollHandle,
 }
 
 impl EventEmitter<Closed> for VersionsView {}
@@ -93,6 +96,7 @@ impl VersionsView {
             focus_sheet: false,
             run: 0,
             scroll: ScrollHandle::new(),
+            list_scroll: ScrollHandle::new(),
         }
     }
 
@@ -327,6 +331,7 @@ impl VersionsView {
             .flex_none()
             .max_h(px(BODY + 40.0))
             .overflow_y_scroll()
+            .track_scroll(&self.list_scroll)
             .flex()
             .flex_col()
             .gap(px(2.0))
@@ -467,6 +472,8 @@ impl Render for VersionsView {
                         .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
                 ),
             );
+        scroll_area(&self.list_scroll);
+        scroll_area(&self.scroll);
         sheet("versions", WIDTH, t, content).into_any_element()
     }
 }

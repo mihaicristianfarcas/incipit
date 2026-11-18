@@ -369,7 +369,7 @@ impl Render for FindView {
                         .child("Nothing in the vault has those words."),
                 )
             });
-        sheet("find", 520.0, t, content)
+        sheet("find", 520.0, t, content).initial(TextField::handle(&self.words, cx))
     }
 }
 

@@ -141,9 +141,8 @@ Library's line for problems, and nothing else changes.
   runs, in which case its one window shows the book. On Windows and Linux GPUI keeps the handler and
   never calls it, which is why those two use arguments. A second program macOS does not route to the
   first (one started from a terminal, or with `open -n`) hands over as on Linux, over a Unix socket
-  in the app's folder, and with the window closed (macOS keeps the program running when its window
-  is) the window opens again. A file the open event gives while the window is closed is not taken
-  in: there is no window to show it in.
+  in the app's folder. With the window closed (macOS keeps the program running when its window
+  is), a file given either way opens the window again, which shows the book.
 - With **no vault open yet** (the first run, or a vault that failed to open) the files are kept and
   taken in once a vault is open, so the learner is never asked to give them again.
 

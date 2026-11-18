@@ -1,12 +1,12 @@
 //! The program's one window, and what comes to it from outside the app. Before any window opens,
 //! a launch learns whether a program runs already for its app folder (`incipit_launch`): if so it
 //! hands that one its books and ends, and if not it opens the window and hears later launches.
-//! What a later launch hands over brings the window to the front and is taken in the way the
-//! system's open event is (`Root::give`, the Library's `Waiting` and `take_in`).
+//! What a later launch hands over, and what the system's open event gives (macOS), brings the
+//! window to the front and is taken in (`Root::give`, the Library's `Waiting` and `take_in`).
 //!
-//! macOS keeps the program running with its window closed: a later launch then opens the window
-//! again. On Windows and Linux the program ends with its window, so there is always one to bring
-//! forward. GPUI refuses to update a window from inside that window's own update, so this is only
+//! macOS keeps the program running with its window closed: a later launch or an open event then
+//! opens the window again. On Windows and Linux the program ends with its window, so there is
+//! always one to bring forward. GPUI refuses to update a window from inside that window's own update, so this is only
 //! called from a task of the app, never from a key or an action being handled.
 //!
 //! A run that only takes a picture (INCIPIT_SHOT) never hands over, so it always gives its picture:
@@ -72,15 +72,9 @@ pub fn window(cx: &App) -> Option<WindowHandle<Root>> {
         .find_map(|window| window.downcast::<Root>())
 }
 
-/// Gives the window books from outside, when it is open; with it closed they are not kept.
-pub fn give(files: Vec<PathBuf>, cx: &mut App) {
-    if let Some(window) = window(cx) {
-        let _ = window.update(cx, |root, _, cx| root.give(files, cx));
-    }
-}
-
-/// What a later launch asked: the window comes to the front, opened again when it was closed, and
-/// takes the books it was handed (`open_with::handed_over`), if any.
+/// Books from outside, or a later launch with none: the window comes to the front, opened again
+/// when it was closed, and takes the books, if any (from a later launch, those
+/// `open_with::handed_over` kept).
 pub fn come_forward(files: Vec<PathBuf>, cx: &mut App) {
     let Some(window) = window(cx).or_else(|| open(cx).ok()) else {
         return;

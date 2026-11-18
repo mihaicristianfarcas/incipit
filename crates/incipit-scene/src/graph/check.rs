@@ -390,6 +390,22 @@ mod tests {
     }
 
     #[test]
+    fn a_force_layout_keeps_each_groups_nodes_together_and_the_groups_apart() {
+        for shape in ["circle", "box", "database"] {
+            for n in [5, 8, 11] {
+                for g in grouped("force", shape, n) {
+                    let first = nodes(&g, &Rough, &mut Vec::new());
+                    let again = nodes(&g, &Rough, &mut Vec::new());
+                    for (a, b) in first.iter().zip(&again) {
+                        assert_eq!((a.cx, a.cy), (b.cx, b.cy));
+                    }
+                    kept_apart(&g);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_circle_with_groups_still_goes_clockwise_in_the_order_given() {
         let g = graph(json!({
             "layout": "circle",

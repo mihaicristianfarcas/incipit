@@ -662,6 +662,31 @@ mod tests {
         refused_for(&g, &["group \"ends\" takes in node \"b\""]);
     }
 
+    #[test]
+    fn two_groups_whose_boxes_overlap_are_refused_unless_they_share_a_node() {
+        // A row keeps the order given, so two groups listed in turn overlap.
+        let g = graph(json!({
+            "layout": "row",
+            "nodes": row(&["a", "b", "c", "d"], "box"),
+            "groups": groups(&[("odd", &["a", "c"]), ("even", &["b", "d"])]),
+        }));
+        refused_for(
+            &g,
+            &[
+                "the boxes of groups \"odd\" and \"even\" overlap",
+                "list each group's nodes together",
+            ],
+        );
+        // A group inside another shares its nodes, so the two boxes may overlap.
+        let g = graph(json!({
+            "layout": "row",
+            "nodes": row(&["a", "b", "c"], "box"),
+            "groups": groups(&[("all", &["a", "b", "c"]), ("middle", &["b"])]),
+        }));
+        let report = checked(&g);
+        assert!(report.ok(), "{:#?}", report.errors);
+    }
+
     /// Graphs that should pass: two nodes; sixteen in a network; and the awkward: a loop to
     /// itself with a label, a pair joined both ways, drums and diamonds, cells in a group, a ring
     /// with a token going all the way round, a grid built up in steps.

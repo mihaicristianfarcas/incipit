@@ -5,7 +5,9 @@
 //! For checks without clicking, environment switches open a page in a given state and save a
 //! picture of the window: docs/development.md lists them.
 //! A PDF or EPUB given to the program (named in its arguments, or sent by the system's open event
-//! on macOS) is added to the library and opened in the reader (`open_with`).
+//! on macOS) is added to the library and opened in the reader (`open_with`). One program runs for
+//! each app folder: a launch while it runs hands it its books and ends before any window, and the
+//! program brings its window to the front with them (`front`).
 
 // A release build on Windows is a window, not a console program with a window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
@@ -29,6 +31,7 @@ mod find;
 mod first_run;
 mod fitted;
 mod foundations;
+mod front;
 mod journey;
 mod learning;
 mod library;
@@ -767,18 +770,28 @@ const APP_ID: &str = include_str!("../../../packaging/identifier");
 /// Does `what` to the window's root once the key that asked is dispatched. A key reaches the
 /// handlers of an action while GPUI is updating the window it came from, and a window being
 /// updated is out of reach: updating it again from the handler fails, and nothing happens. Deferred,
-/// it runs after that update has given the window back.
-fn later(
-    window: gpui::WindowHandle<Root>,
-    cx: &mut App,
-    what: fn(&mut Root, &mut Window, &mut Context<Root>),
-) {
+/// it runs after that update has given the window back. The window is looked for then, as it may
+/// have been opened again since the app started (`front`).
+fn later(cx: &mut App, what: fn(&mut Root, &mut Window, &mut Context<Root>)) {
     cx.defer(move |cx| {
-        let _ = window.update(cx, what);
+        if let Some(window) = front::window(cx) {
+            let _ = window.update(cx, what);
+        }
     });
 }
 
 fn main() {
+    // Books named in the program's arguments: the file "Open With" chose on Windows and Linux (and
+    // whatever a person types after the program's name, on any system).
+    let named = open_with::files_from_args(std::env::args_os().skip(1));
+    // A program runs for this app folder already: it has the books, and this one ends here.
+    let Some(front::Launched {
+        hearing: _hearing,
+        handed,
+    }) = front::launch(&named)
+    else {
+        return;
+    };
     // macOS tells the program which files to open by an event, at its start and while it runs.
     // GPUI calls the handler on the platform's own turn, with no window at hand, so it only passes
     // the URLs on to the window's side, which waits on the channel. The event is never raised on
@@ -792,15 +805,7 @@ fn main() {
         incipit_ui::init(cx);
         // Math in Markdown is typeset by incipit-math.
         incipit_ui::typeset_with(cx, math::typeset);
-        let mut options =
-            incipit_ui::window_options("Incipit", APP_ID.trim(), 1180.0, 780.0, (720.0, 480.0), cx);
-        options.focus = std::env::var_os("INCIPIT_SHOT").is_none();
-        let window = cx
-            .open_window(options, |window, cx| {
-                incipit_ui::glass::dress(window);
-                cx.new(|cx| Root::new(window, cx))
-            })
-            .expect("the window opens");
+        let window = front::open(cx).expect("the window opens");
         let (find, act, in_book) = if cfg!(target_os = "macos") {
             ("cmd-k", "cmd-j", "cmd-f")
         } else {
@@ -811,36 +816,40 @@ fn main() {
             KeyBinding::new(act, Act, None),
             KeyBinding::new(in_book, FindInBook, None),
         ]);
-        cx.on_action(move |_: &Find, cx| later(window, cx, Root::find));
-        cx.on_action(move |_: &Act, cx| later(window, cx, Root::act));
-        cx.on_action(move |_: &FindInBook, cx| later(window, cx, Root::find_in_book));
+        cx.on_action(move |_: &Find, cx| later(cx, Root::find));
+        cx.on_action(move |_: &Act, cx| later(cx, Root::act));
+        cx.on_action(move |_: &FindInBook, cx| later(cx, Root::find_in_book));
         // Reading in progress is written before the app goes.
         cx.on_app_quit(move |cx| {
-            let _ = window.update(cx, |root, _, cx| {
-                root.reader.update(cx, |reader, cx| reader.end_sittings(cx))
-            });
+            if let Some(window) = front::window(cx) {
+                let _ = window.update(cx, |root, _, cx| {
+                    root.reader.update(cx, |reader, cx| reader.end_sittings(cx))
+                });
+            }
             async {}
         })
         .detach();
-        // Books named in the program's arguments: the file "Open With" chose on Windows and
-        // Linux (and whatever a person types after the program's name, on any system).
-        let named = open_with::files_from_args(std::env::args_os().skip(1));
         if !named.is_empty() {
             let _ = window.update(cx, |root, _, cx| root.give(named, cx));
         }
         // Books the system asks the program to open once it runs (macOS), taken in as they come.
+        // With the window closed there is nothing to show them in.
         cx.spawn(async move |cx| {
             let mut arrived = arrived;
             while let Some(urls) = arrived.next().await {
                 let files = open_with::files_from_urls(&urls);
-                if !files.is_empty()
-                    && window
-                        .update(cx, |root, _, cx| root.give(files, cx))
-                        .is_err()
-                {
-                    // The window is gone: there is nothing left to show a book in.
-                    break;
+                if !files.is_empty() {
+                    cx.update(|cx| front::give(files, cx));
                 }
+            }
+        })
+        .detach();
+        // What later launches hand over, as it comes: the window comes forward with the books.
+        cx.spawn(async move |cx| {
+            let mut handed = handed;
+            while let Some(paths) = handed.next().await {
+                let files = open_with::handed_over(&paths);
+                cx.update(|cx| front::come_forward(files, cx));
             }
         })
         .detach();

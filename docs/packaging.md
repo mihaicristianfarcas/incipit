@@ -125,15 +125,25 @@ and the first opens. A file that is not a PDF or an EPUB, is missing or cannot b
 Library's line for problems, and nothing else changes.
 
 - **Windows and Linux** pass the file as an argument: the Windows entry runs `incipit.exe "%1"` and the
-  desktop file's `Exec` line ends in `%F`. A second launch while Incipit is running starts a second
-  program with a window of its own, which opens the vault last opened as any start does: GPUI has no
-  single-instance mechanism to hand a program's arguments to one already running, and Incipit adds none.
+  desktop file's `Exec` line ends in `%F`. A launch while Incipit is running (a book opened with it,
+  or the program started again) hands its files to the program running and ends before it opens a
+  window; the program running brings its window to the front and takes them in as it takes a file
+  given to it. GPUI has no way to hand a program's arguments to one already running, so Incipit has
+  its own (`incipit-launch`): the program running listens on a local socket only the same user can
+  reach, a Unix socket in the app's folder that only its owner may write to on Linux, and on Windows
+  a named pipe named after the app's folder, open only to the user who made it and closed to other
+  computers. What comes over it is only a short list of paths, and only those that are PDF or EPUB
+  files there are taken. One program runs for each app folder, so a build with an `INCIPIT_HOME` of
+  its own is a program of its own; a vault is open in one program at a time
+  ([vault.md](vault.md#one-program-at-a-time)), so two never write one vault.
 - **macOS** sends an event instead (GPUI's `on_open_urls`, with `file:` URLs): when Incipit is
   started by "Open With" or a file dropped on its icon, and each time a file is given to it while it
   runs, in which case its one window shows the book. On Windows and Linux GPUI keeps the handler and
-  never calls it, which is why those two use arguments. A file given while the app's window is
-  closed (macOS keeps the program running when its window is) is not taken in: there is no window to
-  show it in, and Incipit does not open one again.
+  never calls it, which is why those two use arguments. A second program macOS does not route to the
+  first (one started from a terminal, or with `open -n`) hands over as on Linux, over a Unix socket
+  in the app's folder, and with the window closed (macOS keeps the program running when its window
+  is) the window opens again. A file the open event gives while the window is closed is not taken
+  in: there is no window to show it in.
 - With **no vault open yet** (the first run, or a vault that failed to open) the files are kept and
   taken in once a vault is open, so the learner is never asked to give them again.
 

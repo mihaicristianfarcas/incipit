@@ -52,7 +52,7 @@ screenshots are taken:
 | `INCIPIT_VAULT` | A folder: the vault there is opened (made, if it is not one yet) without asking. Use a temporary folder for checks, never a vault of your own |
 | `INCIPIT_OBSIDIAN` | A folder: opened the way "Open an Obsidian vault" opens one, so both outcomes can be looked at without the dialog (use a throwaway `INCIPIT_HOME`, which remembers the vault). A folder with Obsidian's `.obsidian` inside is opened where it is (a made-up one: `cargo run -p incipit-vault --example obsidian_vault -- FOLDER`, on an empty throwaway folder); any other folder is not opened, and the problem says what to pick (look at it on the first run's vault step, `INCIPIT_FIRST_RUN=vault`, which `INCIPIT_OBSIDIAN` does not leave out). With `INCIPIT_PAGE=notes` the opened vault's notes are listed |
 | `INCIPIT_FIRST_RUN` | `vault`, `model` or `you`: opens on that step of the first run (where the vault is kept, how to reach a model, who you are), whatever the state; going on from it follows the real state. Without it the first run is left out when `INCIPIT_VAULT`, `INCIPIT_PAGE` or `INCIPIT_BOOK` is set. To see the whole flow as a new person would, start with none of them and a throwaway `INCIPIT_HOME`. The profile form is also on `INCIPIT_PAGE=settings` |
-| `INCIPIT_HOME` | A folder for the app's own files (the list of vaults, and the place each book was left at, `places.json`), instead of the system's place for app data |
+| `INCIPIT_HOME` | A folder for the app's own files (the list of vaults, and the place each book was left at, `places.json`), instead of the system's place for app data. One program runs for each: a launch with the same folder hands its books to the program running and ends |
 | `INCIPIT_HISTORY` | `demo`, with `INCIPIT_VAULT` on a throwaway folder: gives the vault's first three books (by title) a made-up reading history: one read over three weeks (a place and a finish estimate), one read on a single day (a place, no estimate), one finished; the rest stay unread. It writes to the open vault. See the Library, Today and Journey pages |
 | `INCIPIT_JOURNEY` | On the Journey page: `break` opens "Taking a break?" with its three buttons, `list` shows the chart's days as a list. Pair with `INCIPIT_HISTORY=demo` on a throwaway vault for days to show; Today's "Up next" quiz on a chapter and its week come from the same history |
 | `INCIPIT_FIT` | `demo`, with `INCIPIT_VAULT` on a throwaway folder: writes a made-up fit (from 1,234 reviews, made now) into the open vault's `.incipit/fitted-schedule.json` when it opens, so Settings (`INCIPIT_PAGE=settings`) says the schedule is fitted and the cards follow those weights. No model is called. Without it, a new vault shows the standard schedule and how many reviews there are so far; `fittedSchedule: false` in its `profile.md` shows the switch off |
@@ -107,6 +107,26 @@ INCIPIT_VAULT=/tmp/shelf cargo run -p incipit-app -- samples/paper.pdf samples/b
 Naming the same book again opens the copy already in the library instead of adding another. A file
 that is not a PDF or an EPUB, is missing or cannot be read is said in the Library's line for
 problems. With no vault open (the first run, or none given), the books wait until one is.
+
+One program runs for each app folder. A launch while one runs, the program started again from the
+checkout among them, hands its books to the program running and ends before it opens a window
+(`incipit-launch`, [packaging.md](packaging.md#opening-a-book-from-outside)); the program running
+comes to the front and takes them in, but only PDF and EPUB files that are there, without a word
+about the rest. So a build run beside Incipit itself needs an app folder of its own
+(`INCIPIT_HOME`), and two runs with the same `INCIPIT_HOME` are one program:
+
+```sh
+INCIPIT_HOME=/tmp/home INCIPIT_VAULT=/tmp/shelf cargo run -p incipit-app &
+INCIPIT_HOME=/tmp/home cargo run -p incipit-app -- samples/paper.pdf
+```
+
+The second hands the paper to the first and ends; the first's window comes forward with the paper
+open in the reader. On macOS and Linux the app folder's path must be short enough for a socket's
+(about a hundred characters): with a longer one each run is a program of its own. A run with `INCIPIT_SHOT` never hands over, so it always takes its picture: it
+hears later launches only when no program runs for its app folder. A vault is open in one program
+at a time ([vault.md](vault.md#one-program-at-a-time)): two programs with app folders of their own
+given the same `INCIPIT_VAULT` open it in the first, and the second says it is open in another
+Incipit window.
 
 ## Tools
 

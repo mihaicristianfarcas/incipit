@@ -2,9 +2,15 @@
 //! icon, a path named on the command line. Each is added to the library the way the Library's
 //! "Add a book" adds one, or found there when that same book is already in it, and the first is
 //! opened in the reader. The Library page does the work with a window (`LibraryView::give`); this
-//! module holds what needs none: which files the system's open event or the program's arguments
-//! name, telling a book already in the library, taking each file in, and keeping files until a
-//! vault is open (`Waiting`).
+//! module holds what needs none: which files the system's open event, the program's arguments or
+//! a later launch name, telling a book already in the library, taking each file in, and keeping
+//! files until a vault is open (`Waiting`).
+//!
+//! A book given while the program runs reaches it on every system: macOS sends the open event to
+//! the program running, and on Windows and Linux, where "Open With" starts the program again, that
+//! launch hands its arguments to the program running and quits (`incipit_launch`, `front`). What a
+//! later launch hands over comes from another process, so only the files the library can take are
+//! kept (`handed_over`).
 //!
 //! A book is "already in the library" when a book of the vault has that very file (the learner
 //! opened the vault's own copy) or a file of the same bytes (the same download again, whatever it
@@ -43,6 +49,19 @@ pub fn files_from_args(args: impl IntoIterator<Item = OsString>) -> Vec<PathBuf>
             Some(text) if text.starts_with("file:") => path_of_url(text),
             _ => Some(PathBuf::from(arg)),
         })
+        .collect()
+}
+
+/// The files a later launch handed over that the library can take in, in the order given: each an
+/// absolute path to a file that is there, of a kind the library adds (a PDF or an EPUB). The paths
+/// come from another process, so anything else is left out, not acted on and not said: the launch
+/// that sent it has already ended.
+pub fn handed_over(paths: &[PathBuf]) -> Vec<PathBuf> {
+    paths
+        .iter()
+        .filter(|path| path.is_absolute() && path.is_file())
+        .filter(|path| crate::library::format_of(path).is_some())
+        .cloned()
         .collect()
 }
 
@@ -225,6 +244,28 @@ mod tests {
             ]
         );
         assert!(files_from_args(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn of_what_a_later_launch_hands_over_only_books_that_are_there_are_kept() {
+        let folder = tempfile::tempdir().unwrap();
+        let paper = pdf(folder.path(), "paper.pdf", "a");
+        let book = folder.path().join("Book.EPUB");
+        std::fs::write(&book, "PK").unwrap();
+        let notes = folder.path().join("notes.txt");
+        std::fs::write(&notes, "words").unwrap();
+        let shelf = folder.path().join("shelf.pdf");
+        std::fs::create_dir(&shelf).unwrap();
+        let paths = vec![
+            folder.path().join("gone.pdf"),
+            paper.clone(),
+            notes,
+            shelf,
+            PathBuf::from("paper.pdf"),
+            book.clone(),
+        ];
+        assert_eq!(handed_over(&paths), [paper, book]);
+        assert!(handed_over(&[]).is_empty());
     }
 
     #[test]

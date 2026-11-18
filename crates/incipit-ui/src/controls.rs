@@ -18,7 +18,7 @@ use gpui::{
 
 use crate::focus::{arrow_step, focus_handle, focus_ring, keep_focus, keyboard_moved, ringed};
 use crate::icon::{icon, IconName, IconSize};
-use crate::motion::{ease, fade_in, Fade, Glide, FADE};
+use crate::motion::{fade_in, Fade, Glide};
 use crate::theme::{rgba, Layer, Metrics, Radius, Theme, Type};
 
 type OnClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
@@ -1019,48 +1019,6 @@ pub fn lift(alpha: f32) -> Vec<BoxShadow> {
         spread_radius: px(0.0),
         inset: false,
     }]
-}
-
-/// A modal sheet over the window: a scrim and a centred panel, fading in
-/// together, the panel rising into place.
-pub fn sheet(
-    id: impl Into<ElementId>,
-    width: f32,
-    t: Theme,
-    content: impl IntoElement,
-) -> impl IntoElement {
-    let id = id.into();
-    deferred(
-        div()
-            .id(id.clone())
-            .absolute()
-            .inset_0()
-            .occlude()
-            .bg(t.scrim)
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(
-                floating(t)
-                    .rounded(px(Radius::SHEET))
-                    .w(px(width))
-                    .p(px(24.0))
-                    .text_size(px(Type::BODY))
-                    .text_color(t.primary)
-                    .child(content)
-                    .with_animation(
-                        ElementId::Name(format!("{id:?}-rise").into()),
-                        Animation::new(FADE).with_easing(ease),
-                        |d, delta| d.mt(px(6.0 * (1.0 - delta))),
-                    ),
-            )
-            .with_animation(
-                ElementId::Name(format!("{id:?}-in").into()),
-                Animation::new(FADE).with_easing(ease),
-                |d, delta| d.opacity(delta),
-            ),
-    )
-    .priority(Layer::SHEET)
 }
 
 /// A titled group of rows (a settings section).

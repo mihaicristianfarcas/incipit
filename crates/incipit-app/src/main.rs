@@ -681,8 +681,8 @@ impl Root {
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(window);
-        // Each page says which scroll areas it draws as it is drawn, below.
-        incipit_ui::scroll_areas([]);
+        // Each page says which scroll areas it draws as it is drawn, below, and each sheet that it is.
+        incipit_ui::begin_frame(window, cx);
         if self.first_run.read(cx).step(cx).is_some() {
             return div()
                 .size_full()

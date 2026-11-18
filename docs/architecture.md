@@ -356,6 +356,16 @@ the keyboard as it opens, so that its keys work at once, and Tab from there goes
 to the next stop. What the keyboard moves to is scrolled into view, in the scroll
 areas the page said it drew (`scroll_area`; `page` does it for its own).
 
+**A sheet is a dialog for the keyboard**, as every dialog of the earlier app was
+(`useFocusTrap`). `incipit_ui::sheet` takes the keyboard when it opens (the field
+it is told to write in, else what is already inside it, else its first stop, else
+the dialog itself), keeps Tab and Shift+Tab going round inside it, from outside it
+too, and gives the keyboard back, when it ends, to what had it before. GPUI's tab
+groups only order stops and none keeps Tab from leaving, so the cycle is made in
+Tab's own work: it steps as it would and, if that left the sheet, comes back in
+at the other end. A sheet that has no Escape of its own is told what it does
+(`on_escape`).
+
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,
 so that no code under a license of Zed's own is linked.

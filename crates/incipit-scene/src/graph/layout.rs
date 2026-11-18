@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use super::place::{self, Size, LABEL, SUBLABEL, UNDER};
+use super::place::{self, Size, BOX_ABOVE, BOX_BELOW, BOX_SIDE, LABEL, SUBLABEL, UNDER};
 use super::{Graph, Shape};
 use crate::draw::{
     arrow_head, Anchor, Fill, Frame, Issue, Item, Mark, Measure, Rect, Text, Tone, HEIGHT, WIDTH,
@@ -138,22 +138,22 @@ pub fn group_box(members: &[&Placed]) -> Option<Rect> {
         .iter()
         .map(|p| p.rect().x)
         .fold(f32::INFINITY, f32::min)
-        - 16.0;
+        - BOX_SIDE;
     let x1 = members
         .iter()
         .map(|p| p.rect().x + p.size.w)
         .fold(f32::NEG_INFINITY, f32::max)
-        + 16.0;
+        + BOX_SIDE;
     let y0 = members
         .iter()
         .map(|p| p.rect().y)
         .fold(f32::INFINITY, f32::min)
-        - 24.0;
+        - BOX_ABOVE;
     let y1 = members
         .iter()
         .map(|p| p.rect().y + p.size.h)
         .fold(f32::NEG_INFINITY, f32::max)
-        + 14.0;
+        + BOX_BELOW;
     Some(Rect {
         x: x0,
         y: y0,

@@ -129,10 +129,10 @@ pub fn samples(graph: &Graph) -> Vec<Sample> {
 mod tests {
     use serde_json::{json, Value};
 
-    use super::super::layout::{group_box, nodes, shrink};
+    use super::super::layout::{group_box, nodes, shrink, Placed};
     use super::super::{example, Graph};
     use crate::check::{check, Report};
-    use crate::draw::{Frame, Item, Mark, Rough, Text, WIDTH};
+    use crate::draw::{Frame, Item, Mark, Rect, Rough, Text, WIDTH};
     use crate::figure::{layout, Figure, Spec, State};
 
     /// A graph from JSON, with nothing but what is given.
@@ -182,6 +182,216 @@ mod tests {
 
     fn row(ids: &[&str], shape: &str) -> Vec<Value> {
         ids.iter().map(|id| node(id, shape)).collect()
+    }
+
+    /// Each group's box round all its nodes.
+    fn boxes(g: &Graph, at: &[Placed]) -> Vec<Rect> {
+        g.groups
+            .iter()
+            .map(|group| {
+                let members: Vec<&Placed> = group
+                    .nodes
+                    .iter()
+                    .filter_map(|id| g.nodes.iter().position(|n| n.id == *id))
+                    .map(|i| &at[i])
+                    .collect();
+                group_box(&members).expect("a group has nodes")
+            })
+            .collect()
+    }
+
+    /// No two groups' boxes overlap, no box takes in a node not in its group, and the figure
+    /// passes its checks.
+    fn kept_apart(g: &Graph) {
+        let at = nodes(g, &Rough, &mut Vec::new());
+        let boxes = boxes(g, &at);
+        for (i, a) in boxes.iter().enumerate() {
+            for (j, b) in boxes.iter().enumerate().skip(i + 1) {
+                assert!(
+                    !a.overlaps(b, 0.0),
+                    "the boxes of {} and {} overlap: {a:?} {b:?}",
+                    g.groups[i].id,
+                    g.groups[j].id
+                );
+            }
+        }
+        for (group, r) in g.groups.iter().zip(&boxes) {
+            for (n, p) in g.nodes.iter().zip(&at) {
+                if !group.nodes.contains(&n.id) {
+                    assert!(
+                        !p.rect().overlaps(r, 0.0),
+                        "the box of {} takes in {}",
+                        group.id,
+                        n.id
+                    );
+                }
+            }
+        }
+        let report = checked(g);
+        assert!(report.ok(), "{:#?}", report.errors);
+    }
+
+    fn groups(lists: &[(&str, &[&str])]) -> Value {
+        lists
+            .iter()
+            .map(|(id, nodes)| json!({ "id": id, "label": format!("{id} zone"), "nodes": nodes }))
+            .collect()
+    }
+
+    /// Nodes `n0`, `n1`, … of one shape, with a link from each to the next.
+    fn chain(n: usize, shape: &str) -> (Vec<Value>, Vec<Value>) {
+        let ids: Vec<String> = (0..n).map(|i| format!("n{i}")).collect();
+        let nodes = ids.iter().map(|id| node(id, shape)).collect();
+        let edges = (1..n)
+            .map(|i| edge(&format!("e{i}"), &ids[i - 1], &ids[i]))
+            .collect();
+        (nodes, edges)
+    }
+
+    /// Graphs in a layout with groups: a group of one node beside a group of most of them (and
+    /// one node in no group); three groups; and two groups whose nodes are listed in turn.
+    fn grouped(layout: &str, shape: &str, n: usize) -> Vec<Graph> {
+        let (nodes, edges) = chain(n, shape);
+        let ids: Vec<String> = (0..n).map(|i| format!("n{i}")).collect();
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let half = n / 2;
+        let odd: Vec<&str> = ids.iter().copied().skip(1).step_by(2).collect();
+        let even: Vec<&str> = ids.iter().copied().step_by(2).collect();
+        [
+            groups(&[("one", &ids[..1]), ("most", &ids[1..n - 1])]),
+            groups(&[
+                ("one", &ids[..1]),
+                ("half", &ids[1..=half]),
+                ("rest", &ids[half + 1..]),
+            ]),
+            groups(&[("even", &even), ("odd", &odd)]),
+        ]
+        .into_iter()
+        .map(|groups| {
+            graph(json!({ "layout": layout, "nodes": nodes, "edges": edges, "groups": groups }))
+        })
+        .collect()
+    }
+
+    #[test]
+    fn graphs_without_groups_are_placed_as_before() {
+        let at = |g: &Graph| -> Vec<(f32, f32)> {
+            nodes(g, &Rough, &mut Vec::new())
+                .iter()
+                .map(|p| (p.cx, p.cy))
+                .collect()
+        };
+        let same = |got: Vec<(f32, f32)>, want: &[(f32, f32)]| {
+            assert_eq!(got.len(), want.len());
+            for (g, w) in got.iter().zip(want) {
+                assert!(
+                    (g.0 - w.0).abs() < 0.01 && (g.1 - w.1).abs() < 0.01,
+                    "{got:?}"
+                );
+            }
+        };
+        // Where each node was set before groups were kept apart, to the third decimal.
+        same(
+            at(&example()),
+            &[
+                (447.388, 221.923),
+                (321.970, 270.449),
+                (192.612, 225.421),
+                (317.591, 133.551),
+            ],
+        );
+        let ring = graph(json!({
+            "layout": "circle",
+            "nodes": row(&["p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7"], "circle"),
+        }));
+        same(
+            at(&ring),
+            &[
+                (320.000, 58.000),
+                (421.823, 100.177),
+                (464.000, 202.000),
+                (421.823, 303.823),
+                (320.000, 346.000),
+                (218.177, 303.823),
+                (176.000, 202.000),
+                (218.177, 100.177),
+            ],
+        );
+        let grid = graph(json!({
+            "layout": "grid",
+            "nodes": row(&["s1", "s2", "s3", "s4", "s5"], "database"),
+            "edges": [edge("a", "s1", "s2"), edge("b", "s2", "s3")],
+        }));
+        same(
+            at(&grid),
+            &[
+                (150.000, 149.500),
+                (320.000, 149.500),
+                (490.000, 149.500),
+                (150.000, 254.500),
+                (320.000, 254.500),
+            ],
+        );
+        let ids: Vec<String> = (0..16).map(|i| format!("n{i}")).collect();
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let edges: Vec<Value> = (0..16)
+            .flat_map(|i| {
+                let mut out = vec![edge(&format!("r{i}"), ids[i], ids[(i + 1) % 16])];
+                if i % 4 == 0 {
+                    out.push(edge(&format!("x{i}"), ids[i], ids[(i + 8) % 16]));
+                }
+                out
+            })
+            .collect();
+        let network = graph(json!({ "nodes": row(&ids, "circle"), "edges": edges }));
+        same(
+            at(&network),
+            &[
+                (383.347, 202.034),
+                (492.093, 245.575),
+                (514.724, 344.280),
+                (402.496, 339.303),
+                (319.526, 258.634),
+                (230.146, 334.463),
+                (116.911, 334.143),
+                (155.821, 240.412),
+                (265.667, 199.538),
+                (156.952, 155.870),
+                (125.363, 59.720),
+                (238.263, 63.235),
+                (323.444, 142.543),
+                (410.518, 65.309),
+                (523.089, 63.658),
+                (492.523, 160.406),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_circle_keeps_each_groups_nodes_together_and_the_groups_apart() {
+        for shape in ["circle", "box", "database"] {
+            for n in [6, 8, 10] {
+                for g in grouped("circle", shape, n) {
+                    kept_apart(&g);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_circle_with_groups_still_goes_clockwise_in_the_order_given() {
+        let g = graph(json!({
+            "layout": "circle",
+            "nodes": row(&["a", "b", "c", "d", "e", "f"], "circle"),
+            "groups": groups(&[("left", &["d", "e", "f"]), ("right", &["a", "b", "c"])]),
+        }));
+        let at = nodes(&g, &Rough, &mut Vec::new());
+        // The first group's nodes run down the right, the second's back up the left.
+        assert!(at[..3].iter().all(|p| p.cx > WIDTH / 2.0), "{at:?}");
+        assert!(at[3..].iter().all(|p| p.cx < WIDTH / 2.0), "{at:?}");
+        assert!(at[0].cy < at[1].cy && at[1].cy < at[2].cy, "{at:?}");
+        assert!(at[3].cy > at[4].cy && at[4].cy > at[5].cy, "{at:?}");
+        kept_apart(&g);
     }
 
     #[test]

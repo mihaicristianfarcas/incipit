@@ -6,6 +6,7 @@
 //! are the flow kind's.
 
 mod check;
+mod groups;
 mod layout;
 mod place;
 mod schema;

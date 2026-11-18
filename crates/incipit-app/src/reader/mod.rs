@@ -1673,6 +1673,16 @@ impl Render for ReaderView {
             .on_key_down(
                 cx.listener(|this, event: &KeyDownEvent, window, cx| this.key(event, window, cx)),
             )
+            // The book holds the keyboard as it opens: Tab from there is a Tab from the page's
+            // start, the sidebar first, as on any other page.
+            .on_action(cx.listener(|this, _: &incipit_ui::FocusNext, window, cx| {
+                incipit_ui::tab_from_page(&this.focus, false, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &incipit_ui::FocusPrevious, window, cx| {
+                    incipit_ui::tab_from_page(&this.focus, true, window, cx)
+                }),
+            )
             .child(self.bar(t, cx))
             .children(self.said.clone().map(|said| {
                 div()

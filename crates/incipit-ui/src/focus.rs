@@ -56,16 +56,34 @@ fn move_keyboard(back: bool, cx: &mut App) {
     // The key is being dispatched inside an update of the window, which cannot be updated again
     // until that is done.
     cx.defer(move |cx| {
-        let _ = window.update(cx, |_, window, cx| {
-            if back {
-                window.focus_prev(cx);
-            } else {
-                window.focus_next(cx);
-            }
-            keyboard_moved();
-            window.refresh();
-        });
+        let _ = window.update(cx, |_, window, cx| tab(back, window, cx));
     });
+}
+
+/// Moves the keyboard to the next of what can be clicked (the one before, `back`) and shows
+/// the ring there.
+pub fn tab(back: bool, window: &mut Window, cx: &mut App) {
+    if back {
+        window.focus_prev(cx);
+    } else {
+        window.focus_next(cx);
+    }
+    keyboard_moved();
+    window.refresh();
+}
+
+/// Tab (Shift+Tab, `back`) pressed while the keyboard is held by a page and not by something
+/// on it (the reader holds it in its book, so that its keys work as soon as a book opens): it
+/// goes on from the start of the window, the first stop (the last), not from the middle of the
+/// page. Of any other `held`, and so wherever the keyboard really is, it is left to Tab's own
+/// work, which goes on from there.
+pub fn tab_from_page(held: &FocusHandle, back: bool, window: &mut Window, cx: &mut App) {
+    if held.is_focused(window) {
+        window.blur();
+        tab(back, window, cx);
+    } else {
+        cx.propagate();
+    }
 }
 
 /// The keyboard moved the focus: what has it shows a ring, scrolled into

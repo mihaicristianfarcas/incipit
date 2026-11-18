@@ -2,7 +2,8 @@
 //! the arrangement gives raw positions (a force simulation, a circle, a row, a grid), the raw
 //! positions are fitted to the stage, and nodes that still overlap are pushed apart. Outside a
 //! row, a graph with groups keeps each group's nodes together and the groups apart (`groups`),
-//! which the earlier app did not. Everything is deterministic, so the same spec always draws the same picture.
+//! which the earlier app did not. Everything is deterministic, so the same spec always draws the
+//! same picture.
 //!
 //! The force simulation follows d3-force's rules with the earlier app's settings: links pull to
 //! 90 apart at strength 0.7, every pair pushes with strength −380, nodes keep their radius plus

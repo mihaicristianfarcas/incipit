@@ -8,12 +8,11 @@
 //! another, as a row leaves room there; a grid starts a new row rather than break a group across
 //! two, and a group wider than a row has its rows to itself; the force simulation pulls each
 //! node toward its group's middle and pushes groups off each other and off nodes in no group.
-//! Then, once the nodes are on the stage, everything is spread about the
-//! drawing's middle, each group moving whole, so that `BOX_ROOM` is left between every two boxes
-//! and between a box and every node outside it. The spread is worked out exactly from each
-//! pair's distance rather than pushed toward in rounds, so it always holds, and the same spec
-//! always draws the same picture. A spread past `MOST_SPREAD` is not made; the checks then
-//! refuse the boxes that still overlap.
+//! Then, once the nodes are on the stage, everything is spread about the drawing's middle, each
+//! group moving whole, so that `BOX_ROOM` is left between every two boxes and between a box and
+//! every node outside it. The spread is worked out exactly from each pair's distance rather than
+//! pushed toward in rounds, so it always holds, and the same spec always draws the same picture.
+//! A spread past `MOST_SPREAD` is not made; the checks then refuse the boxes that still overlap.
 //!
 //! Groups that share a node cannot be set apart, so they keep together and move as one: a
 //! cluster. Their boxes, one inside or across another, are left as they fall. A graph with no

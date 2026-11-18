@@ -1,7 +1,8 @@
 //! Where a graph's nodes go, as the earlier app set them out: each node is sized to its label,
 //! the arrangement gives raw positions (a force simulation, a circle, a row, a grid), the raw
-//! positions are fitted to the stage, and nodes that still overlap are pushed apart. Everything
-//! is deterministic, so the same spec always draws the same picture.
+//! positions are fitted to the stage, and nodes that still overlap are pushed apart. A circle with
+//! groups keeps each group's nodes together and the groups apart (`groups`), which the earlier app
+//! did not. Everything is deterministic, so the same spec always draws the same picture.
 //!
 //! The force simulation follows d3-force's rules with the earlier app's settings: links pull to
 //! 90 apart at strength 0.7, every pair pushes with strength −380, nodes keep their radius plus
@@ -11,6 +12,7 @@
 
 use std::f32::consts::TAU;
 
+use super::groups::{self, Clusters};
 use super::{Arrange, Graph, Shape};
 use crate::draw::{Measure, HEIGHT, WIDTH};
 
@@ -102,9 +104,15 @@ pub fn size(label: &str, sublabel: &str, shape: Shape, m: &dyn Measure) -> Size 
 
 /// Each node's middle on the stage, in the order of `graph.nodes`.
 pub fn place(graph: &Graph, sizes: &[Size]) -> Vec<(f32, f32)> {
-    let raw = raw(graph, sizes);
+    let clusters =
+        (graph.layout == Arrange::Circle && !graph.groups.is_empty()).then(|| Clusters::of(graph));
+    let raw = raw(graph, sizes, clusters.as_ref());
     let fitted = fit(graph, sizes, &raw);
-    separate(sizes, fitted)
+    let mut at = separate(sizes, fitted);
+    if let Some(clusters) = &clusters {
+        groups::apart(clusters, sizes, &mut at);
+    }
+    at
 }
 
 /// Positions in the arrangement's own units, and how they are fitted: keeping their aspect, and
@@ -115,16 +123,21 @@ struct Raw {
     most: f32,
 }
 
-fn raw(graph: &Graph, sizes: &[Size]) -> Raw {
+/// The arrangement's raw positions; `clusters` are the groups', for an arrangement that keeps
+/// them together.
+fn raw(graph: &Graph, sizes: &[Size], clusters: Option<&Clusters>) -> Raw {
     let n = graph.nodes.len();
     match graph.layout {
         Arrange::Circle => Raw {
-            at: (0..n)
-                .map(|i| {
-                    let a = -TAU / 4.0 + TAU * i as f32 / n as f32;
-                    (a.cos(), a.sin())
-                })
-                .collect(),
+            at: match clusters {
+                Some(clusters) => groups::circle(clusters),
+                None => (0..n)
+                    .map(|i| {
+                        let a = -TAU / 4.0 + TAU * i as f32 / n as f32;
+                        (a.cos(), a.sin())
+                    })
+                    .collect(),
+            },
             keep_aspect: true,
             most: f32::INFINITY,
         },

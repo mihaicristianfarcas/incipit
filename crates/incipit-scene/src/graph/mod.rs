@@ -38,11 +38,12 @@ pub struct Graph {
 pub enum Arrange {
     /// Linked nodes pulled together, all nodes pushed apart: a general network.
     Force,
-    /// Evenly round a circle, clockwise from the top in the order given: rings of peers.
+    /// Evenly round a circle, clockwise from the top in the order given (a group's nodes
+    /// together): rings of peers.
     Circle,
     /// Left to right in the order given: an array, a log, a queue.
     Row,
-    /// Rows of a grid, in the order given.
+    /// Rows of a grid, in the order given (a group's nodes together).
     Grid,
 }
 

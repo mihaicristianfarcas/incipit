@@ -170,7 +170,10 @@ earlier app did not do (`graph/groups.rs`). A row keeps the order
 given and leaves room where it passes from one group to another. A
 circle takes each group's nodes one after another, where its first
 node is listed, and leaves an empty place between groups; the empty
-place where it closes back on its first node is at the top. Then, on
+place where it closes back on its first node is at the top. A grid
+takes each group's nodes one after another in the same way, and starts
+a new row rather than break a group across two; a group wider than a
+row has its rows to itself. Then, on
 the stage, the groups are spread apart about the middle, each moving
 whole, by the least amount across and down that leaves 28 units between
 every two boxes and between a box and a node outside it, taking

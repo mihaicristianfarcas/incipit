@@ -397,7 +397,9 @@ mod tests {
         }
     }
 
-    /// An agent that writes, with the app's log and a book's record read-only.
+    /// An agent that writes, with the app's log and a book's record read-only. Only the tests that
+    /// run on Unix, where these sandboxes run, use it.
+    #[cfg(unix)]
     fn keeping() -> Sandbox {
         Sandbox {
             read_only: vec![PathBuf::from("log"), PathBuf::from("library/sicp/book.md")],

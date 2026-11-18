@@ -832,14 +832,14 @@ fn main() {
         if !named.is_empty() {
             let _ = window.update(cx, |root, _, cx| root.give(named, cx));
         }
-        // Books the system asks the program to open once it runs (macOS), taken in as they come.
-        // With the window closed there is nothing to show them in.
+        // Books the system asks the program to open once it runs (macOS), taken in as they come,
+        // the window opened again if it was closed.
         cx.spawn(async move |cx| {
             let mut arrived = arrived;
             while let Some(urls) = arrived.next().await {
                 let files = open_with::files_from_urls(&urls);
                 if !files.is_empty() {
-                    cx.update(|cx| front::give(files, cx));
+                    cx.update(|cx| front::come_forward(files, cx));
                 }
             }
         })

@@ -39,7 +39,10 @@ The system lets go of the lock when the program ends, a crash too, and the app
 lets go when it opens another vault and nothing of it still holds the one it
 had (a model's answer being written to it, for one). In one program the same
 folder is opened once: asked again, the vault it has is used
-(`Vault::already_open`). On a file system that cannot lock (some network
+(`Vault::already_open`). The vault's own background threads (watching the
+folder, keeping sittings) hold it for a moment while they act, so its lock can
+outlast the last handle by that moment; opening it again then waits for the
+lock to go rather than say it is held. On a file system that cannot lock (some network
 shares), a vault opens without the lock. Deleting `.incipit/` while the vault
 is open takes the lock away until it is opened again.
 

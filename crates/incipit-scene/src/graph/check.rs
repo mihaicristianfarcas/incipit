@@ -405,6 +405,22 @@ mod tests {
         }
     }
 
+    /// The graphs in `examples/graphs`, which show each layout with groups on the Figure page.
+    #[test]
+    fn the_example_graphs_with_groups_keep_them_apart() {
+        for json in [
+            include_str!("../../examples/graphs/row-groups.json"),
+            include_str!("../../examples/graphs/grid-groups.json"),
+            include_str!("../../examples/graphs/circle-groups.json"),
+            include_str!("../../examples/graphs/force-groups.json"),
+        ] {
+            let Figure::Graph(g) = serde_json::from_str(json).expect("a figure") else {
+                unreachable!("the files hold graphs")
+            };
+            kept_apart(&g);
+        }
+    }
+
     #[test]
     fn a_circle_with_groups_still_goes_clockwise_in_the_order_given() {
         let g = graph(json!({

@@ -1,0 +1,32 @@
+{
+  "kind": "graph",
+  "title": "A request from the office to the cloud",
+  "hint": "A laptop's request goes out through the router to the web server and its store.",
+  "layout": "force",
+  "nodes": [
+    { "id": "laptop", "label": "Laptop", "sublabel": "", "shape": "box", "tone": "mid" },
+    { "id": "desk", "label": "Desktop", "sublabel": "", "shape": "box", "tone": "mid" },
+    { "id": "printer", "label": "Printer", "sublabel": "", "shape": "box", "tone": "lo" },
+    { "id": "router", "label": "Router", "sublabel": "", "shape": "diamond", "tone": "hi" },
+    { "id": "web", "label": "Web server", "sublabel": "", "shape": "box", "tone": "mid" },
+    { "id": "db", "label": "Store", "sublabel": "", "shape": "database", "tone": "mid" },
+    { "id": "phone", "label": "Phone", "sublabel": "", "shape": "box", "tone": "mid" }
+  ],
+  "edges": [
+    { "id": "lr", "from": "laptop", "to": "router", "label": "", "tone": "mid", "dashed": false, "arrow": false },
+    { "id": "dr", "from": "desk", "to": "router", "label": "", "tone": "mid", "dashed": false, "arrow": false },
+    { "id": "pd", "from": "printer", "to": "desk", "label": "", "tone": "mid", "dashed": true, "arrow": false },
+    { "id": "pr", "from": "phone", "to": "router", "label": "", "tone": "mid", "dashed": true, "arrow": false },
+    { "id": "rw", "from": "router", "to": "web", "label": "", "tone": "mid", "dashed": false, "arrow": true },
+    { "id": "wd", "from": "web", "to": "db", "label": "", "tone": "mid", "dashed": false, "arrow": true }
+  ],
+  "tokens": [
+    { "id": "req", "path": ["laptop", "router", "web", "db"], "at": 0, "speed": 1, "label": "GET", "tone": "lit" }
+  ],
+  "groups": [
+    { "id": "office", "label": "office", "nodes": ["laptop", "desk", "printer"] },
+    { "id": "home", "label": "home", "nodes": ["phone"] },
+    { "id": "cloud", "label": "cloud", "nodes": ["web", "db"] }
+  ],
+  "steps": []
+}

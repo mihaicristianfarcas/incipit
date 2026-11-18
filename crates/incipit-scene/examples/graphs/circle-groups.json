@@ -1,0 +1,35 @@
+{
+  "kind": "graph",
+  "title": "A ring across two data centres",
+  "hint": "The token goes round every node, through both data centres and the witness.",
+  "layout": "circle",
+  "nodes": [
+    { "id": "e1", "label": "E1", "sublabel": "", "shape": "circle", "tone": "mid" },
+    { "id": "e2", "label": "E2", "sublabel": "", "shape": "circle", "tone": "mid" },
+    { "id": "e3", "label": "E3", "sublabel": "", "shape": "circle", "tone": "mid" },
+    { "id": "e4", "label": "E4", "sublabel": "", "shape": "circle", "tone": "mid" },
+    { "id": "e5", "label": "E5", "sublabel": "", "shape": "circle", "tone": "mid" },
+    { "id": "w1", "label": "W1", "sublabel": "", "shape": "circle", "tone": "mid" },
+    { "id": "w2", "label": "W2", "sublabel": "", "shape": "circle", "tone": "mid" },
+    { "id": "wit", "label": "Witness", "sublabel": "", "shape": "circle", "tone": "lo" }
+  ],
+  "edges": [
+    { "id": "l1", "from": "e1", "to": "e2", "label": "", "tone": "mid", "dashed": false, "arrow": true },
+    { "id": "l2", "from": "e2", "to": "e3", "label": "", "tone": "mid", "dashed": false, "arrow": true },
+    { "id": "l3", "from": "e3", "to": "e4", "label": "", "tone": "mid", "dashed": false, "arrow": true },
+    { "id": "l4", "from": "e4", "to": "e5", "label": "", "tone": "mid", "dashed": false, "arrow": true },
+    { "id": "l5", "from": "e5", "to": "w1", "label": "", "tone": "mid", "dashed": false, "arrow": true },
+    { "id": "l6", "from": "w1", "to": "w2", "label": "", "tone": "mid", "dashed": false, "arrow": true },
+    { "id": "l7", "from": "w2", "to": "wit", "label": "", "tone": "mid", "dashed": false, "arrow": true },
+    { "id": "l8", "from": "wit", "to": "e1", "label": "", "tone": "mid", "dashed": false, "arrow": true }
+  ],
+  "tokens": [
+    { "id": "t", "path": ["e1", "e2", "e3", "e4", "e5", "w1", "w2", "wit", "e1"], "at": 0, "speed": 0.8, "label": "token", "tone": "lit" }
+  ],
+  "groups": [
+    { "id": "east", "label": "east", "nodes": ["e1", "e2", "e3", "e4", "e5"] },
+    { "id": "west", "label": "west", "nodes": ["w1", "w2"] },
+    { "id": "third", "label": "third site", "nodes": ["wit"] }
+  ],
+  "steps": []
+}

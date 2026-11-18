@@ -1,0 +1,21 @@
+{
+  "kind": "graph",
+  "title": "An array half full",
+  "hint": "The first three slots hold values; the next write goes to the first free one.",
+  "layout": "row",
+  "nodes": [
+    { "id": "c0", "label": "7", "sublabel": "", "shape": "cell", "tone": "mid" },
+    { "id": "c1", "label": "3", "sublabel": "", "shape": "cell", "tone": "mid" },
+    { "id": "c2", "label": "9", "sublabel": "", "shape": "cell", "tone": "mid" },
+    { "id": "c3", "label": "–", "sublabel": "", "shape": "cell", "tone": "lo" },
+    { "id": "c4", "label": "–", "sublabel": "", "shape": "cell", "tone": "lo" },
+    { "id": "c5", "label": "–", "sublabel": "", "shape": "cell", "tone": "lo" }
+  ],
+  "edges": [],
+  "tokens": [],
+  "groups": [
+    { "id": "used", "label": "used", "nodes": ["c0", "c1", "c2"] },
+    { "id": "free", "label": "free", "nodes": ["c3", "c4", "c5"] }
+  ],
+  "steps": []
+}

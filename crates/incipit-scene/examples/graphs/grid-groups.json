@@ -1,0 +1,27 @@
+{
+  "kind": "graph",
+  "title": "Copies kept in two racks",
+  "hint": "A write lands in rack A, which copies it to rack B; the spare waits.",
+  "layout": "grid",
+  "nodes": [
+    { "id": "lb", "label": "Balancer", "sublabel": "", "shape": "box", "tone": "hi" },
+    { "id": "a1", "label": "Server 1", "sublabel": "v3", "shape": "database", "tone": "mid" },
+    { "id": "a2", "label": "Server 2", "sublabel": "v3", "shape": "database", "tone": "mid" },
+    { "id": "a3", "label": "Server 3", "sublabel": "v3", "shape": "database", "tone": "mid" },
+    { "id": "a4", "label": "Server 4", "sublabel": "v3", "shape": "database", "tone": "mid" },
+    { "id": "b1", "label": "Server 5", "sublabel": "v2", "shape": "database", "tone": "mid" },
+    { "id": "b2", "label": "Server 6", "sublabel": "v2", "shape": "database", "tone": "mid" },
+    { "id": "spare", "label": "Spare", "sublabel": "", "shape": "database", "tone": "lo" }
+  ],
+  "edges": [
+    { "id": "in", "from": "lb", "to": "a1", "label": "", "tone": "mid", "dashed": false, "arrow": true },
+    { "id": "copy", "from": "a4", "to": "b1", "label": "", "tone": "blue", "dashed": true, "arrow": true }
+  ],
+  "tokens": [],
+  "groups": [
+    { "id": "rack_a", "label": "rack A", "nodes": ["a1", "a2", "a3", "a4"] },
+    { "id": "rack_b", "label": "rack B", "nodes": ["b1", "b2"] },
+    { "id": "spares", "label": "spare", "nodes": ["spare"] }
+  ],
+  "steps": []
+}

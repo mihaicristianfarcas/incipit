@@ -82,7 +82,7 @@ screenshots are taken:
 | `INCIPIT_CONTENTS` | On the Reader page: starts with the book's contents open |
 | `INCIPIT_PART` | On the Reader page: the page (PDF) or block (EPUB) to start at, counted from 0 |
 | `INCIPIT_MAP` | On the Reader page, with a book of the vault (`INCIPIT_OPEN`): maps line n of the contents, counted from 0, into concepts once the book is open, with the contents open to show it. This calls a model with your own login |
-| `INCIPIT_FIGURE` | On the Figure page: a JSON file holding a figure's spec (or a model's reply with it under `structured_output`), instead of the built-in examples |
+| `INCIPIT_FIGURE` | On the Figure page: a JSON file holding a figure's spec (or a model's reply with it under `structured_output`), instead of the built-in examples. `crates/incipit-scene/examples/graphs/` holds a graph with groups in each layout |
 | `INCIPIT_KIND` | On the Figure page: the kind whose example to show (`sequence`, …; `figure kinds` lists them) |
 | `INCIPIT_AT` | On the Figure page: the moment to show, for a figure on a clock |
 | `INCIPIT_STEP` | On the Figure page: the step to show, counted from 1 |

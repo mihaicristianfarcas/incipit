@@ -327,7 +327,8 @@ impl ReaderView {
             scale: 0.0,
             selection: None,
             dragging: false,
-            focus: cx.focus_handle(),
+            // The book is a stop for Tab, in its place on the page.
+            focus: cx.focus_handle().tab_stop(true),
             menu_focus: cx.focus_handle(),
             focus_book: false,
             select_on_open: std::env::var_os("INCIPIT_SELECT").is_some(),
@@ -1653,6 +1654,7 @@ impl Render for ReaderView {
                 )
                 .size_full();
                 let book = self.scrolled(opened, cx);
+                let ring = ringed(&self.focus, window);
                 div()
                     .size_full()
                     .flex()
@@ -1660,13 +1662,17 @@ impl Render for ReaderView {
                         row.child(self.contents(&opened.contents, t, window, cx))
                     })
                     .child(
+                        // The book holds the keyboard (S, the menu's keys), and is a stop for
+                        // Tab after the top bar and the contents, before the margin's cards.
                         div()
                             .flex_1()
                             .min_w_0()
                             .h_full()
                             .relative()
+                            .track_focus(&self.focus)
                             .child(rows)
-                            .child(scrollbar("reader-scroll-bar", &book, t)),
+                            .child(scrollbar("reader-scroll-bar", &book, t))
+                            .when(ring, |book| book.child(focus_ring(t, Radius::ROW, -3.0))),
                     )
                     .into_any_element()
             }
@@ -1675,19 +1681,8 @@ impl Render for ReaderView {
             .size_full()
             .flex()
             .flex_col()
-            .track_focus(&self.focus)
             .on_key_down(
                 cx.listener(|this, event: &KeyDownEvent, window, cx| this.key(event, window, cx)),
-            )
-            // The book holds the keyboard as it opens: Tab from there is a Tab from the page's
-            // start, the sidebar first, as on any other page.
-            .on_action(cx.listener(|this, _: &incipit_ui::FocusNext, window, cx| {
-                incipit_ui::tab_from_page(&this.focus, false, window, cx)
-            }))
-            .on_action(
-                cx.listener(|this, _: &incipit_ui::FocusPrevious, window, cx| {
-                    incipit_ui::tab_from_page(&this.focus, true, window, cx)
-                }),
             )
             .child(self.bar(t, cx))
             .children(self.said.clone().map(|said| {

@@ -350,11 +350,11 @@ Return and Space press it, but only one is in the tab order (`Stop`): the page
 shown in the sidebar; in the books and the notes, the row the keyboard was last
 on, the first to begin with; in the reader's contents, that row, or the chapter
 being read until the keyboard has been on one. The arrows, Home and End move
-the keyboard along the rows. A text field is a stop too. The reader's book holds
-the keyboard as it opens, so that its keys work at once; Tab from there begins
-at the sidebar, as on any page (`tab_from_page`). What the keyboard moves to is
-scrolled into view, in the scroll areas the page said it drew (`scroll_area`;
-`page` does it for its own).
+the keyboard along the rows. A text field is a stop too. The reader's book is a
+stop, after the top bar and the contents and before the margin's cards; it holds
+the keyboard as it opens, so that its keys work at once, and Tab from there goes
+to the next stop. What the keyboard moves to is scrolled into view, in the scroll
+areas the page said it drew (`scroll_area`; `page` does it for its own).
 
 **GPUI is pinned** to one revision of Zed's repository, in the workspace
 `Cargo.toml`. `vendor/` holds a stand-in for a profiling shim GPUI names,

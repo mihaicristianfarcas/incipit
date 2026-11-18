@@ -756,6 +756,20 @@ pub fn theme(window: &Window) -> Theme {
 /// Linux window class and desktop file's name. It is kept in a file the package scripts read too.
 const APP_ID: &str = include_str!("../../../packaging/identifier");
 
+/// Does `what` to the window's root once the key that asked is dispatched. A key reaches the
+/// handlers of an action while GPUI is updating the window it came from, and a window being
+/// updated is out of reach: updating it again from the handler fails, and nothing happens. Deferred,
+/// it runs after that update has given the window back.
+fn later(
+    window: gpui::WindowHandle<Root>,
+    cx: &mut App,
+    what: fn(&mut Root, &mut Window, &mut Context<Root>),
+) {
+    cx.defer(move |cx| {
+        let _ = window.update(cx, what);
+    });
+}
+
 fn main() {
     // macOS tells the program which files to open by an event, at its start and while it runs.
     // GPUI calls the handler on the platform's own turn, with no window at hand, so it only passes
@@ -789,15 +803,9 @@ fn main() {
             KeyBinding::new(act, Act, None),
             KeyBinding::new(in_book, FindInBook, None),
         ]);
-        cx.on_action(move |_: &Find, cx| {
-            let _ = window.update(cx, |root, window, cx| root.find(window, cx));
-        });
-        cx.on_action(move |_: &Act, cx| {
-            let _ = window.update(cx, |root, window, cx| root.act(window, cx));
-        });
-        cx.on_action(move |_: &FindInBook, cx| {
-            let _ = window.update(cx, |root, window, cx| root.find_in_book(window, cx));
-        });
+        cx.on_action(move |_: &Find, cx| later(window, cx, Root::find));
+        cx.on_action(move |_: &Act, cx| later(window, cx, Root::act));
+        cx.on_action(move |_: &FindInBook, cx| later(window, cx, Root::find_in_book));
         // Reading in progress is written before the app goes.
         cx.on_app_quit(move |cx| {
             let _ = window.update(cx, |root, _, cx| {

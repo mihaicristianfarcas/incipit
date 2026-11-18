@@ -801,6 +801,10 @@ fn main() {
     application.on_open_urls(move |urls| {
         let _ = opened.unbounded_send(urls);
     });
+    // The Dock icon clicked with the window closed (macOS keeps the program running then). GPUI
+    // raises this on macOS only, and only when no window is open.
+    #[cfg(target_os = "macos")]
+    application.on_reopen(front::reopen);
     application.run(move |cx: &mut App| {
         incipit_ui::init(cx);
         // Math in Markdown is typeset by incipit-math.

@@ -142,7 +142,8 @@ Library's line for problems, and nothing else changes.
   never calls it, which is why those two use arguments. A second program macOS does not route to the
   first (one started from a terminal, or with `open -n`) hands over as on Linux, over a Unix socket
   in the app's folder. With the window closed (macOS keeps the program running when its window
-  is), a file given either way opens the window again, which shows the book.
+  is), a file given either way opens the window again, which shows the book, and so does a click
+  on the Dock icon, as on macOS every app does; the window opens on the vault that was open.
 - With **no vault open yet** (the first run, or a vault that failed to open) the files are kept and
   taken in once a vault is open, so the learner is never asked to give them again.
 

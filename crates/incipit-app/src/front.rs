@@ -4,9 +4,10 @@
 //! What a later launch hands over, and what the system's open event gives (macOS), brings the
 //! window to the front and is taken in (`Root::give`, the Library's `Waiting` and `take_in`).
 //!
-//! macOS keeps the program running with its window closed: a later launch or an open event then
-//! opens the window again. On Windows and Linux the program ends with its window, so there is
-//! always one to bring forward. GPUI refuses to update a window from inside that window's own update, so this is only
+//! macOS keeps the program running with its window closed: a later launch, an open event or a
+//! click on the Dock icon (`reopen`) then opens the window again, on the vault that was open (the
+//! workspace opens the last vault, and gets back the same handle while anything still holds it).
+//! On Windows and Linux the program ends with its window, so there is always one to bring forward. GPUI refuses to update a window from inside that window's own update, so this is only
 //! called from a task of the app, never from a key or an action being handled.
 //!
 //! A run that only takes a picture (INCIPIT_SHOT) never hands over, so it always gives its picture:
@@ -70,6 +71,17 @@ pub fn window(cx: &App) -> Option<WindowHandle<Root>> {
     cx.windows()
         .into_iter()
         .find_map(|window| window.downcast::<Root>())
+}
+
+/// The Dock icon was clicked: the window opens again when none is open. Deferred, so it runs after
+/// the platform's turn that raised the event has given the app back.
+#[cfg(target_os = "macos")]
+pub fn reopen(cx: &mut App) {
+    cx.defer(|cx| {
+        if window(cx).is_none() {
+            come_forward(Vec::new(), cx);
+        }
+    });
 }
 
 /// Books from outside, or a later launch with none: the window comes to the front, opened again

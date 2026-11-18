@@ -8,6 +8,7 @@
 pub mod chrome;
 pub mod controls;
 pub mod desktop;
+pub mod dialog;
 pub mod diff;
 pub mod focus;
 pub mod formula;
@@ -36,6 +37,7 @@ pub use chrome::{
     page_strip, sidebar, sidebar_foot, sidebar_header,
 };
 pub use controls::*;
+pub use dialog::{begin_frame, sheet, Sheet};
 pub use diff::diff;
 pub use focus::{
     arrow_step, clicked, focus_handle, focus_ring, keep_focus, keyboard_focus, keyboard_moved,

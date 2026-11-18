@@ -62,11 +62,14 @@ fn move_keyboard(back: bool, cx: &mut App) {
 
 /// Moves the keyboard to the next of what can be clicked (the one before, `back`) and shows
 /// the ring there.
-fn tab(back: bool, window: &mut Window, cx: &mut App) {
-    if back {
-        window.focus_prev(cx);
-    } else {
-        window.focus_next(cx);
+pub(crate) fn tab(back: bool, window: &mut Window, cx: &mut App) {
+    // A sheet that is drawn keeps Tab inside it.
+    if !crate::dialog::tab(back, window, cx) {
+        if back {
+            window.focus_prev(cx);
+        } else {
+            window.focus_next(cx);
+        }
     }
     keyboard_moved();
     window.refresh();

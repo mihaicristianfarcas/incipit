@@ -3,7 +3,9 @@
 //! pair, so a pair joined both ways bends apart; a node's link to itself loops over it), and tokens ride along the edges while the clock runs.
 //! When the drawing is larger than the stage it is shrunk about its middle, text and all, as the
 //! earlier app did; the checks then refuse text shrunk too small to read. Labels are placed last,
-//! clear of nodes, lines and each other; one with no room is placed anyway and reported.
+//! clear of nodes, lines and each other; one with no room is placed anyway and reported, and so
+//! is a group's box that takes in a node not in it, or overlaps the box of a group it shares no
+//! node with.
 
 use std::collections::HashMap;
 
@@ -272,6 +274,7 @@ pub fn layout(graph: &Graph, state: &State, m: &dyn Measure) -> Frame {
     let mut front = Vec::new();
 
     // Groups, behind everything.
+    let mut drawn: Vec<(&super::Group, Rect)> = Vec::new();
     for g in &graph.groups {
         let members: Vec<&Placed> = g
             .nodes
@@ -304,6 +307,18 @@ pub fn layout(graph: &Graph, state: &State, m: &dyn Measure) -> Frame {
                 .tone(Tone::Mid);
             labels.reserve(text.bounds(m));
             back.push(Item::new(Some(&g.id), Mark::Text(text)));
+        }
+        drawn.push((g, r));
+    }
+    // Two groups with no node in common have boxes apart; groups that share one may nest.
+    for (k, (a, ra)) in drawn.iter().enumerate() {
+        for (b, rb) in &drawn[k + 1..] {
+            if ra.overlaps(rb, 0.0) && !a.nodes.iter().any(|id| b.nodes.contains(id)) {
+                issues.push(Issue::Error(format!(
+                    "the boxes of groups \"{}\" and \"{}\" overlap, and they have no node in common: list each group's nodes together, or set the nodes out another way",
+                    a.id, b.id
+                )));
+            }
         }
     }
 

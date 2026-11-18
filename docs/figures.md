@@ -166,30 +166,34 @@ ride along the edges, easing in and out of each hop. A drawing larger
 than the stage is shrunk about its middle, text and all.
 
 Groups keep their nodes together and the groups apart, which the
-earlier app did not do (`graph/groups.rs`). A row keeps the order
-given and leaves room where it passes from one group to another. A
-circle takes each group's nodes one after another, where its first
-node is listed, and leaves an empty place between groups; the empty
-place where it closes back on its first node is at the top. A grid
-takes each group's nodes one after another in the same way, and starts
-a new row rather than break a group across two; a group wider than a
-row has its rows to itself. The force simulation, each tick, pulls a
-group's nodes toward its middle and pushes groups off each other and
-off nodes in no group. Then, on
-the stage, the groups are spread apart about the middle, each moving
-whole, by the least amount across and down that leaves 28 units between
-every two boxes and between a box and a node outside it, taking
-whichever spread leaves the drawing smallest for the stage. Groups that
-share a node move as one, and their boxes are left as they fall.
+earlier app did not do (`graph/groups.rs`). A row keeps the order given
+and leaves room where it passes from one group to another. A circle
+takes each group's nodes one after another, where its first node is
+listed, and leaves an empty place between groups; the empty place where
+it closes back on its first node is at the top. A grid takes each
+group's nodes one after another in the same way, and starts a new row
+rather than break a group across two; a group wider than a row has its
+rows to itself. The force simulation, each tick, pulls a group's nodes
+toward its middle and pushes groups off each other and off nodes in no
+group. Then, on the stage, the groups are spread apart about the
+middle, each moving whole, across and down, so that 28 units are left
+between every two boxes and between a box and a node outside it: each
+pair's least spread is worked out exactly, and of the spreads that
+clear every pair the one leaving the drawing smallest for the stage is
+taken. Groups that share a node move as one, and their boxes are left
+as they fall. A graph without groups is placed as before.
 
 Checks: 2 to 16 nodes, at most 96 edges, 24 tokens and 12 groups; edges,
 tokens and groups that name real nodes; tokens with a path of two nodes
 or more that leave at 0 seconds or later and take at least 0.05 seconds
 a hop; tokens and steps not both. In the drawing: a node label wider
 than its circle (or 130 units for other shapes), an edge label with no
-room, a group's box that takes in a node not in it, and text shrunk too
-small to read are errors. The drawing is looked at in each step, or at
-each moment a token leaves or reaches a node and halfway between.
+room, a group's box that takes in a node not in it, the boxes of two
+groups with no node in common that overlap, and text shrunk too small
+to read are errors. A node may be in more than one group, so a group
+may sit inside another: the boxes of groups that share a node may
+overlap. The drawing is looked at in each step, or at each moment a
+token leaves or reaches a node and halfway between.
 
 ### Diagram
 

@@ -27,6 +27,7 @@ mod write;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -170,6 +171,9 @@ pub(crate) struct Inner {
     pub(crate) timing: Mutex<timing::Timing>,
     /// Kept so it watches as long as the vault is open; dropping it ends the watching thread.
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
+    /// The handles on the vault the program holds, not counting the moments its background
+    /// threads take one: none left means it is being let go.
+    users: AtomicUsize,
     /// The vault is this program's while it is open. Last, so it is let go after everything
     /// else of the vault has been dropped.
     _hold: hold::Hold,
@@ -196,12 +200,40 @@ impl Inner {
     pub(crate) fn locate(&self, path: &VaultPath) -> Result<PathBuf> {
         crate::path::locate(&self.root, path)
     }
+
+    /// Some part of the program still holds a handle on the vault.
+    pub(crate) fn in_use(&self) -> bool {
+        self.users.load(Ordering::SeqCst) > 0
+    }
 }
 
 /// An open vault.
-#[derive(Clone)]
 pub struct Vault {
     pub(crate) inner: Arc<Inner>,
+    /// Counted in `Inner::users`: a handle the program holds, not one a background thread takes
+    /// for a moment (`background`).
+    user: bool,
+}
+
+impl Clone for Vault {
+    /// A copy of a background thread's handle is the thread's too.
+    fn clone(&self) -> Vault {
+        if self.user {
+            self.inner.users.fetch_add(1, Ordering::SeqCst);
+        }
+        Vault {
+            inner: Arc::clone(&self.inner),
+            user: self.user,
+        }
+    }
+}
+
+impl Drop for Vault {
+    fn drop(&mut self) {
+        if self.user {
+            self.inner.users.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
 }
 
 impl std::fmt::Debug for Vault {
@@ -261,7 +293,7 @@ impl Vault {
     /// it), so it is used again rather than refused by its own lock.
     pub fn already_open(folder: &Path) -> Option<Vault> {
         let root = dunce::canonicalize(folder).ok()?;
-        hold::open_here(&root).map(|inner| Vault { inner })
+        hold::open_here(&root).map(Vault::user)
     }
 
     fn start(root: PathBuf, history: History, held: hold::Hold) -> Result<Vault> {
@@ -272,6 +304,7 @@ impl Vault {
             subscribers: Subscribers::default(),
             timing: Mutex::new(timing::Timing::new(timing::SETTLE, timing::IDLE)),
             watcher: Mutex::new(None),
+            users: AtomicUsize::new(0),
             _hold: held,
         });
         // Watching starts before the first read, so an edit made while reading is not missed:
@@ -283,7 +316,19 @@ impl Vault {
             reconcile::load(&inner, &mut state);
         }
         hold::note_open(&inner);
-        Ok(Vault { inner })
+        Ok(Vault::user(inner))
+    }
+
+    /// A handle the program holds on the vault.
+    fn user(inner: Arc<Inner>) -> Vault {
+        inner.users.fetch_add(1, Ordering::SeqCst);
+        Vault { inner, user: true }
+    }
+
+    /// A handle a background thread takes for a moment, which does not keep the vault from being
+    /// let go once the program holds none.
+    pub(crate) fn background(inner: Arc<Inner>) -> Vault {
+        Vault { inner, user: false }
     }
 
     /// The vault's folder (canonical).

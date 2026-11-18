@@ -208,7 +208,7 @@ impl Vault {
             .spawn(move || loop {
                 let due = {
                     let Some(inner) = weak.upgrade() else { break };
-                    Vault { inner }.sitting_due()
+                    Vault::background(inner).sitting_due()
                 };
                 let heard = match due {
                     Some(due) => {
@@ -221,7 +221,7 @@ impl Vault {
                     Err(RecvTimeoutError::Timeout) => {
                         let Some(inner) = weak.upgrade() else { break };
                         // a failure is tried again at the next write
-                        let _ = Vault { inner }.tend_sitting(Instant::now());
+                        let _ = Vault::background(inner).tend_sitting(Instant::now());
                     }
                     Err(RecvTimeoutError::Disconnected) => break,
                 }

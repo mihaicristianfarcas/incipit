@@ -173,7 +173,9 @@ node is listed, and leaves an empty place between groups; the empty
 place where it closes back on its first node is at the top. A grid
 takes each group's nodes one after another in the same way, and starts
 a new row rather than break a group across two; a group wider than a
-row has its rows to itself. Then, on
+row has its rows to itself. The force simulation, each tick, pulls a
+group's nodes toward its middle and pushes groups off each other and
+off nodes in no group. Then, on
 the stage, the groups are spread apart about the middle, each moving
 whole, by the least amount across and down that leaves 28 units between
 every two boxes and between a box and a node outside it, taking

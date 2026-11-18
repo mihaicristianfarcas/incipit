@@ -6,7 +6,9 @@
 //! group's nodes one after another, the group where its first node is listed and every other node
 //! in the order given. A circle leaves an empty place wherever it passes from one group to
 //! another, as a row leaves room there; a grid starts a new row rather than break a group across
-//! two, and a group wider than a row has its rows to itself. Then, once the nodes are on the stage, everything is spread about the
+//! two, and a group wider than a row has its rows to itself; the force simulation pulls each
+//! node toward its group's middle and pushes groups off each other and off nodes in no group.
+//! Then, once the nodes are on the stage, everything is spread about the
 //! drawing's middle, each group moving whole, so that `BOX_ROOM` is left between every two boxes
 //! and between a box and every node outside it. The spread is worked out exactly from each
 //! pair's distance rather than pushed toward in rounds, so it always holds, and the same spec
@@ -33,6 +35,15 @@ pub const BOX_ROOM: f32 = 28.0;
 /// so its text would be shrunk past reading; past it the boxes are left as they are, and the
 /// checks say which overlap.
 const MOST_SPREAD: f32 = 1.5;
+/// The force simulation's pull of a node toward its group's middle, fading with the
+/// simulation's alpha as its pull to the stage's middle does; and its push between two groups,
+/// or a group and a node in no group, that come within reach of each other, at full strength
+/// every tick as its collision force is. Chosen among pulls of 0.1 to 0.8 and pushes of 0.5 to
+/// 2 (and a push fading with alpha) on 90 force graphs of 4 to 16 circles, boxes or drums in six
+/// arrangements of groups: these left the fewest refused once their boxes were apart, 4 of the
+/// 90, all of 12 nodes or more and too large for the stage.
+const PULL: f32 = 0.5;
+const PUSH: f32 = 1.0;
 
 /// Which cluster each node is in, if any. Groups that share a node make one cluster; clusters
 /// are numbered in the order of their first node in the spec.
@@ -178,6 +189,75 @@ pub fn grid(clusters: &Clusters, cols: usize) -> Vec<(f32, f32)> {
         k += run;
     }
     at
+}
+
+/// One tick of the force simulation's hold on groups: each node pulled toward its cluster's
+/// middle, and every two of the clusters and the nodes in no group pushed apart when they come
+/// within `BOX_ROOM` of each other's reach (a cluster's reach is its farthest node's, from its
+/// middle, plus that node's `radius`), the larger moving less. Two nodes in no group are left
+/// to the simulation's own forces.
+pub fn hold(
+    clusters: &Clusters,
+    radius: &[f32],
+    p: &[(f32, f32)],
+    v: &mut [(f32, f32)],
+    alpha: f32,
+) {
+    let units = units(clusters);
+    let middles: Vec<(f32, f32)> = units
+        .iter()
+        .map(|u| {
+            let k = u.members.len() as f32;
+            let sum = u
+                .members
+                .iter()
+                .fold((0.0, 0.0), |s, &i| (s.0 + p[i].0, s.1 + p[i].1));
+            (sum.0 / k, sum.1 / k)
+        })
+        .collect();
+    let reach: Vec<f32> = units
+        .iter()
+        .zip(&middles)
+        .map(|(u, m)| {
+            u.members
+                .iter()
+                .map(|&i| (p[i].0 - m.0).hypot(p[i].1 - m.1) + radius[i])
+                .fold(0.0, f32::max)
+        })
+        .collect();
+    for (u, m) in units.iter().zip(&middles) {
+        if !u.boxed {
+            continue;
+        }
+        for &i in &u.members {
+            v[i].0 += (m.0 - p[i].0) * PULL * alpha;
+            v[i].1 += (m.1 - p[i].1) * PULL * alpha;
+        }
+    }
+    for a in 0..units.len() {
+        for b in a + 1..units.len() {
+            if !(units[a].boxed || units[b].boxed) {
+                continue;
+            }
+            let (x, y) = (middles[a].0 - middles[b].0, middles[a].1 - middles[b].1);
+            let l = x.hypot(y);
+            let short = reach[a] + reach[b] + BOX_ROOM - l;
+            if l == 0.0 || short <= 0.0 {
+                continue;
+            }
+            let k = short / l * PUSH;
+            let (na, nb) = (units[a].members.len() as f32, units[b].members.len() as f32);
+            let share = nb / (na + nb);
+            for &i in &units[a].members {
+                v[i].0 += x * k * share;
+                v[i].1 += y * k * share;
+            }
+            for &i in &units[b].members {
+                v[i].0 -= x * k * (1.0 - share);
+                v[i].1 -= y * k * (1.0 - share);
+            }
+        }
+    }
 }
 
 /// Spreads the nodes on the stage about the drawing's middle, each cluster and each node in no

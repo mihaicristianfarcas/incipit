@@ -1,14 +1,16 @@
 //! Where a graph's nodes go, as the earlier app set them out: each node is sized to its label,
 //! the arrangement gives raw positions (a force simulation, a circle, a row, a grid), the raw
-//! positions are fitted to the stage, and nodes that still overlap are pushed apart. A circle or a
-//! grid with groups keeps each group's nodes together and the groups apart (`groups`), which the
-//! earlier app did not. Everything is deterministic, so the same spec always draws the same picture.
+//! positions are fitted to the stage, and nodes that still overlap are pushed apart. Outside a
+//! row, a graph with groups keeps each group's nodes together and the groups apart (`groups`),
+//! which the earlier app did not. Everything is deterministic, so the same spec always draws the same picture.
 //!
 //! The force simulation follows d3-force's rules with the earlier app's settings: links pull to
 //! 90 apart at strength 0.7, every pair pushes with strength −380, nodes keep their radius plus
 //! 14 clear, a weak pull to the middle, alpha decaying over 300 ticks of the 320 run, velocities
 //! kept at 0.6 each tick. The push between every pair is summed exactly rather than through a
-//! Barnes–Hut tree (16 nodes at most), and a link from a node to itself pulls nothing.
+//! Barnes–Hut tree (16 nodes at most), and a link from a node to itself pulls nothing. With
+//! groups, each tick also holds a group's nodes together and the groups apart
+//! (`groups::hold`).
 
 use std::f32::consts::TAU;
 
@@ -104,9 +106,8 @@ pub fn size(label: &str, sublabel: &str, shape: Shape, m: &dyn Measure) -> Size 
 
 /// Each node's middle on the stage, in the order of `graph.nodes`.
 pub fn place(graph: &Graph, sizes: &[Size]) -> Vec<(f32, f32)> {
-    let clusters = (matches!(graph.layout, Arrange::Circle | Arrange::Grid)
-        && !graph.groups.is_empty())
-    .then(|| Clusters::of(graph));
+    let clusters =
+        (graph.layout != Arrange::Row && !graph.groups.is_empty()).then(|| Clusters::of(graph));
     let raw = raw(graph, sizes, clusters.as_ref());
     let fitted = fit(graph, sizes, &raw);
     let mut at = separate(sizes, fitted);
@@ -190,7 +191,7 @@ fn raw(graph: &Graph, sizes: &[Size], clusters: Option<&Clusters>) -> Raw {
             }
         }
         Arrange::Force => Raw {
-            at: force(graph, sizes),
+            at: force(graph, sizes, clusters),
             keep_aspect: true,
             most: 1.4,
         },
@@ -199,7 +200,7 @@ fn raw(graph: &Graph, sizes: &[Size], clusters: Option<&Clusters>) -> Raw {
 
 /// d3-force's simulation, as the earlier app ran it: a fixed start on an ellipse and a fixed
 /// number of ticks, so there is nothing random in it.
-fn force(graph: &Graph, sizes: &[Size]) -> Vec<(f32, f32)> {
+fn force(graph: &Graph, sizes: &[Size], clusters: Option<&Clusters>) -> Vec<(f32, f32)> {
     let n = graph.nodes.len();
     let index = |id: &str| graph.nodes.iter().position(|node| node.id == id);
     let mut p: Vec<(f32, f32)> = (0..n)
@@ -290,6 +291,9 @@ fn force(graph: &Graph, sizes: &[Size]) -> Vec<(f32, f32)> {
         for i in 0..n {
             v[i].0 += (0.0 - p[i].0) * PULL_X * alpha;
             v[i].1 += (0.0 - p[i].1) * PULL_Y * alpha;
+        }
+        if let Some(clusters) = clusters {
+            groups::hold(clusters, &radius, &p, &mut v, alpha);
         }
         for i in 0..n {
             v[i].0 *= VELOCITY_KEPT;

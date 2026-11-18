@@ -177,7 +177,8 @@ impl Focusable for TextField {
 impl TextField {
     pub fn new(cx: &mut Context<Self>) -> TextField {
         TextField {
-            focus: cx.focus_handle(),
+            // Tab reaches a field, in the order it is on screen.
+            focus: cx.focus_handle().tab_stop(true),
             text: String::new(),
             placeholder: SharedString::default(),
             selected: 0..0,
@@ -1308,7 +1309,8 @@ impl RenderOnce for Field {
                 format!("field-{}", self.field.entity_id()).into(),
             ))
             .key_context(CONTEXT)
-            .track_focus(&f.focus)
+            // A field that is switched off is passed over.
+            .track_focus(&f.focus.clone().tab_stop(!disabled))
             .when(!disabled, |d| d.cursor(CursorStyle::IBeam))
             .on_action(window.listener_for(&entity, TextField::backspace))
             .on_action(window.listener_for(&entity, TextField::backspace_word))

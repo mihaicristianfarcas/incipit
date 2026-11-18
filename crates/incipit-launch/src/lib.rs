@@ -331,9 +331,11 @@ impl Drop for Hearing {
         self.stop.store(true, Ordering::SeqCst);
         // The thread waits on the next connection: one made here wakes it to see it is to stop.
         // When none can be made, the socket is gone and the thread with it, or it cannot be
-        // woken; either way it is not waited for.
-        let woken = connect(&self.home).is_ok();
-        if let (true, Some(thread)) = (woken, self.thread.take()) {
+        // woken; either way it is not waited for. The connection stays open until the thread
+        // has ended: a named pipe whose client came and went before the thread was waiting on
+        // it is not taken as a connection, and the thread would wait on for the next.
+        let waker = connect(&self.home).ok();
+        if let (Some(_waker), Some(thread)) = (waker.as_ref(), self.thread.take()) {
             let _ = thread.join();
             #[cfg(unix)]
             let _ = std::fs::remove_file(self.home.join(SOCKET));

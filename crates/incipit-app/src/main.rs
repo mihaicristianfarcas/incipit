@@ -127,11 +127,18 @@ fn keys_named(words: &str) -> Vec<gpui::Keystroke> {
 }
 
 /// Presses the keys as if typed, one to a frame: each meets the window as the one before left it.
+/// A key goes down and comes up, so Return and Space press what has the keyboard as they do when a
+/// finger lifts: GPUI acts on them when the key comes up.
 fn press(mut keys: Vec<gpui::Keystroke>, window: &mut Window, cx: &mut App) {
     if keys.is_empty() {
         return;
     }
-    window.dispatch_keystroke(keys.remove(0), cx);
+    let key = keys.remove(0);
+    window.dispatch_keystroke(key.clone(), cx);
+    window.dispatch_event(
+        gpui::PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke: key }),
+        cx,
+    );
     window.refresh();
     window.on_next_frame(move |window, cx| press(keys, window, cx));
 }
@@ -842,4 +849,27 @@ fn main() {
             cx.activate(true);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_keys_a_run_is_told_to_press_are_read_as_gpui_spells_them() {
+        let keys = keys_named("tab  shift-tab\tdown enter space cmd-k");
+        let spelled: Vec<String> = keys.iter().map(|k| k.unparse()).collect();
+        assert_eq!(
+            spelled,
+            ["tab", "shift-tab", "down", "enter", "space", "cmd-k"]
+        );
+        assert!(keys_named("").is_empty());
+    }
+
+    #[test]
+    fn a_key_that_cannot_be_read_is_left_out_and_the_others_are_still_pressed() {
+        let keys = keys_named("tab nonsense-a down");
+        let spelled: Vec<String> = keys.iter().map(|k| k.unparse()).collect();
+        assert_eq!(spelled, ["tab", "down"]);
+    }
 }

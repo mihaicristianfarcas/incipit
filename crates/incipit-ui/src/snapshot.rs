@@ -21,8 +21,13 @@
 
 use gpui::Window;
 
-/// Save the window as a PNG (automated checks).
+/// Save the window as a PNG (automated checks). The folder it goes in is made if it is not there:
+/// `shots/`, where the docs' commands put pictures, is not in git, so a new checkout has none.
 pub fn snapshot(window: &Window, path: &std::path::Path) -> Result<(), String> {
+    if let Some(folder) = path.parent().filter(|f| !f.as_os_str().is_empty()) {
+        std::fs::create_dir_all(folder)
+            .map_err(|e| format!("cannot make the folder {}: {e}", folder.display()))?;
+    }
     #[cfg(target_os = "macos")]
     {
         mac(window, path)

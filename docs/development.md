@@ -2,7 +2,8 @@
 
 ## Setting up
 
-Rust 1.96 or later ([rustup](https://rustup.rs)). Then, once per clone:
+Rust 1.96 or later ([rustup](https://rustup.rs)) and what your system
+needs besides (below). Then, once per clone:
 
 ```sh
 tools/setup
@@ -10,19 +11,62 @@ tools/setup
 
 It enables the git hooks, downloads pdfium into `lib/` and two sample books
 into `samples/` (a paper from arXiv and a book from Project Gutenberg).
-Neither folder is in git.
+Neither folder is in git. It takes the pdfium build for the system Rust
+builds for, so the library matches the program.
 
 To build and run in a Linux container instead, with nothing installed but
 Docker, see [In Docker](#in-docker).
 
-On Linux, GPUI needs the packages the Linux job in
-`.github/workflows/ci.yml` installs.
+### macOS
 
-On Windows, run `tools/setup` in Git Bash, which comes with Git for
-Windows. It takes the pdfium archive for the system Rust builds for (x64 or
-arm64, with the MSVC toolchain) and puts its DLL in `lib\lib`, where the
-program looks. The build needs `clang` on the `PATH` (the one Visual
-Studio's build tools or LLVM install).
+Apple's command-line tools (`xcode-select --install`), which Rust links
+with.
+
+### Linux
+
+What GPUI links against, and a Vulkan driver, which draws the window:
+
+```sh
+# Ubuntu, Debian
+sudo apt-get install build-essential pkg-config clang libclang-dev \
+  libasound2-dev libudev-dev libx11-dev libx11-xcb-dev libxkbcommon-dev \
+  libxkbcommon-x11-dev libwayland-dev libxcursor-dev libxrandr-dev libxi-dev \
+  libfontconfig-dev libfreetype-dev libxcb1-dev libdbus-1-dev \
+  libvulkan1 mesa-vulkan-drivers
+
+# Fedora
+sudo dnf install gcc gcc-c++ make pkgconf-pkg-config clang clang-devel \
+  alsa-lib-devel systemd-devel libX11-devel libxkbcommon-devel \
+  libxkbcommon-x11-devel wayland-devel libXcursor-devel libXrandr-devel \
+  libXi-devel fontconfig-devel freetype-devel libxcb-devel dbus-devel \
+  vulkan-loader mesa-vulkan-drivers
+
+# Arch
+sudo pacman -S --needed base-devel clang alsa-lib libx11 libxkbcommon \
+  libxkbcommon-x11 wayland libxcursor libxrandr libxi fontconfig freetype2 \
+  libxcb dbus vulkan-icd-loader vulkan-swrast
+```
+
+Mesa's drivers cover AMD and Intel graphics, and its software Vulkan
+(lavapipe; `vulkan-swrast` on Arch) draws without a GPU, as in a virtual
+machine. An NVIDIA card's Vulkan comes with NVIDIA's own driver. The Ubuntu
+list is the one CI's Linux job and the [container](#in-docker) install, and
+builds; the Fedora (45) and Arch lists were checked only to name packages
+that exist.
+
+### Windows
+
+- [Git for Windows](https://git-scm.com/download/win): its Git Bash runs
+  `tools/setup`, the hooks and the package script.
+- Rust with the MSVC toolchain, rustup's default on Windows.
+- Visual Studio's Build Tools with "Desktop development with C++" (the MSVC
+  compiler and the Windows SDK, whose `fxc.exe` a release build compiles
+  GPUI's shaders with).
+- On an ARM PC, `clang` on the `PATH` too (LLVM's); an x64 build does
+  without it.
+
+Run `tools/setup` in Git Bash. It puts pdfium's DLL in `lib\lib`, where the
+program looks.
 
 Files are checked out with LF line endings on every system
 (`.gitattributes`), whatever `core.autocrlf` says: Git Bash runs scripts
@@ -32,10 +76,12 @@ keeps its CRLF files until they are checked out again; with nothing
 uncommitted, `git rm -r --cached -q . && git reset --hard -q` does it.
 
 Incipit has been built and run on macOS on Apple silicon; on Ubuntu 24.04
-on aarch64 in a virtual machine, where the window was drawn on a virtual
-display (Xvfb, software Vulkan) and looked at; and on Windows 11 on ARM64
-in a virtual machine, where the Today, Reader (PDF and EPUB), Brain and
-Figure pages were opened and looked at. Nothing was clicked on Linux or
+on aarch64, in a virtual machine and in the [container](#in-docker), where
+the window was drawn on a virtual display (Xvfb, software Vulkan) and looked
+at; on Windows 11 on ARM64 in a virtual machine, where the Today, Reader
+(PDF and EPUB), Brain and Figure pages were opened and looked at; and on
+Windows 11 on x64, where the Figure page and the Reader (PDF and EPUB) were
+opened and their pictures looked at. Nothing was clicked on Linux or
 Windows.
 
 `INCIPIT_SHOT` saves a picture of the window on macOS, on Windows and on

@@ -16,7 +16,7 @@ system ([development.md](development.md)).
 |---|---|---|---|
 | macOS | `tools/setup`, then `tools/package-mac` | nothing (`codesign`, `hdiutil` come with the Mac) | `Incipit.app` and `Incipit-VERSION-arm64.dmg` |
 | Windows | `tools/setup`, then `tools/package-windows`, in Git Bash | Visual Studio's build tools with the Windows SDK, [NSIS](https://nsis.sourceforge.io) | `Incipit-VERSION-x64-setup.exe` (`arm64` on an ARM PC) |
-| Linux | `tools/setup`, then `tools/package-linux` | the packages of the Linux job in `.github/workflows/ci.yml`, [appimagetool](https://github.com/AppImage/appimagetool/releases) on the `PATH` | `Incipit-VERSION-x86_64.AppImage` (`aarch64` on an ARM machine) |
+| Linux | `tools/setup`, then `tools/package-linux` | [appimagetool](https://github.com/AppImage/appimagetool/releases) on the `PATH` | `Incipit-VERSION-x86_64.AppImage` (`aarch64` on an ARM machine) |
 
 To install the checkout on your own Linux machine without making the AppImage, `tools/install-linux`
 puts what the AppImage holds in `~/.local` ([development.md](development.md#tools)); on Windows, the

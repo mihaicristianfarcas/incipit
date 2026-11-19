@@ -33,11 +33,13 @@ follow-up continues the conversation. The agent's sheet has been looked at with 
 made-up run only; no agent has been run from it yet.
 
 It has been built and run on macOS (Apple silicon), Ubuntu (aarch64) and
-Windows 11 (ARM64).
+Windows 11 (ARM64 and x64).
 
 ## Running it
 
-You need Rust 1.96 or later.
+You need Rust 1.96 or later and what your system needs besides
+([docs/development.md](docs/development.md#setting-up)); on Windows the
+scripts run in Git Bash. Or only Docker: [In Docker](docs/development.md#in-docker).
 
 ```sh
 tools/setup                 # git hooks, pdfium, two sample books

@@ -1,0 +1,47 @@
+# Incipit built and run in a Linux container, from macOS, Windows or Linux alike, with nothing to
+# install but Docker (docs/development.md, "In Docker"):
+#
+#   docker compose up -d --build                once, and after a change to docker/
+#   docker compose exec dev tools/setup         once: pdfium and the sample books
+#   docker compose exec dev cargo run -p incipit-app
+#                                               the window: http://localhost:6080/vnc.html
+#   docker compose exec dev cargo test --workspace
+#   docker compose down                         stops it; the volumes stay
+#
+# The checkout is shared at /work, so the files changed on the host are the ones built. target/
+# and lib/ are the container's own (volumes over the checkout's): they hold Linux's build and
+# Linux's pdfium, which must not mix with a Mac's or a PC's. Cargo's downloads are kept in volumes
+# too, so a new container does not fetch them again. The screen is published on this machine's
+# 127.0.0.1 only: noVNC asks for no password.
+#
+# On Linux, a user whose id is not 1000 builds the image with theirs, so the files the container
+# writes into the checkout are theirs:
+#   INCIPIT_UID=$(id -u) INCIPIT_GID=$(id -g) docker compose up -d --build
+
+name: incipit
+
+services:
+  dev:
+    build:
+      context: docker
+      args:
+        UID: ${INCIPIT_UID:-1000}
+        GID: ${INCIPIT_GID:-1000}
+    image: incipit-dev
+    init: true
+    volumes:
+      - .:/work
+      - target:/work/target
+      - lib:/work/lib
+      - cargo-registry:/home/dev/.cargo/registry
+      - cargo-git:/home/dev/.cargo/git
+    environment:
+      DISPLAY: ":0"
+    ports:
+      - "127.0.0.1:6080:6080"
+
+volumes:
+  target:
+  lib:
+  cargo-registry:
+  cargo-git:

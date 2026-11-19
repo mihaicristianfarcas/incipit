@@ -18,6 +18,8 @@
 # The AppDir (the folder the AppImage is made from) is kept at target/package/Incipit.AppDir. To pack
 # a program built elsewhere, or only to look at the AppDir:
 #   INCIPIT_EXE=path/to/incipit INCIPIT_PDFIUM=path/to/libpdfium.so INCIPIT_ARCH=x86_64 tools/package-linux
+# INCIPIT_APPDIR_ONLY=1 stops once the AppDir is made, without appimagetool: tools/install-linux
+# installs from the AppDir.
 set -eu
 . "$(dirname "$0")/package-common"
 
@@ -65,6 +67,10 @@ ln -s usr/bin/incipit "$dir/AppRun"
 if [ "$(uname -s)" = Linux ] && command -v ldd >/dev/null 2>&1; then
     echo "The program needs these of the system (a line saying 'not found' is a package missing here):"
     ldd "$dir/usr/bin/incipit" | sed 's/^/  /' || true
+fi
+if [ -n "${INCIPIT_APPDIR_ONLY:-}" ]; then
+    echo "AppDir: $dir"
+    exit 0
 fi
 
 tool=${APPIMAGETOOL:-$(command -v appimagetool || true)}

@@ -1,0 +1,87 @@
+#!/bin/sh
+# Installs Incipit on this Linux machine for its user, from this checkout, as the AppImage would hold
+# it: the program and pdfium's library in ~/.local/share/incipit (bin/ and lib/, where the program
+# looks for the library), the desktop file and icon where the desktop finds them, so Incipit is in
+# the applications menu and in "Open With" for PDF and EPUB files, and `incipit` in ~/.local/bin.
+# Run it again to install the checkout as it is now.
+#
+#   tools/setup                  once: pdfium's library
+#   tools/install-linux
+#   tools/install-linux --remove takes it out again; vaults and the app's own folder stay
+#
+# It needs what building Incipit needs (docs/development.md) and cargo-about, for the licence notice
+# a package carries (`cargo install --locked cargo-about --features cli`); not appimagetool or FUSE, since it installs the
+# folder tools/package-linux makes the AppImage from (INCIPIT_APPDIR_ONLY), not the AppImage. It asks
+# for no administrator's password. ~/.local/share is $XDG_DATA_HOME when that is set.
+#
+# The new copy is made beside the old one and put in its place by a rename, so a failed build leaves
+# the installed app as it was. The script refuses, changing nothing, while the installed program
+# runs (it would go on from deleted files; quit it first).
+set -eu
+. "$(dirname "$0")/package-common"
+
+[ "$(uname -s)" = Linux ] || package_fail "this installs the Linux app and runs on Linux"
+data=${XDG_DATA_HOME:-$HOME/.local/share}
+installed="$data/incipit"
+program="$installed/bin/incipit"
+identifier=$(package_identifier)
+desktop="$data/applications/$identifier.desktop"
+icon="$data/icons/hicolor/512x512/apps/incipit.png"
+link="$HOME/.local/bin/incipit"
+
+# Checked before the build, so a running app is said at once, and again after it, since the build
+# takes minutes and the app may have been started meanwhile. A process is found by the program it
+# runs (/proc/PID/exe), whatever it was started as: the menu, the link in ~/.local/bin or the path.
+refuse_if_running() {
+    for exe in /proc/[0-9]*/exe; do
+        if [ "$(readlink "$exe" 2>/dev/null)" = "$program" ]; then
+            package_fail "Incipit is running from $program; quit it and run this again"
+        fi
+    done
+}
+
+# The menus' cache of which app opens which file type; not every desktop has the tool.
+refresh_menus() {
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$data/applications" || true
+    fi
+}
+
+if [ "${1:-}" = --remove ]; then
+    refuse_if_running
+    rm -rf "$installed" "$desktop" "$icon"
+    if [ -L "$link" ]; then
+        rm -f "$link"
+    fi
+    refresh_menus
+    echo "Removed Incipit from $installed. Vaults and the app's own folder are left as they were."
+    exit 0
+fi
+[ $# -eq 0 ] || package_fail "unknown argument $1 (the only one is --remove)"
+
+refuse_if_running
+INCIPIT_APPDIR_ONLY=1 "$package_root/tools/package-linux"
+appdir="$package_out/Incipit.AppDir"
+[ -x "$appdir/usr/bin/incipit" ] || package_fail "tools/package-linux made no program in $appdir"
+
+refuse_if_running
+mkdir -p "$data"
+# A folder beside the installed copy, on the same disk, so putting the new one in place is a rename.
+stage=$(mktemp -d "$data/.incipit-install.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+mkdir -p "$stage/incipit"
+cp -R "$appdir/usr/bin" "$appdir/usr/lib" "$stage/incipit/"
+cp -R "$appdir/usr/share/licenses/incipit" "$stage/incipit/licenses"
+rm -rf "$installed"
+mv "$stage/incipit" "$installed"
+
+mkdir -p "$(dirname "$desktop")" "$(dirname "$icon")" "$(dirname "$link")"
+cp "$appdir/usr/share/icons/hicolor/512x512/apps/incipit.png" "$icon"
+# The desktop file names the program by its full path: ~/.local/bin is not on every desktop's PATH.
+sed "s|^Exec=.*|Exec=\"$program\" %F|" "$appdir/usr/share/applications/$identifier.desktop" >"$desktop"
+ln -sfn "$program" "$link"
+refresh_menus
+
+echo
+echo "Installed:  $installed (version $(package_version), $(package_size "$installed"))"
+echo "Open it from the applications menu, or run: incipit"

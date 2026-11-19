@@ -36,42 +36,33 @@ inside, so a PC that never installed Visual C++ runs it.
 
 ### What was made and run here
 
-Everything below was made on a Mac with Apple silicon. Sizes are bytes as measured, and megabytes of
-a million.
+Sizes are bytes as measured, and megabytes of a million.
 
-| Package | Size | State |
-|---|---|---|
-| macOS bundle `Incipit.app` | 83,934,982 (83.9 MB) | Made. Started from a copy outside the checkout with `open`; it drew a PDF page with the pdfium inside it |
-| macOS `Incipit-0.0.0-arm64.dmg` | 27,118,055 (27.1 MB) | Made and mounted; the bundle in it verifies and starts |
-| Windows `Incipit-0.0.0-x64-setup.exe` | 27,573,623 (27.6 MB) | The installer script ran, on a stand-in program (below). Not run on Windows |
-| Linux `.AppImage` | not made | The script's AppDir step ran on a stand-in program; the desktop file validates; see below |
+| Package | Made on | Size | State |
+|---|---|---|---|
+| macOS bundle `Incipit.app` | a Mac with Apple silicon | 83,934,982 (83.9 MB) | Made. Started from a copy outside the checkout with `open`; it drew a PDF page with the pdfium inside it |
+| macOS `Incipit-0.0.0-arm64.dmg` | the same Mac | 27,118,055 (27.1 MB) | Made and mounted; the bundle in it verifies and starts |
+| Windows `Incipit-0.0.0-x64-setup.exe` | Windows 11 x64 (build 26200) with Visual Studio 2022's Build Tools and NSIS | 27,659,257 (27.7 MB) | Made by `tools/package-windows` in Git Bash, with no `clang` on the `PATH`. Installed silently (`/S`) for the user: the program (90,706,432), `pdfium.dll` (7,830,016), the licences and the uninstaller in `%LOCALAPPDATA%\Programs\Incipit`, the Start menu shortcut, the entry in Settings > Apps, and Incipit in the "Open with" lists of `.pdf` and `.epub`. The installed program, given the sample PDF as "Open with" gives it, added it to a throwaway vault and opened it in the reader; the Figure page too (both looked at). Uninstalled silently: all of that was gone, and the vault was left |
+| Linux `Incipit-0.0.0-aarch64.AppImage` | Ubuntu 24.04 arm64 in the container ([development.md](development.md#in-docker)), appimagetool 1.9.1 | 41,331,208 (41.3 MB) | Made by `tools/package-linux`, and started without FUSE (`APPIMAGE_EXTRACT_AND_RUN=1`); it drew a PDF page with the pdfium inside it (looked at) |
+| Linux, installed by `tools/install-linux` | the same container | 106,249,875 (106.2 MB) | Installed; the desktop file validates and `ldd` finds every library. The installed program, started from `~/.local/bin`, opened the sample EPUB (looked at). `--remove` took it all out again |
 
-The program alone, built here: 93,815,152 with `release` and 75,283,248 with `dist`. In the macOS
+The program alone, built on the Mac: 93,815,152 with `release` and 75,283,248 with `dist`. In the macOS
 bundle it is 74,845,696 (the signature is rewritten), beside pdfium's library (7,579,296), the icon and
 the licences (1.1 MB of notice). The disk image's compression was chosen by trying three: 36,921,769
 with zlib, 36,354,957 with LZFSE, 27,118,055 with LZMA. LZMA is read by macOS 10.15 and later and the
 bundle needs 13.
 
-**Windows could not be built here.** GPUI's release build compiles its shaders with `fxc.exe`
+**Windows is built on Windows.** GPUI's release build compiles its shaders with `fxc.exe`
 (`crates/gpui_windows/build.rs` at the pinned revision does so only when the build runs on Windows),
-and without them the build stops in `gpui_windows`. The program built for Windows on this Mac is a
-stand-in: cross-built with the MinGW toolchain for `x86_64-pc-windows-gnu`, with GPUI's shaders
-compiled when it runs (`--config profile.dist.package.gpui_windows.debug-assertions=true`, a command
-line setting that is not in the repository). It is 85,539,840 bytes, has the icon as a resource, and
-imports only system DLLs. Its installer was only built, and its file list read with 7-Zip: the
-program, `pdfium.dll` (the x64 archive of the pinned build) and the licences. The Windows
-installer script was not run, on Windows or under any emulation: the registry entries, shortcuts and
-uninstaller are unseen. The size of a real MSVC program, and of its installer, is not known.
+and without them the build stops in `gpui_windows`. The installer can be packed on any system with
+NSIS from a program built on Windows (`INCIPIT_EXE`, at the top of `tools/package-windows`). Not
+checked: the installer on a PC without Visual C++ or the Windows SDK, on Windows 10, on an ARM PC, or
+while Incipit runs.
 
-**Linux could not be built here.** `cargo build --target x86_64-unknown-linux-gnu` stops at the first
-library with C code (`psm`), because this Mac has no Linux C compiler, and beyond that the program
-links against the window system's libraries (X11, Wayland, xkbcommon, fontconfig, ALSA, udev, D-Bus),
-none of which is here. A virtual machine or a container would have done it and was not allowed. The
-script's other steps ran with a stand-in for the program (a macOS executable, so nothing about it is
-Linux's) and the real x64 `libpdfium.so`: the AppDir came out with the right layout, and
-`desktop-file-validate` accepts its desktop file. The AppImage itself was not made (appimagetool
-is a Linux program), and no AppImage was started. What the program needs at run time from a Linux
-system is unchecked.
+**Linux**: the x86_64 AppImage, and an AppImage started from a desktop (with FUSE, double-clicked),
+were not made or tried; `.github/workflows/package.yml` makes the x86_64 one on the oldest Ubuntu
+runner. What the program needs from the system at run time is what `ldd` lists, which
+`tools/package-linux` prints; in the container nothing was missing.
 
 ## What the app needs beside its program
 
@@ -304,8 +295,6 @@ not decided. It would take the three jobs of `package.yml` and add:
 
 ## Not done
 
-- A program built and run for Windows and for Linux. Both are in CI, which builds and tests them.
-- The program acting on a file given to it (see "Opening a book from outside").
 - A serif for the reader on Windows and Linux (Charter is macOS's); bundling an open one is a choice
   about size and licence.
 - The icon for macOS 26's own style (an Icon Composer file): the bundle's `.icns` is the older kind.

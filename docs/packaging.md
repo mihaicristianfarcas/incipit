@@ -252,23 +252,29 @@ No updater is built. The choices:
 Choice 1 can ship before any signing exists and does not lock in a later choice 2. That is a
 suggestion; the decision is the maintainer's.
 
+## Making the packages on GitHub
+
+`.github/workflows/package.yml` makes the three packages on GitHub's runners with the scripts above,
+unsigned, and keeps them for 14 days as the run's artifacts, for a person to download and try: on a
+pull request that changes how a package is made (the scripts, `packaging/`, the build's settings,
+the workflow), and by hand on any branch (Actions > Packages > Run workflow). macOS builds on
+`macos-15`; Windows on `windows-2022`, whose image has NSIS (3.10, in the runner image's list of
+software; `windows-2025`'s does not list it); Linux on `ubuntu-22.04`, the oldest Ubuntu runner,
+because a program built against a newer glibc does not start on an older one, with appimagetool
+1.9.1 downloaded and checked against its SHA-256 and run without FUSE. The Linux job also installs
+the checkout with `tools/install-linux`, checks that `ldd` finds every library and that the desktop
+file validates, and removes it. "CI passed" does not wait for it. The repository is public, so the
+standard runners cost no Actions minutes.
+
 ## A release workflow, described and not added
 
 No release workflow is in `.github/workflows/`: where releases are hosted and how they are signed are
-not decided. This is the one to add. The repository is public, so the standard runners cost no Actions
-minutes.
+not decided. It would take the three jobs of `package.yml` and add:
 
 - **Trigger**: pushing a tag `vVERSION` (and `workflow_dispatch` for a trial that makes a draft). A first
   step checks that the tag matches the version in `Cargo.toml`, and that CI passed for the commit.
-- **Three build jobs**, one per system, each checking out with the actions pinned to commits as `ci.yml`
-  does, installing Rust and `cargo-about`, and running the script above:
-  macOS on a `macos-15` runner (`tools/setup`, then `tools/package-mac`); Windows on `windows-latest`
-  (download the pinned pdfium DLL into `lib\lib`, install NSIS, `bash tools/package-windows`; a second job
-  on a Windows ARM runner for `arm64`); Linux on the oldest Ubuntu runner there is (the Linux packages from
-  `ci.yml`, `tools/setup`, appimagetool downloaded by a pinned URL and checked against its SHA-256,
-  `tools/package-linux`), because a program built against a newer glibc does not start on an older one.
-  Each uploads its package and `.sha256` as an artifact.
-- **One release job**, after the three, with `contents: write` and nothing else: it downloads the
+- **An arm64 Windows job**, on a Windows ARM runner, beside the x64 one.
+- **One release job**, after the builds, with `contents: write` and nothing else: it downloads the
   artifacts and creates a draft GitHub release with `gh release create --draft` and the files attached.
   The maintainer reads it, then publishes. The build jobs get a read-only token.
 - **Signing**, when it is decided: the macOS job imports the certificate from a secret into a temporary

@@ -196,8 +196,14 @@ fn an_external_edit_is_picked_up() {
     assert_eq!(created.origin, Origin::Outside);
     assert!(vault.at(&path("notes/From outside.md")).is_some());
 
+    // Writing a new file makes it, then fills it, and the watcher may report the two apart
+    // (inotify does): the file is read empty, announced created, then read again with its words
+    // and announced changed. That change can still be on its way when the file is removed, so
+    // the removal is the next event for the file that is not a change.
     fs::remove_file(vault.root().join("notes/From outside.md")).unwrap();
-    let removed = wait_for(&events, |e| e.path.as_str() == "notes/From outside.md");
+    let removed = wait_for(&events, |e| {
+        e.path.as_str() == "notes/From outside.md" && e.change != Change::Changed
+    });
     assert_eq!(removed.change, Change::Removed);
     assert!(vault.at(&path("notes/From outside.md")).is_none());
 }

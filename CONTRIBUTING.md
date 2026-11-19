@@ -18,8 +18,9 @@ time.
 
 ## Making the change
 
-1. Set up a build: `tools/setup`, then
-   [docs/development.md](docs/development.md).
+1. Set up a build as [docs/development.md](docs/development.md) says:
+   what your system needs, then `tools/setup` (on Windows, in Git Bash),
+   or everything in Docker.
 2. Read [AGENTS.md](AGENTS.md): the project's rules for code, comments,
    documentation and commits. They hold for people and AI agents alike.
 3. Work on a branch. `main` takes changes only through pull requests.

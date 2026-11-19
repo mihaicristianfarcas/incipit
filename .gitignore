@@ -3,3 +3,4 @@ samples/*.pdf
 samples/*.epub
 shots/
 lib/
+.DS_Store

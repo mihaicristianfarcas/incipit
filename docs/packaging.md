@@ -7,9 +7,10 @@ yet. What signing, hosting and updating need from the maintainer is at the end.
 ## Making a package
 
 Each command runs on the system it makes the package for, from the top of the checkout, and writes to
-`target/package/` (not in git). Each needs Rust, `cargo install cargo-about` (it writes the notice of
-the licences of every library inside) and what building Incipit needs on that system
-([development.md](development.md)).
+`target/package/` (not in git). Each needs Rust, cargo-about (it writes the notice of the licences of
+every library inside: `cargo install --locked cargo-about --features cli`; its program is behind that
+feature, so without it `cargo install` installs nothing) and what building Incipit needs on that
+system ([development.md](development.md)).
 
 | System | Command | Needs besides | Makes |
 |---|---|---|---|

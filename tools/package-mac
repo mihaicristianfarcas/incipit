@@ -6,8 +6,8 @@
 #   tools/setup            once: pdfium's library for this Mac, which goes inside the bundle
 #   tools/package-mac
 #
-# Needs the Rust toolchain, `cargo install cargo-about` (the licence notice), and the tools every Mac
-# has (codesign, hdiutil, plutil). It needs no developer account.
+# Needs the Rust toolchain, `cargo install --locked cargo-about --features cli` (the licence
+# notice), and the tools every Mac has (codesign, hdiutil, plutil). It needs no developer account.
 #
 # Unsigned: the bundle is signed ad hoc, which gives it a valid seal and no identity, so a Mac that
 # has downloaded it asks the person to allow it once (docs/packaging.md). With

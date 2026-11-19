@@ -71,7 +71,7 @@ package_size() {
 # text) to the file $1. packaging/about.toml says which licences the project takes; one outside it
 # stops the package until someone has read it.
 package_notices() {
-    command -v cargo-about >/dev/null 2>&1 || package_fail "cargo-about makes the licence notice every package carries: cargo install cargo-about"
+    command -v cargo-about >/dev/null 2>&1 || package_fail "cargo-about makes the licence notice every package carries: cargo install --locked cargo-about --features cli"
     cargo about generate --manifest-path "$package_root/Cargo.toml" --all-features \
         -c "$package_root/packaging/about.toml" "$package_root/packaging/licenses.hbs" -o "$1"
 }

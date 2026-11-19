@@ -35,9 +35,13 @@ in a virtual machine, where the Today, Reader (PDF and EPUB), Brain and
 Figure pages were opened and looked at. Nothing was clicked on Linux or
 Windows.
 
-`INCIPIT_SHOT` saves a picture on macOS only. On Linux, take the picture of
-the display instead: `xwd -root` under Xvfb. On Windows, copy the screen
-from a script run in the signed-in session.
+`INCIPIT_SHOT` saves a picture of the window on macOS, on Windows and on
+Linux under X11 (`crates/incipit-ui/src/snapshot.rs` says how on each).
+On Windows it copies the window from the screen as it is shown, so the
+screen must be on and unlocked, and a program started over SSH has no
+screen: start it in the signed-in session instead (a scheduled task made
+with `schtasks /Create … /IT`). Under Wayland the app cannot take its own
+picture and says so; run it under X11 (Xvfb is a screen of its own).
 
 ## Running
 
@@ -63,7 +67,7 @@ screenshots are taken:
 | `INCIPIT_CONNECT` | `demo`, with `INCIPIT_VAULT` on a throwaway folder that has no notes or concepts: adds four notes (Consensus names Quorums without linking it; Transformers names two concepts), four concepts on attention (Softmax, forgotten, is under Attention and Self-attention) and links suggested between them, three waiting (two between notes, one of what a concept builds on), one accepted, one turned down. No model is called. With it set (to anything), the Brain page opens its card of suggested links, the Notes page (`INCIPIT_PAGE=notes`) opens on Quorums, with a mention to link, a suggestion and the Connections section, and a concept's page (`INCIPIT_CONCEPT=self-attention`) lists its mention. With `INCIPIT_QUIZ=done` the results of the made-up quiz show the line of foundations the learner is forgetting (Softmax). The buttons that ask the agent for more call a model with your own login |
 | `INCIPIT_NOTES` | On the Notes page, with `INCIPIT_VAULT` on a throwaway folder that has no notes: `versions` adds a note, "Waves", written in three sittings, and opens its Versions sheet with the middle version picked, read as it was; `changes` opens the same with what that version changed; `pictures` adds a note, "Light", that embeds a made-up picture (a gradient, kept in `attachments/`) twice, the second time narrower, and a figure kept on its own, shown under its text; `quiz` adds a note, "Replication", with two `quiz` blocks, one that reads and one that does not, listed under its text; `play` also starts the first one in the quiz sheet. No model is called, but a question answered in words is checked by one |
 | `INCIPIT_BROKEN` | On the Notes page, with `INCIPIT_VAULT` on a throwaway folder that holds a note whose properties are broken (for example `tags: [unclosed` between the two `---` lines): opens the first file that cannot be read, its reason and its text |
-| `INCIPIT_SHOT` | A file name: the window is saved there as a PNG after a moment, and the app quits (macOS). The picture is taken by `screencapture`, which needs the program that started the app to be allowed to record the screen: a program run from a terminal is, a packaged app started with `open` is not unless the person allows it in System Settings (docs/packaging.md) |
+| `INCIPIT_SHOT` | A file name: the window is saved there as a PNG after a moment, and the app quits (macOS, Windows, Linux under X11; see [Setting up](#setting-up)). On macOS the picture is taken by `screencapture`, which needs the program that started the app to be allowed to record the screen: a program run from a terminal is, a packaged app started with `open` is not unless the person allows it in System Settings (docs/packaging.md) |
 | `INCIPIT_BOOK` | `pdf` or `epub`: opens that sample book in the reader, with no vault needed. The books are the `samples/` of the checkout the program is run from, or the folder `INCIPIT_SAMPLES` names (a packaged program has no samples) |
 | `INCIPIT_OPEN` | Words of a title: opens the first book of the vault whose title has them |
 | `INCIPIT_FIND` | Opens the find sheet with these words typed: the vault's documents that have them, and the passages of its books, which join as each book's index is taken (made by reading the book the first time, in `.incipit/`) |

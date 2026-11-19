@@ -4570,6 +4570,7 @@ dependencies = [
  "unicode-segmentation",
  "wayland-client",
  "windows 0.61.3",
+ "x11rb",
 ]
 
 [[package]]

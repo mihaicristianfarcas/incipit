@@ -24,6 +24,13 @@ archive's `cee2b0e9990bc67c0721774932961b9dbf2766046c10eec925acd4cfba6fdfe3`. Th
 build needs `clang` on the `PATH` (the one Visual Studio's build tools or
 LLVM install).
 
+Files are checked out with LF line endings on every system
+(`.gitattributes`), whatever `core.autocrlf` says: Git Bash runs scripts
+with CRLF, but Linux does not, and a Windows checkout is also used from
+Linux (WSL, a container). A clone made on Windows before that file was added
+keeps its CRLF files until they are checked out again; with nothing
+uncommitted, `git rm -r --cached -q . && git reset --hard -q` does it.
+
 Incipit has been built and run on macOS on Apple silicon; on Ubuntu 24.04
 on aarch64 in a virtual machine, where the window was drawn on a virtual
 display (Xvfb, software Vulkan) and looked at; and on Windows 11 on ARM64

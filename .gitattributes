@@ -1,0 +1,13 @@
+# Every text file is checked out with LF line endings, on every system. Git for Windows' installer
+# sets core.autocrlf, which checks text out with CRLF instead. Git Bash runs a script with CRLF, but
+# Linux does not, and a Windows checkout is also used from Linux (WSL, or a container the checkout
+# is shared with): there the scripts in tools/ and .githooks/ stop at their first line ("set:
+# Illegal option -"). Rust, Cargo, NSIS and the editors Windows has read LF; this file overrides
+# core.autocrlf.
+* text=auto eol=lf
+
+# Never converted, whatever their bytes look like.
+*.icns binary
+*.ico binary
+*.png binary
+*.wasm binary

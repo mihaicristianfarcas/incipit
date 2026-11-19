@@ -1,31 +1,59 @@
 #!/bin/sh
 # Once per clone: the git hooks, the pdfium library the reader draws PDFs
 # with (lib/, not in git: a binary for one platform), and two sample books
-# (samples/, not in git) the app's Reader page opens.
+# (samples/, not in git) the app's Reader page opens. On macOS and Linux it
+# runs in a terminal; on Windows in Git Bash, which comes with Git for
+# Windows.
 #
-# pdfium comes from bblanchon/pdfium-binaries, one pinned build. Its archive
-# for macOS arm64, Linux arm64 and Linux x64 is checked against a SHA-256; the
-# macOS x64 archive has not been downloaded by anyone yet, so it has no
-# checksum here.
+# pdfium comes from bblanchon/pdfium-binaries, one pinned build, for the
+# system Rust builds the program for (`rustc -vV`'s host) rather than the one
+# the machine reports: the library must match the program, and Git Bash on a
+# Windows ARM PC may be an x64 program. Each archive is checked against a
+# SHA-256, except the macOS x64 one, which no one has downloaded yet. The
+# program looks for the library in lib/lib (crates/incipit-app/src/
+# resources.rs); the Windows archive keeps its DLL in bin/, so it is copied.
 set -e
 cd "$(dirname "$0")/.."
 git config core.hooksPath .githooks
 
+host=$(rustc -vV 2>/dev/null | sed -n 's/^host: //p')
+if [ -z "$host" ]; then
+    echo "setup: Rust is not installed (https://rustup.rs); install it, then run this again" >&2
+    exit 1
+fi
+
 build=chromium/8152
-case "$(uname -s)-$(uname -m)" in
-    Darwin-arm64) name=pdfium-mac-arm64 sum=30b0c3f55448840f0947b54bedbe35185bbaccbadd35b8cd960270d6fa6caf80 ;;
-    Darwin-x86_64) name=pdfium-mac-x64 sum= ;;
-    Linux-x86_64) name=pdfium-linux-x64 sum=384ab5c51882408a143a21f9c14dcd2caf1f75280ae41c554d0489b46c3dba9f ;;
-    Linux-aarch64) name=pdfium-linux-arm64 sum=c6ed1a91234aede0cfafdc09c401b83bd44ac69deafc4599fda75d511c36403e ;;
-    *) echo "setup: no pdfium build named for $(uname -s) $(uname -m); see docs/development.md" >&2; exit 1 ;;
+case "$host" in
+    aarch64-apple-darwin) name=pdfium-mac-arm64 file=libpdfium.dylib sum=30b0c3f55448840f0947b54bedbe35185bbaccbadd35b8cd960270d6fa6caf80 ;;
+    x86_64-apple-darwin) name=pdfium-mac-x64 file=libpdfium.dylib sum= ;;
+    x86_64-unknown-linux-gnu) name=pdfium-linux-x64 file=libpdfium.so sum=384ab5c51882408a143a21f9c14dcd2caf1f75280ae41c554d0489b46c3dba9f ;;
+    aarch64-unknown-linux-gnu) name=pdfium-linux-arm64 file=libpdfium.so sum=c6ed1a91234aede0cfafdc09c401b83bd44ac69deafc4599fda75d511c36403e ;;
+    x86_64-pc-windows-msvc) name=pdfium-win-x64 file=pdfium.dll sum=cee2b0e9990bc67c0721774932961b9dbf2766046c10eec925acd4cfba6fdfe3 ;;
+    aarch64-pc-windows-msvc) name=pdfium-win-arm64 file=pdfium.dll sum=8614b10c6a780acc3ae9fdd425d6b61f9d22ae84301b19e1ac82f573930c217c ;;
+    *-windows-*) echo "setup: Rust builds for $host; Incipit is built with the MSVC toolchain (rustup default stable-msvc)" >&2; exit 1 ;;
+    *) echo "setup: no pdfium build named for $host; see docs/development.md" >&2; exit 1 ;;
 esac
-if [ ! -d lib/lib ]; then
+
+# Checks lib/pdfium.tgz against $sum, with sha256sum (Linux, Git Bash) or shasum (macOS).
+check() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        echo "$sum  lib/pdfium.tgz" | sha256sum -c -
+    else
+        echo "$sum  lib/pdfium.tgz" | shasum -a 256 -c -
+    fi
+}
+
+if [ ! -f "lib/lib/$file" ]; then
     mkdir -p lib
     curl -fL "https://github.com/bblanchon/pdfium-binaries/releases/download/$build/$name.tgz" -o lib/pdfium.tgz
     if [ -n "$sum" ]; then
-        echo "$sum  lib/pdfium.tgz" | shasum -a 256 -c -
+        check
     fi
     tar -xzf lib/pdfium.tgz -C lib
+    if [ ! -f "lib/lib/$file" ]; then
+        mkdir -p lib/lib
+        cp "lib/bin/$file" "lib/lib/$file"
+    fi
 fi
 
 mkdir -p samples

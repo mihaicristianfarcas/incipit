@@ -14,7 +14,7 @@ the licences of every library inside) and what building Incipit needs on that sy
 | System | Command | Needs besides | Makes |
 |---|---|---|---|
 | macOS | `tools/setup`, then `tools/package-mac` | nothing (`codesign`, `hdiutil` come with the Mac) | `Incipit.app` and `Incipit-VERSION-arm64.dmg` |
-| Windows | `tools/package-windows`, in Git Bash | Visual Studio's build tools with the Windows SDK, [NSIS](https://nsis.sourceforge.io), pdfium's DLL put in `lib\lib` by hand ([development.md](development.md)) | `Incipit-VERSION-x64-setup.exe` (`arm64` on an ARM PC) |
+| Windows | `tools/setup`, then `tools/package-windows`, in Git Bash | Visual Studio's build tools with the Windows SDK, [NSIS](https://nsis.sourceforge.io) | `Incipit-VERSION-x64-setup.exe` (`arm64` on an ARM PC) |
 | Linux | `tools/setup`, then `tools/package-linux` | the packages of the Linux job in `.github/workflows/ci.yml`, [appimagetool](https://github.com/AppImage/appimagetool/releases) on the `PATH` | `Incipit-VERSION-x86_64.AppImage` (`aarch64` on an ARM machine) |
 
 VERSION is the workspace's version in `Cargo.toml`. Beside each file the script writes its SHA-256

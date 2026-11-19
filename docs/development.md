@@ -15,14 +15,11 @@ Neither folder is in git.
 On Linux, GPUI needs the packages the Linux job in
 `.github/workflows/ci.yml` installs.
 
-On Windows, `tools/setup` does not run (it is a shell script). By hand:
-unpack `pdfium-win-arm64.tgz` (or `-x64`) of the same pinned build into
-`lib\`, copy `lib\bin\pdfium.dll` to `lib\lib\pdfium.dll`, and put the two
-sample books in `samples\`. The arm64 archive's SHA-256 is
-`8614b10c6a780acc3ae9fdd425d6b61f9d22ae84301b19e1ac82f573930c217c`, the x64
-archive's `cee2b0e9990bc67c0721774932961b9dbf2766046c10eec925acd4cfba6fdfe3`. The
-build needs `clang` on the `PATH` (the one Visual Studio's build tools or
-LLVM install).
+On Windows, run `tools/setup` in Git Bash, which comes with Git for
+Windows. It takes the pdfium archive for the system Rust builds for (x64 or
+arm64, with the MSVC toolchain) and puts its DLL in `lib\lib`, where the
+program looks. The build needs `clang` on the `PATH` (the one Visual
+Studio's build tools or LLVM install).
 
 Files are checked out with LF line endings on every system
 (`.gitattributes`), whatever `core.autocrlf` says: Git Bash runs scripts

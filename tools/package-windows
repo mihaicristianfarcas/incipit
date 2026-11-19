@@ -10,7 +10,7 @@
 # It builds the program for the machine's own kind of processor (x64 or arm64, MSVC toolchain, the C
 # runtime inside the program, so no Visual C++ package is needed on the learner's PC), and puts it,
 # pdfium's DLL and the licences in the installer. pdfium's DLL is lib\lib\pdfium.dll, put there by
-# hand as docs/development.md says (tools/setup does not run on Windows).
+# tools/setup.
 #
 # GPUI's release build compiles its shaders with fxc.exe, which only a Windows host has, so a Windows
 # program cannot be built on a Mac or Linux. The installer itself can: on any system with NSIS
@@ -48,7 +48,7 @@ else
         *) package_fail "the Rust toolchain is for $triple; it must be the MSVC one for x64 or arm64 (rustup default stable-msvc)" ;;
     esac
     pdfium="$package_root/lib/lib/pdfium.dll"
-    [ -f "$pdfium" ] || package_fail "pdfium.dll is missing from lib\\lib; docs/development.md says where to get it"
+    [ -f "$pdfium" ] || package_fail "pdfium.dll is missing from lib\\lib; run tools/setup"
     package_static_runtime=yes
     package_build ""
     exe="$(package_target_dir "")/incipit.exe"

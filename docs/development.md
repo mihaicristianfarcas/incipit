@@ -12,6 +12,9 @@ It enables the git hooks, downloads pdfium into `lib/` and two sample books
 into `samples/` (a paper from arXiv and a book from Project Gutenberg).
 Neither folder is in git.
 
+To build and run in a Linux container instead, with nothing installed but
+Docker, see [In Docker](#in-docker).
+
 On Linux, GPUI needs the packages the Linux job in
 `.github/workflows/ci.yml` installs.
 
@@ -41,7 +44,8 @@ On Windows it copies the window from the screen as it is shown, so the
 screen must be on and unlocked, and a program started over SSH has no
 screen: start it in the signed-in session instead (a scheduled task made
 with `schtasks /Create … /IT`). Under Wayland the app cannot take its own
-picture and says so; run it under X11 (Xvfb is a screen of its own).
+picture and says so; run it under X11 (Xvfb is a screen of its own), or in
+the [container](#in-docker), whose screen is X11.
 
 ## Running
 
@@ -135,6 +139,47 @@ hears later launches only when no program runs for its app folder. A vault is op
 at a time ([vault.md](vault.md#one-program-at-a-time)): two programs with app folders of their own
 given the same `INCIPIT_VAULT` open it in the first, and the second says it is open in another
 Incipit window.
+
+## In Docker
+
+`compose.yaml` builds and runs Incipit in a Linux container (Ubuntu 24.04, `docker/Dockerfile`),
+the same from macOS, Windows or Linux, with nothing installed but Docker (Docker Desktop on macOS
+and Windows). The checkout is shared with the container: edit on your own system, build and run in
+the container.
+
+```sh
+docker compose up -d --build                 # once, and after a change to docker/
+docker compose exec dev tools/setup          # once: Linux's pdfium, the sample books
+docker compose exec dev cargo run -p incipit-app
+docker compose exec dev cargo test --workspace
+docker compose exec dev bash                 # a shell in the container
+docker compose down                          # stops it; the build is kept
+```
+
+The window is on the container's own screen, shown in a browser at
+<http://localhost:6080/vnc.html> (press Connect). `INCIPIT_SHOT` works there, so a picture lands in
+the checkout's `shots/`:
+
+```sh
+docker compose exec -e INCIPIT_PAGE=figure -e INCIPIT_SHOT=shots/figure.png dev cargo run -p incipit-app
+```
+
+- `target/` and `lib/` are the container's own (Docker volumes over the checkout's): a Linux build
+  and Linux's pdfium, kept apart from your system's.
+- The window is drawn by Mesa's software Vulkan, on the processor, and looks as it would on a Linux
+  desktop, not as on macOS or Windows.
+- Docker needs about 8 GB of memory (Docker Desktop's Resources setting): building the app peaked
+  at 5.6 GB (`/usr/bin/time`, arm64, in Docker Desktop's 7.7 GiB machine on a Mac). The container
+  links with LLVM's `lld`, because GNU ld ran out of memory there.
+- On Linux, a user whose id is not 1000 builds the image with theirs, so the files the container
+  writes into the checkout are theirs: `INCIPIT_UID=$(id -u) INCIPIT_GID=$(id -g) docker compose up
+  -d --build`.
+- A Windows checkout needs LF line endings (`.gitattributes`, [above](#setting-up)): Linux runs the
+  scripts.
+- The image has no command-line agent (Codex, Claude Code, OpenCode) and no web browser for
+  ChatGPT's sign-in ([models.md](models.md)); the providers that take a key were not tried from it.
+- In a checkout made with `git worktree`, git does not work in the container: the worktree's `.git`
+  names a folder outside it.
 
 ## Tools
 

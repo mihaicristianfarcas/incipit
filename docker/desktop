@@ -1,0 +1,20 @@
+#!/bin/sh
+# The container's screen, then the command it was given (docker/Dockerfile): a virtual screen
+# (Xvfb) on display :0 that the app's window draws on, shared over VNC (x11vnc, listening inside
+# the container only) and shown in a browser by noVNC on port 6080, which compose.yaml publishes
+# on the host's 127.0.0.1 alone.
+#
+# Xvfb says on a file descriptor when it is ready to take windows (-displayfd), so the sharing
+# starts after it without waiting a guessed moment.
+set -e
+
+ready=$(mktemp -u)
+mkfifo "$ready"
+Xvfb :0 -screen 0 1600x1000x24 -nolisten tcp -displayfd 3 3>"$ready" &
+read -r _ <"$ready"
+rm -f "$ready"
+
+x11vnc -display :0 -localhost -nopw -forever -shared -quiet -bg -o /tmp/x11vnc.log
+websockify --web /usr/share/novnc 6080 localhost:5900 >/tmp/novnc.log 2>&1 &
+
+exec "$@"

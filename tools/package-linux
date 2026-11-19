@@ -5,8 +5,8 @@
 #   tools/setup                 once: pdfium's library for this machine, which goes inside
 #   tools/package-linux
 #
-# Needs what building Incipit needs on Linux (the packages of the Linux job in
-# .github/workflows/ci.yml), `cargo install cargo-about` (the licence notice) and appimagetool
+# Needs what building Incipit needs on Linux (docs/development.md), `cargo install --locked
+# cargo-about --features cli` (the licence notice) and appimagetool
 # (https://github.com/AppImage/appimagetool/releases: one file, put it on the PATH or in
 # APPIMAGETOOL). Build on the oldest Linux the package should run on: a program built against a
 # newer glibc does not start on an older one.

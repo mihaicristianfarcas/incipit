@@ -12,6 +12,12 @@
 # SHA-256, except the macOS x64 one, which no one has downloaded yet. The
 # program looks for the library in lib/lib (crates/incipit-app/src/
 # resources.rs); the Windows archive keeps its DLL in bin/, so it is copied.
+#
+# The sample books are only for looking at the reader (INCIPIT_BOOK) and for
+# the tests marked #[ignore], so a book its site will not give (Project
+# Gutenberg has answered 503) is said and does not stop the setup; the next
+# run tries again. Each is downloaded to a .part file and renamed once whole,
+# so a download cut short is never taken for the book.
 set -e
 cd "$(dirname "$0")/.."
 git config core.hooksPath .githooks
@@ -56,7 +62,24 @@ if [ ! -f "lib/lib/$file" ]; then
     fi
 fi
 
+# Downloads the sample book samples/$1 from $2 unless it is there.
+sample() {
+    [ -f "samples/$1" ] && return 0
+    if curl -fL "$2" -o "samples/$1.part"; then
+        mv "samples/$1.part" "samples/$1"
+    else
+        rm -f "samples/$1.part"
+        echo "setup: samples/$1 could not be downloaded from $2; run tools/setup again later" >&2
+        missing=yes
+    fi
+}
+
 mkdir -p samples
-[ -f samples/paper.pdf ] || curl -fL https://arxiv.org/pdf/1706.03762 -o samples/paper.pdf
-[ -f samples/book.epub ] || curl -fL https://www.gutenberg.org/ebooks/5001.epub3.images -o samples/book.epub
-echo "setup: done"
+missing=
+sample paper.pdf https://arxiv.org/pdf/1706.03762
+sample book.epub https://www.gutenberg.org/ebooks/5001.epub3.images
+if [ -n "$missing" ]; then
+    echo "setup: done, but for the sample books named above"
+else
+    echo "setup: done"
+fi

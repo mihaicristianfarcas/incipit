@@ -12,7 +12,9 @@ tools/setup
 It enables the git hooks, downloads pdfium into `lib/` and two sample books
 into `samples/` (a paper from arXiv and a book from Project Gutenberg).
 Neither folder is in git. It takes the pdfium build for the system Rust
-builds for, so the library matches the program.
+builds for, so the library matches the program. A sample book its site will
+not give is said and left for the next run: only `INCIPIT_BOOK` and the
+ignored tests read them.
 
 To build and run in a Linux container instead, with nothing installed but
 Docker, see [In Docker](#in-docker).

@@ -98,7 +98,7 @@ app let the learner pick another note to add to; here it is always the
 book's.
 
 **A tutor session sends the whole conversation each turn.** The reader's
-session sheet (`reader/session.rs` in the app) keeps the turns itself and
+session sheet (`reader/session/` in the app) keeps the turns itself and
 no provider keeps any: each turn is one request with the earlier app's
 instructions for the mode the learner chose (the tutor answers, or asks
 questions that lead them to the answer), the book's title, author and

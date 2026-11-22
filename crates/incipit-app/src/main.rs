@@ -44,6 +44,7 @@ mod note_quizzes;
 mod notes;
 mod notes_demo;
 mod open_with;
+mod pages;
 mod practice;
 mod profile_form;
 mod progress;
@@ -53,6 +54,7 @@ mod reader;
 mod redraw;
 mod resources;
 mod review;
+mod scripted;
 mod settings;
 mod stage;
 mod study;
@@ -68,42 +70,11 @@ use gpui::{
     actions, div, prelude::*, px, AnyElement, App, Context, Entity, KeyBinding, MouseButton,
     MouseDownEvent, Window,
 };
-use incipit_ui::{Glide, IconName, Theme, Type};
+use incipit_ui::{Glide, Theme, Type};
 use incipit_vault::{DocId, Kind};
+use pages::Page;
 
 actions!(incipit, [Find, Act, FindInBook]);
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Page {
-    Today,
-    Library,
-    Reader,
-    Notes,
-    Review,
-    Cards,
-    Brain,
-    Journey,
-    Math,
-    Figure,
-    Settings,
-}
-
-impl Page {
-    /// The page by the earlier app's name for it, for the agent (`agent::here`): none for the
-    /// reader, which says where in the book instead, and for pages the earlier app did not have.
-    fn agent_name(self) -> Option<&'static str> {
-        match self {
-            Page::Today => Some(""),
-            Page::Library => Some("library"),
-            Page::Notes => Some("notes"),
-            Page::Review => Some("review"),
-            Page::Brain => Some("brain"),
-            Page::Journey => Some("journey"),
-            Page::Settings => Some("settings"),
-            Page::Reader | Page::Math | Page::Figure | Page::Cards => None,
-        }
-    }
-}
 
 /// How long a run that only looks waits for a page to settle before the picture: 1.5 seconds, or
 /// INCIPIT_WAIT seconds, for what takes time (a model's answer).
@@ -113,56 +84,6 @@ fn shot_wait() -> Duration {
         .and_then(|s| s.parse::<f32>().ok())
         .map_or(Duration::from_millis(1500), Duration::from_secs_f32)
 }
-
-/// The keys INCIPIT_KEYS names, as GPUI writes them (`tab`, `shift-tab`, `down`); one it cannot read
-/// is said and left out.
-fn keys_named(words: &str) -> Vec<gpui::Keystroke> {
-    words
-        .split_whitespace()
-        .filter_map(|word| match gpui::Keystroke::parse(word) {
-            Ok(key) => Some(key),
-            Err(e) => {
-                eprintln!("INCIPIT_KEYS: {word}: {e}");
-                None
-            }
-        })
-        .collect()
-}
-
-/// Presses the keys as if typed, one to a frame: each meets the window as the one before left it.
-/// A key goes down and comes up, so Return and Space press what has the keyboard as they do when a
-/// finger lifts: GPUI acts on them when the key comes up.
-fn press(mut keys: Vec<gpui::Keystroke>, window: &mut Window, cx: &mut App) {
-    if keys.is_empty() {
-        return;
-    }
-    let key = keys.remove(0);
-    window.dispatch_keystroke(key.clone(), cx);
-    window.dispatch_event(
-        gpui::PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke: key }),
-        cx,
-    );
-    window.refresh();
-    window.on_next_frame(move |window, cx| press(keys, window, cx));
-}
-
-const PAGES: [(Page, &str, &str, IconName); 10] = [
-    (Page::Today, "nav-today", "Today", IconName::Clock),
-    (Page::Library, "nav-library", "Library", IconName::Display),
-    (Page::Reader, "nav-reader", "Reader", IconName::List),
-    (Page::Notes, "nav-notes", "Notes", IconName::Pencil),
-    (Page::Review, "nav-review", "Review", IconName::Bolt),
-    (Page::Brain, "nav-brain", "Brain", IconName::Network),
-    (Page::Journey, "nav-journey", "Journey", IconName::ChartBar),
-    (Page::Math, "nav-math", "Math", IconName::Type),
-    (Page::Figure, "nav-figure", "Figure", IconName::Activity),
-    (
-        Page::Settings,
-        "nav-settings",
-        "Settings",
-        IconName::Settings,
-    ),
-];
 
 struct Root {
     page: Page,
@@ -225,12 +146,12 @@ impl Root {
             .detach();
         }
         if let Ok(keys) = std::env::var("INCIPIT_KEYS") {
-            let keys = keys_named(&keys);
+            let keys = scripted::keys_named(&keys);
             // Nothing says "the page's data has arrived" either, so the first key is pressed after
             // half the moment the picture waits for; the others follow, one to a frame.
             cx.spawn_in(window, async move |_, cx| {
                 cx.background_executor().timer(shot_wait() / 2).await;
-                let _ = cx.update(|window, cx| press(keys, window, cx));
+                let _ = cx.update(|window, cx| scripted::press(keys, window, cx));
             })
             .detach();
         }
@@ -649,36 +570,6 @@ impl Root {
             cx.notify();
         }
     }
-
-    /// The pages, as one stop for Tab (the page shown), the arrows going from one to the next.
-    fn sidebar(&self, t: Theme, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // The cards page belongs to Review.
-        let here = if self.page == Page::Cards {
-            Page::Review
-        } else {
-            self.page
-        };
-        let at = PAGES.iter().position(|p| p.0 == here);
-        let stop = at.map_or(incipit_ui::Stop::Start(0), incipit_ui::Stop::Fixed);
-        let stops = incipit_ui::row_stops("sidebar", PAGES.iter().map(|p| p.1), stop, window, cx);
-        let mut list = incipit_ui::nav_list(&self.glide, at, t).on_key_down(stops.keys());
-        for (index, (page, id, label, glyph)) in PAGES.into_iter().enumerate() {
-            let on = here == page;
-            let (focus, ring) = stops.row(index, window);
-            list = list.child(
-                incipit_ui::nav_row(id, label, glyph, on, index, &self.glide, ring, t)
-                    .track_focus(&focus)
-                    .on_mouse_down(MouseButton::Left, incipit_ui::keep_focus)
-                    .when(!on, |row| {
-                        row.on_click(cx.listener(move |this, _, _, cx| {
-                            this.go(page, cx);
-                            cx.notify();
-                        }))
-                    }),
-            );
-        }
-        incipit_ui::sidebar(t).child(list)
-    }
 }
 
 impl Render for Root {
@@ -864,28 +755,4 @@ fn main() {
             cx.activate(true);
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_keys_a_run_is_told_to_press_are_read_as_gpui_spells_them() {
-        // Ctrl, not Cmd: GPUI spells the platform's own key "cmd" on macOS and "super" on Linux.
-        let keys = keys_named("tab  shift-tab\tdown enter space ctrl-k");
-        let spelled: Vec<String> = keys.iter().map(|k| k.unparse()).collect();
-        assert_eq!(
-            spelled,
-            ["tab", "shift-tab", "down", "enter", "space", "ctrl-k"]
-        );
-        assert!(keys_named("").is_empty());
-    }
-
-    #[test]
-    fn a_key_that_cannot_be_read_is_left_out_and_the_others_are_still_pressed() {
-        let keys = keys_named("tab nonsense-a down");
-        let spelled: Vec<String> = keys.iter().map(|k| k.unparse()).collect();
-        assert_eq!(spelled, ["tab", "down"]);
-    }
 }

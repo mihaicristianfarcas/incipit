@@ -14,9 +14,11 @@
 //! characters as pdfium gives them, in their order, so a passage found in a cut page is found
 //! again in the page as it is drawn.
 //!
-//! The tests that open a PDF read the sample paper `tools/setup` downloads, with the pdfium it
-//! puts in `lib/`: `cargo test -p incipit-book -- --ignored`.
+//! A page's links are read in `links`. The tests that open a PDF read the sample paper
+//! `tools/setup` downloads, with the pdfium it puts in `lib/`:
+//! `cargo test -p incipit-book -- --ignored`.
 
+mod links;
 #[cfg(test)]
 mod tests;
 
@@ -28,6 +30,9 @@ use anyhow::{anyhow, Result};
 use pdfium_render::prelude::*;
 use unicode_normalization::char::is_combining_mark;
 use unicode_normalization::UnicodeNormalization;
+
+use links::links_of;
+pub use links::{LinkTo, PageLink};
 
 static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 
@@ -328,6 +333,8 @@ pub struct Page {
     /// The boxes of the pictures on it (x, y, width, height in points from its top left), which
     /// a dark page leaves as they are (`Dark`).
     pub pictures: Vec<(f32, f32, f32, f32)>,
+    /// The links on it.
+    pub links: Vec<PageLink>,
 }
 
 impl Pdf {
@@ -344,9 +351,17 @@ impl Pdf {
                 PDFIUM.get_or_init(|| Pdfium::new(bindings))
             }
         };
-        let document = pdfium
-            .load_pdf_from_file(file, None)
-            .map_err(|e| anyhow!("{}: {e:?}", file.display()))?;
+        let document = pdfium.load_pdf_from_file(file, None).map_err(|e| match e {
+            PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => anyhow!(
+                "This PDF is locked with a password, so it cannot be read. A copy saved without \
+                 the password opens."
+            ),
+            PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::FormatError) => anyhow!(
+                "{} is damaged or is not a PDF, so it cannot be read.",
+                file.display()
+            ),
+            e => anyhow!("{}: {e:?}", file.display()),
+        })?;
         Ok(Pdf { document })
     }
 
@@ -480,6 +495,7 @@ impl Pdf {
                 )
             })
             .collect();
+        let links = links_of(&page, self.document.pages(), height);
         Ok(Page {
             width,
             height,
@@ -488,6 +504,7 @@ impl Pdf {
             pixel_height: bitmap.height() as u32,
             glyphs,
             pictures,
+            links,
         })
     }
 }

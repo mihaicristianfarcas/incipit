@@ -93,6 +93,8 @@ impl ReaderView {
         self.composing = None;
         self.finding.reset();
         self.close_session(cx);
+        // The conversation was about the book that was open: it stays kept in the vault.
+        self.new_chat(cx);
         self.scale = self.first_scale();
         self.back.clear();
         self.marked = None;
@@ -161,6 +163,12 @@ impl ReaderView {
                             Some("pretest") => this.offer_quiz(Some(Mode::Pretest), cx),
                             Some(_) => this.offer_quiz(None, cx),
                             None => {}
+                        }
+                        this.earlier_chats(cx);
+                        match std::env::var("INCIPIT_ASK_BOOK").as_deref() {
+                            Ok("demo") => this.chat_demo(),
+                            Ok("1") | Err(_) => {}
+                            Ok(question) => this.ask_book(question.to_owned(), cx),
                         }
                         if this.demo && epub {
                             this.demo = false;

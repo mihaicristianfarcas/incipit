@@ -114,6 +114,22 @@ remembers where the reader was, and Back returns (`reader/links.rs`). A link
 to the web is opened in the learner's browser; Incipit fetches nothing from
 it.
 
+**A question about the whole book is answered from the book.** The reader's
+Ask panel (`reader/ask_book.rs`, with what the model is told in
+`learning/ask_book.rs`) sends the chapter being read (12,000 characters at
+most) and the passages the question is most about (18,000 at most), each
+numbered and labelled with where it is, as material, and the conversation as
+turns. The passages are found in the book's index with BM25 over a PDF's pages
+or an EPUB's blocks in runs of about 1,600 characters (`index/ask.rs` in
+`incipit-book`), so no model and no embedding is needed to find them, and the
+same index serves the find bar. The model is told to keep to the excerpts,
+cite each by its number, and say when they do not hold the answer; a citation
+in the answer is a link to its excerpt's place. The conversation is kept as a
+session about the book with no passage, so it has no card in the margin; each
+answer in the file has a line under it saying where its numbers lead, which
+is read back when the conversation is taken up again from the panel's list of
+the book's earlier ones.
+
 **A tutor session sends the whole conversation each turn.** The reader's
 session sheet (`reader/session/` in the app) keeps the turns itself and
 no provider keeps any: each turn is one request with the earlier app's

@@ -191,7 +191,8 @@ What the learner wrote on it, or the model's answer.
   `model` (which wrote it) and, until it is written, `status`: `pending`,
   or `failed` with the reason in `error`.
 - A session with the tutor (`library/<book>/sessions/`) has the same
-  `source` when it is about a passage.
+  `source` when it is about a passage. One about the whole book, from the
+  reader's Ask panel, has only the book in its `source`.
 
 ## A concept
 

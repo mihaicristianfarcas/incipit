@@ -1,7 +1,8 @@
 //! The reader from the keyboard. The arrows move the book by lines (left and right by a page),
 //! Page Up, Page Down and Space by a screen, Home and End to its ends; ⌘[ (Alt+Left) goes back
 //! after a jump, ⌘G asks for a page, ⌘+ ⌘− and ⌘0 make the book larger, smaller or as wide as
-//! the window allows, and ⌘C copies the selection (Control for ⌘ off macOS).
+//! the window allows, ⌘C copies the selection, and ⌘⇧A opens the conversation about the whole
+//! book (Control for ⌘ off macOS).
 //!
 //! Selecting and acting on a passage, as in the earlier app's reader: S selects the passage at
 //! the reading line (on a PDF's page the lines from there to the end of the paragraph, six at
@@ -117,6 +118,7 @@ impl ReaderView {
                 "-" => self.zoom(1.0 / super::ZOOM, cx),
                 "0" => self.fit(cx),
                 "g" => self.ask_page(window, cx),
+                "a" if held.shift => self.toggle_chat(window, cx),
                 _ => return,
             }
             cx.stop_propagation();

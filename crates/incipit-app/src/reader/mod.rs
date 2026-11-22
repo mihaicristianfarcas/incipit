@@ -533,12 +533,7 @@ impl ReaderView {
                 waiting: pending,
                 problem,
                 doc: Some(doc.id().clone()),
-                anchors: vec![Anchor {
-                    part,
-                    start: 0,
-                    end: quote.chars().count(),
-                    quote,
-                }],
+                anchors: vec![Anchor::kept(part, &quote, "", "")],
                 words,
                 asked,
                 figure,

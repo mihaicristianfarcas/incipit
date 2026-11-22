@@ -1,6 +1,6 @@
 //! What Markdown is read into: blocks, marks, clozes and math.
 
-use super::draw::{breaks_badly, pieces, Piece};
+use super::draw::{backward_pieces, breaks_badly, pieces, Piece};
 use super::*;
 
 fn parse_plain(source: &str) -> Vec<Block> {
@@ -234,6 +234,7 @@ fn a_line_with_math_is_cut_into_words_and_line_breaks() {
         .into_iter()
         .map(|p| match p {
             Piece::Words(r) => &text[r],
+            Piece::Turned { .. } => "turned",
             Piece::Break => "|",
         })
         .collect();
@@ -289,4 +290,30 @@ fn text_gpui_would_cut_inside_a_word_is_known() {
 fn text_set_right_to_left_keeps_gpuis_lines() {
     assert!(!breaks_badly("תורת היחסות"));
     assert!(!breaks_badly("النظرية النسبية and M′"));
+}
+
+/// The words of `text` as a paragraph set from the right takes them.
+fn set_backward(text: &str) -> Vec<String> {
+    backward_pieces(text, pieces(text, 0..text.len()))
+        .into_iter()
+        .map(|piece| match piece {
+            Piece::Words(range) => text[range].to_owned(),
+            Piece::Turned { words, marks } => format!("{}{}", &text[marks], &text[words]),
+            Piece::Break => "|".to_owned(),
+        })
+        .collect()
+}
+
+#[test]
+fn a_paragraph_set_from_the_right_keeps_its_words_and_their_order() {
+    assert_eq!(set_backward("תורת היחסות של"), ["תורת", "היחסות", "של"]);
+    assert_eq!(
+        set_backward("כתב Albert Einstein בשנת 1905."),
+        ["כתב", "Albert Einstein", "בשנת", ".1905"]
+    );
+    assert_eq!(
+        set_backward("לפי Albert Einstein, שני (Lorentz) [1]."),
+        ["לפי", ",Albert Einstein", "שני", ".(Lorentz) [1]"]
+    );
+    assert_eq!(set_backward("שורה\nשנייה"), ["שורה", "|", "שנייה"]);
 }

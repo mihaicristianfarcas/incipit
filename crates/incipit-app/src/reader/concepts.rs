@@ -228,7 +228,13 @@ impl ReaderView {
                 self.notes.push(Note {
                     id: number,
                     doc: Some(doc.id().clone()),
-                    anchors: vec![Anchor::kept(part, &quote, "", "")],
+                    anchors: vec![Anchor::kept(
+                        part,
+                        &quote,
+                        source.prefix.as_deref().unwrap_or_default(),
+                        source.suffix.as_deref().unwrap_or_default(),
+                    )],
+                    loose: true,
                     words: fields.summary.clone(),
                     concept: Some(ConceptNote {
                         id: doc.id().clone(),
@@ -238,6 +244,7 @@ impl ReaderView {
                 });
             }
         }
+        self.settle_all();
         cx.notify();
     }
 

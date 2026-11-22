@@ -150,6 +150,49 @@ updated: 2026-11-10T09:12:00Z
   blank in their place until the answer is shown. Braces in code, in
   `$math$` and in a link's own words are left as written.
 
+## A note on a book
+
+A highlight, the learner's note on a passage, and an answer the model wrote
+about one are each a file in `library/<book>/annotations/`, of `type`
+`highlight`, `explain`, `define`, `ask` or `resources`.
+
+```markdown
+---
+id: …
+kind: annotation
+type: highlight
+color: green
+source:
+  book: …
+  chapter: 1 Introduction
+  page: 2
+  quote: Recurrent neural networks, long short-term memory …
+  prefix: "1 Introduction\n"
+  suffix: " and gated recurrent [7] neural networks"
+created: …
+updated: …
+---
+> [!quote] p. 2
+> Recurrent neural networks, long short-term memory …
+
+What the learner wrote on it, or the model's answer.
+```
+
+- `source` says where the passage is: the book by its id, the chapter, the
+  page (a PDF's, from 1) or the block (an EPUB's, from 0), the passage word
+  for word (`quote`; a passage that runs over pages or blocks has them joined
+  by a line break), and up to 32 characters before and after it (`prefix`,
+  `suffix`), which tell its place from others with the same words when the
+  text has moved.
+- `color`: the highlight's colour, `yellow` (when it is left out), `green`,
+  `blue`, `pink` or `purple`.
+- The body under the callout is the learner's own note on a highlight, or
+  the model's answer. An answer also has `request` (what was asked),
+  `model` (which wrote it) and, until it is written, `status`: `pending`,
+  or `failed` with the reason in `error`.
+- A session with the tutor (`library/<book>/sessions/`) has the same
+  `source` when it is about a passage.
+
 ## A concept
 
 One idea is one file, `concepts/<Name>.md`, and its name is the file's

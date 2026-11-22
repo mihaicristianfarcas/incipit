@@ -53,7 +53,7 @@ impl ReaderView {
         self.menu = None;
         self.said = None;
         if !anchors.is_empty() {
-            self.margin = true;
+            self.show_margin();
             self.ask(anchors, way, None, cx);
         }
         cx.notify();
@@ -269,7 +269,7 @@ impl ReaderView {
         if anchors.is_empty() {
             return;
         }
-        self.margin = true;
+        self.show_margin();
         let id = self.id();
         let note = Note {
             id,
@@ -377,10 +377,10 @@ impl ReaderView {
     ) -> Option<incipit_vault::DocId> {
         let vault = self.workspace.read(cx).vault.clone()?;
         let book = self.book.as_ref()?.id.clone()?;
-        let first = self.notes[note].anchors.first()?;
+        let source = self.source(&book, &self.notes[note].anchors)?;
         let mut doc = incipit_vault::Doc::new(incipit_vault::Kind::Figure);
         doc.set_title(figure.title());
-        doc.set_source(Some(&self.source(&book, first)));
+        doc.set_source(Some(&source));
         doc.set_fields(&incipit_vault::Figure {
             request: request.map(str::to_owned),
             spec: serde_json::to_value(figure).ok(),

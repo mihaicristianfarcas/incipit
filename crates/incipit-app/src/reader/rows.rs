@@ -11,13 +11,19 @@ use gpui::{
     MouseUpEvent, Pixels, Point, RenderImage, Rgba, StyledText, TextRun, Window,
 };
 use incipit_book::dark::{self, Dark};
-use incipit_book::{Block, Page, Rich};
+use incipit_book::{Block, Kind, Page, Rich};
 use incipit_ui::Theme;
 
+use super::links::Jump;
 use super::model::{byte_of, Doc, Note, Opened, Place};
 use super::{ReaderView, State, ANSWER, COLUMN, GAP, MARGIN, PAGE_GAP};
 
 const SERIF: &str = "Charter";
+/// The face of text set as written (code): one every system has.
+const MONO: &str = "Menlo";
+/// How far in an item of a list is set for each list it is in, and a quotation, as a share of
+/// the text's size.
+const INDENT: f32 = 1.6;
 /// Room kept for a card when placing the next one under it: closed, open (the most it can
 /// take: its quote, what it says, its buttons), and being written.
 const CARD: (f32, f32, f32) = (44.0, ANSWER + 160.0, 150.0);
@@ -69,12 +75,12 @@ fn tint(colour: Rgba, alpha: f32) -> Hsla {
 }
 
 /// The colour a note's passage is marked in, at `alpha`: a concept's passage in the accent, more
-/// lightly.
+/// lightly; any other in the colour the learner chose for it.
 fn note_ink(note: &Note, t: Theme, alpha: f32) -> Hsla {
     if note.concept.is_some() {
         tint(t.accent, alpha * 0.7)
     } else {
-        tint(t.attention, alpha)
+        tint(note.colour.ink(), alpha)
     }
 }
 
@@ -107,7 +113,7 @@ impl ReaderView {
                     .flex()
                     .gap(px(GAP))
                     .child(part)
-                    .when(self.margin, |row| row.child(margin)),
+                    .when(self.shows_margin(), |row| row.child(margin)),
             )
             .into_any_element()
     }
@@ -127,6 +133,22 @@ impl ReaderView {
             .page
             .glyph_at(p.x.as_f32() / scale, p.y.as_f32() / scale)?;
         Some(Place { part: index, at })
+    }
+
+    /// The link of page `index` at a point of the window, if there is one there.
+    fn page_link(&self, index: usize, position: Point<Pixels>) -> Option<Jump> {
+        let State::Open(Opened {
+            doc: Doc::Pdf(pdf), ..
+        }) = &self.state
+        else {
+            return None;
+        };
+        let held = pdf.pages.get(&index)?;
+        let scale = self.scale.min(self.room) / held.page.width;
+        let p = position - held.origin.get();
+        held.page
+            .link_at(p.x.as_f32() / scale, p.y.as_f32() / scale)
+            .map(|link| Jump::from(&link.to))
     }
 
     /// A PDF's page, and the margin beside it with each card at its passage's height.
@@ -303,7 +325,13 @@ impl ReaderView {
             })
             .rounded(px(3.0))
             .overflow_hidden()
-            .cursor_text()
+            .map(|sheet| {
+                if self.over_link {
+                    sheet.cursor_pointer()
+                } else {
+                    sheet.cursor_text()
+                }
+            })
             .children(picture)
             .on_mouse_down(
                 MouseButton::Left,
@@ -316,6 +344,12 @@ impl ReaderView {
             )
             .on_mouse_move(cx.listener(move |this, e: &MouseMoveEvent, _, cx| {
                 if !this.dragging {
+                    // Over a link the pointer says it leads somewhere.
+                    let over = this.page_link(index, e.position).is_some();
+                    if over != this.over_link {
+                        this.over_link = over;
+                        cx.notify();
+                    }
                     return;
                 }
                 if let Some(place) = this.page_place(index, e.position) {
@@ -324,7 +358,10 @@ impl ReaderView {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, e: &MouseUpEvent, _, cx| this.released(e.position, cx)),
+                cx.listener(move |this, e: &MouseUpEvent, _, cx| {
+                    let link = this.page_link(index, e.position);
+                    this.released(e.position, link, cx)
+                }),
             );
         let margin = div().relative().w(px(MARGIN)).flex_none().children(cards);
         (sheet.into_any_element(), margin.into_any_element())
@@ -348,13 +385,22 @@ impl ReaderView {
         let Some((block, chars)) = book.blocks.get(index) else {
             return (div().into_any_element(), div().into_any_element());
         };
+        let size = self.scale;
         let content: AnyElement = match block {
+            // A picture sits on paper of its own, so that one drawn for a white page (a formula's
+            // black lines on nothing) can be read on a dark one.
             Block::Image { name, .. } => match book.pictures.get(&index) {
                 Some(picture) => div()
                     .py(px(10.0))
                     .flex()
                     .justify_center()
-                    .child(img(picture.clone()).max_w(px(COLUMN * 0.8)))
+                    .child(
+                        div()
+                            .when(t.dark, |paper| {
+                                paper.bg(gpui::white()).p(px(6.0)).rounded(px(4.0))
+                            })
+                            .child(img(picture.clone()).max_w(px(COLUMN * 0.8))),
+                    )
                     .into_any_element(),
                 None => div()
                     .text_color(t.tertiary)
@@ -367,13 +413,51 @@ impl ReaderView {
                     3 => 1.25,
                     _ => 1.1,
                 };
-                self.passage(index, text, chars, self.scale * scale, true, t, cx)
+                self.passage(index, text, chars, size * scale, Face::Heading, t, cx)
                     .pt(px(18.0))
                     .into_any_element()
             }
-            Block::Paragraph(text) | Block::Text { text, .. } => self
-                .passage(index, text, chars, self.scale, false, t, cx)
+            Block::Paragraph(text) => self
+                .passage(index, text, chars, size, Face::Body, t, cx)
                 .into_any_element(),
+            Block::Text { kind, text } => {
+                let face = match kind {
+                    Kind::Pre => Face::Mono,
+                    Kind::Caption | Kind::Row => Face::Small,
+                    Kind::Quote | Kind::Item { .. } => Face::Body,
+                };
+                let size = match face {
+                    Face::Mono => size * 0.8,
+                    Face::Small => size * 0.85,
+                    _ => size,
+                };
+                let passage = self.passage(index, text, chars, size, face, t, cx);
+                match kind {
+                    Kind::Quote => passage
+                        .ml(px(size * INDENT * 0.5))
+                        .pl(px(size * INDENT * 0.5))
+                        .border_l_2()
+                        .border_color(t.hairline)
+                        .text_color(t.secondary)
+                        .into_any_element(),
+                    Kind::Item { depth } => passage
+                        .pl(px(size * INDENT * f32::from((*depth).min(6))))
+                        .pb(px(size * 0.35))
+                        .into_any_element(),
+                    Kind::Pre => passage
+                        .p(px(10.0))
+                        .mb(px(size))
+                        .rounded(px(6.0))
+                        .bg(t.hover)
+                        .into_any_element(),
+                    Kind::Caption => passage.text_color(t.secondary).into_any_element(),
+                    Kind::Row => passage
+                        .pb(px(2.0))
+                        .border_b_1()
+                        .border_color(t.hairline)
+                        .into_any_element(),
+                }
+            }
         };
         let starts_here = |note: &&Note| note.anchors.first().is_some_and(|a| a.part == index);
         let mut cards = Vec::new();
@@ -410,8 +494,8 @@ impl ReaderView {
         )
     }
 
-    /// One block of text: its styles, the noted passages and the selection as runs, and the mouse
-    /// turned into places in the text by the text's own layout.
+    /// One block of text: its styles, the noted passages, the selection and its links as runs,
+    /// and the mouse turned into places in the text by the text's own layout.
     #[allow(clippy::too_many_arguments)]
     fn passage(
         &self,
@@ -419,10 +503,11 @@ impl ReaderView {
         text: &Rich,
         chars: &[char],
         size: f32,
-        heading: bool,
+        face: Face,
         t: Theme,
         cx: &mut Context<Self>,
     ) -> gpui::Div {
+        let heading = face == Face::Heading;
         // Each stretch to mark, in bytes, with its colour: notes first, the selection over them.
         let noted = self
             .notes
@@ -452,6 +537,7 @@ impl ReaderView {
         let mut cuts: Vec<usize> = vec![0, text.text.len()];
         cuts.extend(text.spans.iter().flat_map(|s| [s.start, s.end]));
         cuts.extend(marks.iter().flat_map(|m| [m.0, m.1]));
+        cuts.extend(text.links.iter().flat_map(|l| [l.start, l.end]));
         cuts.retain(|c| *c <= text.text.len() && text.text.is_char_boundary(*c));
         cuts.sort_unstable();
         cuts.dedup();
@@ -459,7 +545,11 @@ impl ReaderView {
             .windows(2)
             .map(|w| {
                 let inside = |s: usize, e: usize| s <= w[0] && w[1] <= e;
-                let mut face = font(SERIF);
+                let linked = text.links.iter().any(|l| inside(l.start, l.end));
+                let mut face = font(match face {
+                    Face::Mono => MONO,
+                    _ => SERIF,
+                });
                 if heading || text.spans.iter().any(|s| s.bold && inside(s.start, s.end)) {
                     face.weight = FontWeight::SEMIBOLD;
                 }
@@ -473,9 +563,17 @@ impl ReaderView {
                 TextRun {
                     len: w[1] - w[0],
                     font: face,
-                    color: t.primary.into(),
+                    color: if linked {
+                        t.accent.into()
+                    } else {
+                        t.primary.into()
+                    },
                     background_color: marks.iter().rev().find(|m| inside(m.0, m.1)).map(|m| m.2),
-                    underline: None,
+                    underline: linked.then(|| gpui::UnderlineStyle {
+                        thickness: px(1.0),
+                        color: Some(tint(t.accent, 0.5)),
+                        wavy: false,
+                    }),
                     strikethrough: None,
                 }
             })
@@ -485,10 +583,22 @@ impl ReaderView {
         let place = move |position: Point<Pixels>| match layout.index_for_position(position) {
             Ok(at) | Err(at) => Place { part: index, at },
         };
-        let (down, moved) = (place.clone(), place);
+        let (down, moved, up) = (place.clone(), place.clone(), place);
+        let links: Vec<(usize, usize, Jump)> = text
+            .links
+            .iter()
+            .map(|l| (l.start, l.end, Jump::from(&l.to)))
+            .collect();
+        let link_at = move |at: Place| {
+            links
+                .iter()
+                .find(|(s, e, _)| *s <= at.at && at.at < *e)
+                .map(|(_, _, jump)| jump.clone())
+        };
+        let line = if face == Face::Mono { 1.45 } else { 1.62 };
         div()
             .text_size(px(size))
-            .line_height(px(size * 1.62))
+            .line_height(px(size * line))
             .pb(px(if heading { 6.0 } else { size * 0.8 }))
             .cursor_text()
             .child(styled)
@@ -510,7 +620,21 @@ impl ReaderView {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, e: &MouseUpEvent, _, cx| this.released(e.position, cx)),
+                cx.listener(move |this, e: &MouseUpEvent, _, cx| {
+                    let link = link_at(up(e.position));
+                    this.released(e.position, link, cx)
+                }),
             )
     }
+}
+
+/// The face a block of an EPUB's text is set in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Face {
+    Body,
+    Heading,
+    /// Smaller: a caption, a row of a table.
+    Small,
+    /// Text set as written, in a face whose letters are all one width.
+    Mono,
 }

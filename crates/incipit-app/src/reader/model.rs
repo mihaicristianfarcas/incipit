@@ -83,6 +83,64 @@ pub struct Note {
     pub mode: incipit_vault::fields::Mode,
     /// The concept introduced at the passage, if the card is one's; `words` is then its summary.
     pub concept: Option<ConceptNote>,
+    /// The colour its passage is marked in.
+    pub colour: Colour,
+    /// The passage was kept in the vault as words, and is still to be found in the text
+    /// (`kept::settle`): over which parts it runs, and where in them.
+    pub loose: bool,
+}
+
+/// The colours a passage can be marked in, by the names the vault keeps them under (an
+/// annotation's `color`, as Obsidian's highlighter plugins name them).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Colour {
+    #[default]
+    Yellow,
+    Green,
+    Blue,
+    Pink,
+    Purple,
+}
+
+impl Colour {
+    pub const ALL: [Colour; 5] = [
+        Colour::Yellow,
+        Colour::Green,
+        Colour::Blue,
+        Colour::Pink,
+        Colour::Purple,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Colour::Yellow => "yellow",
+            Colour::Green => "green",
+            Colour::Blue => "blue",
+            Colour::Pink => "pink",
+            Colour::Purple => "purple",
+        }
+    }
+
+    /// The colour a kept name is, ignoring case; yellow for a name it does not know, as an
+    /// annotation without one is marked.
+    pub fn of(name: Option<&str>) -> Colour {
+        let name = name.unwrap_or_default().trim().to_ascii_lowercase();
+        Colour::ALL
+            .into_iter()
+            .find(|c| c.name() == name)
+            .unwrap_or_default()
+    }
+
+    pub fn ink(self) -> gpui::Rgba {
+        use incipit_ui::Marker;
+        match self {
+            Colour::Yellow => Marker::YELLOW,
+            Colour::Green => Marker::GREEN,
+            Colour::Blue => Marker::BLUE,
+            Colour::Pink => Marker::PINK,
+            Colour::Purple => Marker::PURPLE,
+        }
+    }
 }
 
 /// A concept a passage introduces, as its card in the margin names it.
@@ -116,12 +174,43 @@ pub struct PdfDoc {
     pub pages: HashMap<usize, Held>,
     /// Pages asked for and not yet drawn.
     pub asked: HashSet<usize>,
+    /// How many pages were drawn with no text on them, until one has text: `None` from then on.
+    pub textless: Option<usize>,
 }
 
 /// How many drawn pages are kept: enough for what is on screen and a few either side.
 const KEPT: usize = 14;
+/// How many pages drawn with no text show that a PDF has none: a scanned book's pages are
+/// pictures, while a book with text rarely has more than a cover and a blank page before it.
+const TEXTLESS: usize = 3;
 
 impl PdfDoc {
+    /// A PDF of pages of these sizes, none drawn, that no page is asked of.
+    #[cfg(test)]
+    pub fn empty(sizes: Vec<(f32, f32)>) -> PdfDoc {
+        PdfDoc {
+            worker: PdfWorker::closed(),
+            sizes,
+            pages: HashMap::new(),
+            asked: HashSet::new(),
+            textless: Some(0),
+        }
+    }
+
+    /// Counts a page drawn with `text`; true when it shows that the PDF has no text (its pages
+    /// are pictures, as a scanned book's are), which is so once.
+    pub fn count_text(&mut self, text: &[char]) -> bool {
+        let Some(textless) = self.textless else {
+            return false;
+        };
+        if text.iter().any(|c| !c.is_whitespace()) {
+            self.textless = None;
+            return false;
+        }
+        self.textless = Some(textless + 1);
+        textless + 1 == TEXTLESS.min(self.sizes.len())
+    }
+
     /// Forget the drawn pages farthest from page `around` until `KEPT` are left.
     pub fn trim(&mut self, around: usize) {
         while self.pages.len() > KEPT {
@@ -166,12 +255,7 @@ impl Opened {
 }
 
 pub fn rich(block: &Block) -> Option<&Rich> {
-    match block {
-        Block::Heading { text, .. } | Block::Paragraph(text) | Block::Text { text, .. } => {
-            Some(text)
-        }
-        Block::Image { .. } => None,
-    }
+    block.rich()
 }
 
 /// The byte a character index is at.
@@ -218,6 +302,23 @@ mod tests {
             anchor: Place { part: a.0, at: a.1 },
             head: Place { part: b.0, at: b.1 },
         }
+    }
+
+    #[test]
+    fn a_pdf_whose_first_pages_have_no_text_is_said_to_have_none_once() {
+        let mut pdf = PdfDoc::empty(vec![(612.0, 792.0); 40]);
+        let blank: Vec<char> = " \n".chars().collect();
+        assert!(!pdf.count_text(&blank));
+        assert!(!pdf.count_text(&blank));
+        assert!(pdf.count_text(&blank));
+        assert!(!pdf.count_text(&blank));
+        // A page with text says the PDF has text, after a cover or two without.
+        let mut pdf = PdfDoc::empty(vec![(612.0, 792.0); 40]);
+        assert!(!pdf.count_text(&blank));
+        assert!(!pdf.count_text(&['A']));
+        assert!(!pdf.count_text(&blank) && !pdf.count_text(&blank));
+        // A PDF of one picture says so at its one page.
+        assert!(PdfDoc::empty(vec![(612.0, 792.0)]).count_text(&blank));
     }
 
     #[test]
@@ -277,6 +378,16 @@ mod tests {
         // From a later block on, the next one is found; past the last there is none.
         assert_eq!(first_paragraph(&blocks, 4).map(|a| a.part), Some(4));
         assert_eq!(first_paragraph(&blocks, 5), None);
+    }
+
+    #[test]
+    fn a_colour_is_kept_by_its_name_and_an_unknown_one_is_yellow() {
+        for colour in Colour::ALL {
+            assert_eq!(Colour::of(Some(colour.name())), colour);
+        }
+        assert_eq!(Colour::of(Some(" Green ")), Colour::Green);
+        assert_eq!(Colour::of(Some("orange")), Colour::Yellow);
+        assert_eq!(Colour::of(None), Colour::Yellow);
     }
 
     #[test]

@@ -52,6 +52,19 @@ impl Ink {
     pub const IDLE: Rgba = rgba(0.557, 0.557, 0.576, 1.0);
 }
 
+/// The inks a passage of a book is marked in, chosen by the learner: bright enough to see laid
+/// thinly (about a third) over black text on white paper and over light text on a dark page,
+/// and far enough apart in hue to tell from each other there.
+pub struct Marker;
+
+impl Marker {
+    pub const YELLOW: Rgba = hex(0xf5c518, 1.0);
+    pub const GREEN: Rgba = hex(0x4cc764, 1.0);
+    pub const BLUE: Rgba = hex(0x4d9fff, 1.0);
+    pub const PINK: Rgba = hex(0xff6b9e, 1.0);
+    pub const PURPLE: Rgba = hex(0xa47bff, 1.0);
+}
+
 pub struct Radius;
 
 impl Radius {

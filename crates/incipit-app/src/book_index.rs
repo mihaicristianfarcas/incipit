@@ -138,7 +138,7 @@ fn make(file: &Path, pdf: bool, source: Source) -> Result<TextIndex, String> {
         Ok(TextIndex::of_pages(&pages, pdf.contents(), source))
     } else {
         let book = Book::open(file).map_err(unread)?;
-        let contents = crate::reader::epub_contents(&book.blocks);
+        let contents = book.contents.clone();
         let blocks = book.blocks.iter().enumerate().filter_map(|(i, block)| {
             crate::reader::rich(block).map(|text| (i, text.text.as_str()))
         });

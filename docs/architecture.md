@@ -97,6 +97,23 @@ first use, so what is noted while reading is found in Notes. The earlier
 app let the learner pick another note to add to; here it is always the
 book's.
 
+**A highlight has a colour and can carry the learner's own words.** The
+selection menu marks a passage in one of five colours (the one used last
+first) and the colour is kept in the annotation by name; a click on a marked
+passage opens its menu, to change the colour, write a note on it, copy it or
+delete it. A note of the learner's own is the highlight's annotation with
+their words as its answer, so it is one document, not two. Every note on a
+book is listed in the rail beside the book, in the order of the book, with a
+filter (the learner's, the model's, the concepts) and a copy of the list as
+Markdown (`reader/notebook.rs`).
+
+**A book's links are followed inside the book.** A PDF's link to a page and
+an EPUB's link to a note or a chapter take the reader there, as a line of the
+contents, a page asked for and a note picked from the rail do; each jump
+remembers where the reader was, and Back returns (`reader/links.rs`). A link
+to the web is opened in the learner's browser; Incipit fetches nothing from
+it.
+
 **A tutor session sends the whole conversation each turn.** The reader's
 session sheet (`reader/session/` in the app) keeps the turns itself and
 no provider keeps any: each turn is one request with the earlier app's
@@ -236,7 +253,10 @@ written until it is ready.
 **PDFs go through pdfium.** It is a native library, loaded when the first
 PDF is opened, one pinned build fetched by `tools/setup`. It gives the
 picture of a page and the box of every character, which is what selection
-and highlights are made from.
+and highlights are made from. A PDF whose pages are pictures with no text (a
+scanned book) is read as pictures: there is no text recognition, and once its
+first three pages (or all, when it has fewer) are drawn with no text, the
+reader says it cannot be selected, searched or asked about.
 
 **EPUBs become native text.** A book's HTML is parsed and reduced to blocks;
 it is never run or displayed as HTML. What a reader needs of it is kept as
@@ -257,7 +277,9 @@ itself and up to 32 characters either side of it, as a web annotation's text
 quote does. When the text has moved, the words find the place again, and the
 words around them tell one place the passage's words occur from another. A
 passage that runs over the end of a page or a block is kept as one quote and
-found again a part at a time.
+found again a part at a time. A kept passage is found when its part's text is
+known (an EPUB's at once, a PDF's page when it is drawn; `reader/kept.rs`); in
+an EPUB whose blocks have moved it is looked for in the blocks around.
 
 **FSRS is ported, not imported.** `incipit-learn` follows the earlier app's
 scheduler formula for formula, so a learner's intervals do not change. The

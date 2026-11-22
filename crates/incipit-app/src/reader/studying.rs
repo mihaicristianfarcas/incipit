@@ -23,7 +23,7 @@ use incipit_book::{Anchor, Cut};
 
 use super::asking::passage_of;
 use super::model::Doc;
-use super::place::{chapter_from, item_of};
+use super::place::{chapter_from, in_list};
 use super::{ReaderView, State};
 use crate::agent::here::{selected, BookAt};
 use crate::concepts::chapter::span;
@@ -56,9 +56,9 @@ impl ReaderView {
                 id,
                 pdf,
                 at,
-                chapter: at
-                    .map(|at| item_of(pdf, at as f64).0)
-                    .and_then(|item| chapter_from(&opened.contents, item))
+                chapter: self
+                    .place()
+                    .and_then(|place| chapter_from(&opened.contents, in_list(pdf, place)))
                     .map(|index| (index, opened.contents[index].title.clone())),
             });
         (book, selected(&passage_of(&self.anchors())))
@@ -79,11 +79,11 @@ impl ReaderView {
 
     /// Where a passage of a book of the vault is, with its chapter, as the earlier app's study
     /// tools kept it; none for a book outside the vault.
-    pub(super) fn passage_source(&self, first: &Anchor) -> Option<incipit_vault::Source> {
+    pub(super) fn passage_source(&self, anchors: &[Anchor]) -> Option<incipit_vault::Source> {
         let book = self.book.as_ref()?.id.clone()?;
         Some(incipit_vault::Source {
-            chapter: self.chapter_at(first.part),
-            ..self.source(&book, first)
+            chapter: self.chapter_at(anchors.first()?.part),
+            ..self.source(&book, anchors)?
         })
     }
 
@@ -201,7 +201,7 @@ impl ReaderView {
         let Some(first) = anchors.first() else {
             return;
         };
-        let source = self.passage_source(first);
+        let source = self.passage_source(anchors);
         let meta = Meta {
             deck: self
                 .book
@@ -305,7 +305,7 @@ impl ReaderView {
         let about = About {
             concept: None,
             passage: Some(passage),
-            source: self.passage_source(first),
+            source: self.passage_source(&anchors),
             context: BookContext::default(),
         };
         self.explain_at(first.part, about, cx);
@@ -330,7 +330,7 @@ impl ReaderView {
         let about = About {
             concept: None,
             passage: Some(passage_of(&anchors)),
-            source: self.passage_source(first),
+            source: self.passage_source(&anchors),
             context: BookContext::default(),
         };
         let context = self.book_context(Some(first.part), cx);
@@ -379,7 +379,7 @@ impl ReaderView {
         let about = About {
             concept: Some(concept.title.clone()),
             passage: Some(card.words.clone()).filter(|w| !w.trim().is_empty()),
-            source: self.passage_source(first),
+            source: self.passage_source(&card.anchors),
             context: BookContext::default(),
         };
         let part = first.part;

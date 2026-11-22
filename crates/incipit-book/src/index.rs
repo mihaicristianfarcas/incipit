@@ -3,7 +3,7 @@
 //! scanned on every search. Kept as a file (`encode`, `decode`; the app keeps it in the vault's
 //! generated folder), it serves both the reader's find bar (`find`: every place a phrase
 //! occurs) and the app's search across the books (`search`: the lines of the contents that hold
-//! every word of a query).
+//! every word of a query), and finds the passages a question is about (`excerpts`, in `ask`).
 //!
 //! A query is matched with Incipit's matcher, as the vault's search matches documents: each of
 //! its words must begin a word of the book, accents folded, and for a phrase the words must
@@ -22,7 +22,10 @@
 //! which is what making a PDF's index costs most. The test that measures it:
 //! `cargo test -p incipit-book -- --ignored --nocapture sample_books`.
 
+mod ask;
 mod file;
+
+pub use ask::Excerpt;
 
 use std::collections::HashMap;
 use std::ops::Range;

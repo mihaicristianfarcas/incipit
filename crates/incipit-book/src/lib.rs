@@ -16,6 +16,6 @@ pub mod worker;
 pub use anchor::Anchor;
 pub use dark::Dark;
 pub use epub::{Block, Book, Kind, Link, Rich, Span, Target};
-pub use index::{Passage, Source, TextIndex};
+pub use index::{Excerpt, Passage, Source, TextIndex};
 pub use pdf::{library_file, Cut, Entry, Glyph, Line, LinkTo, Page, PageLink, PageText, Pdf};
 pub use worker::{PdfInfo, PdfWorker};

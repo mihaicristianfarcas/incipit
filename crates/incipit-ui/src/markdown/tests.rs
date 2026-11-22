@@ -1,6 +1,6 @@
 //! What Markdown is read into: blocks, marks, clozes and math.
 
-use super::draw::{pieces, Piece};
+use super::draw::{breaks_badly, pieces, Piece};
 use super::*;
 
 fn parse_plain(source: &str) -> Vec<Block> {
@@ -271,4 +271,22 @@ fn blocks_and_marks_come_out_of_markdown() {
     assert!(matches!(&b[3], Block::Code(c) if c == "fn a() {}"));
     assert!(matches!(b[4], Block::Quote(_)));
     assert!(matches!(&b[5], Block::Table(rows) if rows.len() == 2 && rows[1][1].text == "2"));
+}
+
+#[test]
+fn text_gpui_would_cut_inside_a_word_is_known() {
+    assert!(!breaks_badly(
+        "Plain words, café and naïve, «quoted» — and Привет."
+    ));
+    assert!(breaks_badly("Let M′ be the mid-point"));
+    assert!(breaks_badly("so E₀ is the rest energy"));
+    assert!(breaks_badly("τὸ φῶς ἐκπέμπεται"));
+    assert!(breaks_badly("नमस्ते दुनिया"));
+    assert!(breaks_badly("a vector a\u{20D7} here"));
+}
+
+#[test]
+fn text_set_right_to_left_keeps_gpuis_lines() {
+    assert!(!breaks_badly("תורת היחסות"));
+    assert!(!breaks_badly("النظرية النسبية and M′"));
 }

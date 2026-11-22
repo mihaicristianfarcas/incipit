@@ -180,11 +180,41 @@ fn render_text(
     size: f32,
     weight: FontWeight,
 ) -> AnyElement {
-    if inline.math.is_empty() {
+    if inline.math.is_empty() && !breaks_badly(&inline.text) {
         render_inline(key, inline, t, size, weight).into_any_element()
     } else {
         render_flow(key, inline, t, size, weight)
     }
+}
+
+/// Whether GPUI's own wrapping would cut `text` where it should not. It may break a line before
+/// any character outside its list of word characters (ASCII, Latin, Cyrillic and a few more), so
+/// before a prime or an index (`M′`, `x₀`), a combining accent, and inside every word of Greek or
+/// of an Indic script. Such text is set as a flow of whole words, as text with formulas is
+/// (`render_flow`). Text with words set right to left (Hebrew, Arabic) keeps GPUI's lines: a
+/// flow puts its words left to right.
+pub(super) fn breaks_badly(text: &str) -> bool {
+    let mut bad = false;
+    for c in text.chars() {
+        if matches!(c,
+            '\u{0590}'..='\u{08FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
+        {
+            return false;
+        }
+        bad |= matches!(c,
+            // Greek, and Greek with its accents
+            '\u{0370}'..='\u{03FF}' | '\u{1F00}'..='\u{1FFF}'
+            // Devanagari, Bengali and the other Indic scripts, Sinhala
+            | '\u{0900}'..='\u{0DFF}'
+            // Armenian, Georgian
+            | '\u{0530}'..='\u{058F}' | '\u{10A0}'..='\u{10FF}'
+            // Combining accents GPUI does not keep with their letter
+            | '\u{1AB0}'..='\u{1AFF}' | '\u{1DC0}'..='\u{1DFF}' | '\u{20D0}'..='\u{20FF}'
+            | '\u{FE20}'..='\u{FE2F}'
+            // Primes, superscripts and subscripts
+            | '\u{2032}'..='\u{2037}' | '\u{2057}' | '\u{2070}'..='\u{209F}');
+    }
+    bad
 }
 
 /// A piece of a line of text with formulas in it.
@@ -226,9 +256,9 @@ pub(super) fn pieces(text: &str, range: Range<usize>) -> Vec<Piece> {
     out
 }
 
-/// Text with formulas in it: its words and its formulas side by side, wrapping where its words
-/// do, each formula on the words' baseline. Where the text is not to wrap (a line cut short),
-/// they stay on one line, cut at its end.
+/// Text with formulas in it, or that GPUI would break badly: its words and its formulas side by
+/// side, wrapping where its words do, each formula on the words' baseline. Where the text is not
+/// to wrap (a line cut short), they stay on one line, cut at its end.
 fn render_flow(
     key: ElementId,
     inline: &Inline,

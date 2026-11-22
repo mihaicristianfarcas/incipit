@@ -6,6 +6,10 @@
 //! (SIGTERM, then SIGKILL after `GRACE`), so the shells and tools an agent started stop with it
 //! and none keeps a pipe open. On Windows `taskkill /T` ends the tree, and the child gets no
 //! console window. Stopping is driven by events: the cancel hook, the deadline, the child's exit.
+//!
+//! Reading ends when the child has exited and both its streams have closed, so a line written to
+//! stderr just before the end (a sign-in page) is not lost when stdout closes first. What the
+//! child started and left holding either stream open is stopped `DRAIN` after the child's exit.
 
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Write};
@@ -64,7 +68,10 @@ impl Exit {
 enum Message {
     Line(String),
     Complaint(String),
+    /// Stdout has ended.
     Eof,
+    /// Stderr has ended: every line of it forwarded is in the inbox before this.
+    ComplaintsEnd,
     Exited(Option<ExitStatus>),
 }
 
@@ -152,6 +159,7 @@ pub fn run_both(
                     let _ = messages.send(Message::Complaint(text));
                 }
             }
+            let _ = messages.send(Message::ComplaintsEnd);
             let start = tail.len().saturating_sub(STDERR_TAIL);
             String::from_utf8_lossy(&tail[start..]).into_owned()
         })
@@ -208,7 +216,11 @@ pub fn run_both(
     });
     drop(messages);
 
+    // Reading goes on until the child has exited and both its streams have ended: stopping at
+    // stdout's end would drop the stderr lines still on their way (a sign-in page named just before
+    // the program exits).
     let (mut status, mut exited, mut eof) = (None, false, false);
+    let mut complaints_ended = stderr.is_none();
     loop {
         let message = if exited {
             match inbox.recv_timeout(DRAIN) {
@@ -229,16 +241,17 @@ pub fn run_both(
                 }
             }
             Message::Eof => eof = true,
+            Message::ComplaintsEnd => complaints_ended = true,
             Message::Exited(s) => {
                 status = s;
                 exited = true;
             }
         }
-        if exited && eof {
+        if exited && eof && complaints_ended {
             break;
         }
     }
-    if !eof {
+    if !eof || !complaints_ended {
         // Something the child started still holds its output: it goes too.
         terminate(pid, true);
     }
@@ -483,6 +496,40 @@ mod tests {
         );
         assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn what_is_written_to_stderr_after_stdout_has_ended_is_still_passed_on() {
+        // The program ends at once, and its stdout with it; what it started writes to stderr a
+        // moment later, as a sign-in's last words can come after its output has closed.
+        let script = "(sleep 0.3; echo late >&2) >/dev/null & echo early >&2";
+        let mut complaints = Vec::new();
+        run_both(
+            shell(script),
+            None,
+            Duration::from_secs(30),
+            &Cancel::new(),
+            &mut |_| {},
+            Some(&mut |l| complaints.push(l.to_string())),
+        )
+        .unwrap();
+        assert_eq!(complaints, ["early", "late"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn what_the_program_started_is_stopped_when_it_holds_stderr_past_the_drain() {
+        let started = Instant::now();
+        let result = run(
+            shell("sleep 60 >/dev/null & echo done"),
+            None,
+            Duration::from_secs(120),
+            &Cancel::new(),
+            &mut |_| {},
+        );
+        assert!(result.is_ok(), "{result:?}");
+        assert!(started.elapsed() < DRAIN + Duration::from_secs(5));
     }
 
     #[cfg(unix)]

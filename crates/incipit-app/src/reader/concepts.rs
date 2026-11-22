@@ -228,12 +228,7 @@ impl ReaderView {
                 self.notes.push(Note {
                     id: number,
                     doc: Some(doc.id().clone()),
-                    anchors: vec![Anchor {
-                        part,
-                        start: 0,
-                        end: quote.chars().count(),
-                        quote,
-                    }],
+                    anchors: vec![Anchor::kept(part, &quote, "", "")],
                     words: fields.summary.clone(),
                     concept: Some(ConceptNote {
                         id: doc.id().clone(),

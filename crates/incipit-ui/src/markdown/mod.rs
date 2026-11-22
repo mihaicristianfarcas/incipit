@@ -1,7 +1,9 @@
 //! Markdown, as models write it, drawn with the theme: paragraphs,
 //! headings, emphasis, inline code and code blocks, lists (nested, numbered,
 //! tasks), block quotes, links (opened in the browser), rules, tables and
-//! math.
+//! math. A page that draws Markdown whose links lead somewhere of its own (a
+//! place in a book) gives a handler for them (`markdown_linked`); a link to
+//! the web is opened in the browser either way, and nothing else is.
 //!
 //! Math is typeset (`formula`), as the earlier app set it with KaTeX: `$…$`
 //! in a line, sitting on its baseline, and `$$…$$` a block of its own when
@@ -31,7 +33,9 @@
 //! draws them.
 
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
     div, prelude::*, px, AnyElement, App, ElementId, FontStyle, FontWeight, HighlightStyle,
@@ -650,6 +654,29 @@ fn parse_inline_until_block(events: &[Event], pos: &mut usize, cloze: Option<Clo
 /// Draw `source` as Markdown.
 pub fn markdown(id: impl Into<ElementId>, source: &str, t: Theme) -> AnyElement {
     draw(id.into(), source, t, None)
+}
+
+/// What a press on a link that is not to the web does, in the Markdown being drawn.
+type OnLink = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+
+thread_local! {
+    /// The handler of the Markdown being drawn now (`markdown_linked`): set only while it is
+    /// drawn, so each paragraph's links take the handler of the Markdown they are in.
+    static ON_LINK: RefCell<Option<OnLink>> = const { RefCell::new(None) };
+}
+
+/// Draw Markdown whose links that are not to the web (`place:12`) go to `on_link` with their
+/// address when pressed.
+pub fn markdown_linked(
+    id: impl Into<ElementId>,
+    source: &str,
+    t: Theme,
+    on_link: impl Fn(&str, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let before = ON_LINK.replace(Some(Rc::new(on_link)));
+    let drawn = draw(id.into(), source, t, None);
+    ON_LINK.set(before);
+    drawn
 }
 
 /// Draw a flashcard's text: Markdown in which `{{the hidden words}}` is a cloze, shown in full

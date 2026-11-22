@@ -130,6 +130,13 @@ impl ReaderView {
                         .on_click(cx.listener(|this, _, _, cx| this.offer_quiz(None, cx))),
                 )
                 .child(
+                    button("reader-ask-book", "Ask", t)
+                        .ghost()
+                        .icon(IconName::Sparkle)
+                        .tooltip("Ask about the whole book, answered from its pages (⌘⇧A)")
+                        .on_click(cx.listener(|this, _, window, cx| this.toggle_chat(window, cx))),
+                )
+                .child(
                     icon_button("reader-find", IconName::Search, "Find in the book (⌘F)", t)
                         .ghost()
                         .on_click(cx.listener(|this, _, window, cx| this.find_in_book(window, cx))),

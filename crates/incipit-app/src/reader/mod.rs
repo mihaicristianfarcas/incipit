@@ -13,10 +13,11 @@
 //!
 //! A passage can also be put to the model the learner chose: the answer is written into a card in
 //! the margin as it arrives, and kept like a note once it is whole. The passage and the text
-//! around it go to the model as material, never as instructions. An answer can be talked over
-//! with the tutor in a sheet (`session`), and a passage or a session made into flashcards to
-//! look over before they are kept; the chapter on screen can be quizzed on, before reading it or
-//! after (`studying`).
+//! around it go to the model as material, never as instructions. A question about the whole book is
+//! answered in a panel in the margin's place, from the book's own passages, each claim citing where
+//! it comes from (`ask_book`). An answer can be talked over with the tutor in a sheet (`session`),
+//! and a passage or a session made into flashcards to look over before they are kept; the chapter
+//! on screen can be quizzed on, before reading it or after (`studying`).
 //!
 //! A chapter can be mapped into concepts from the contents, and the concepts that came from the
 //! book's passages have cards in the margin beside them (`concepts`). A phrase is found on
@@ -37,11 +38,15 @@
 //! INCIPIT_NOTE=figure with INCIPIT_REDRAW=field|busy|refused (a figure's card with the field to
 //! redraw it open, a redraw under way, or one that was refused),
 //! INCIPIT_CONTENTS=1 (the contents open), INCIPIT_NOTEBOOK=1 (the notes on the book open in
-//! their place), INCIPIT_PART=n (start at that page or block),
+//! their place), INCIPIT_ASK_BOOK=1 (the panel to ask the whole book open; =demo with a made-up
+//! conversation about the sample paper; other words are asked once the book is open),
+//! INCIPIT_PART=n (start at that page or block),
 //! INCIPIT_MAP=n (map line n of the contents, from 0, into concepts once the book is open),
 //! INCIPIT_FIND_BOOK=words (the find bar on those words once the book is open), INCIPIT_SELECT=1
 //! (S pressed once the book is open: the passage at the reading line selected from the keyboard).
 
+mod ask_book;
+mod ask_panel;
 mod asking;
 mod bar;
 mod concepts;
@@ -249,6 +254,12 @@ pub struct ReaderView {
     connector: Entity<crate::connector::ConnectorView>,
     /// Find in the book.
     finding: finding::Finding,
+    /// The conversation about the whole book, the panel it is in is open, and the field the
+    /// next question is written in.
+    chat: ask_book::BookChat,
+    chat_open: bool,
+    chat_field: Entity<TextField>,
+    _chat_events: Subscription,
     _draft_events: Subscription,
     _page_events: Subscription,
     _redraw_events: Subscription,
@@ -288,6 +299,18 @@ impl ReaderView {
             Self::redraw_figure,
             |this, cx| {
                 this.redrawing_for = None;
+                cx.notify();
+            },
+        );
+        let (chat_field, chat_events) = text_field(
+            cx,
+            "Ask about the whole book",
+            true,
+            Self::send_question,
+            |this, cx| {
+                this.chat_open = false;
+                this.focus_book = true;
+                this.list.remeasure();
                 cx.notify();
             },
         );
@@ -407,6 +430,10 @@ impl ReaderView {
             practice,
             connector,
             finding,
+            chat: ask_book::BookChat::new(),
+            chat_open: std::env::var_os("INCIPIT_ASK_BOOK").is_some(),
+            chat_field,
+            _chat_events: chat_events,
             _draft_events: draft_events,
             _page_events: page_events,
             _redraw_events: redraw_events,
@@ -504,14 +531,20 @@ impl ReaderView {
         self.next_id
     }
 
-    /// The margin's cards are beside the book.
+    /// The margin's cards are beside the book: the margin is on, and the conversation about the
+    /// book, which takes its place, is closed.
     fn shows_margin(&self) -> bool {
-        self.margin
+        self.margin && !self.chat_open
     }
 
-    /// Shows the margin, for a card in it that is opening.
+    /// Shows the margin, for a card in it that is opening: the conversation about the book gives
+    /// it its place back (the conversation is kept for when the panel opens again).
     fn show_margin(&mut self) {
         self.margin = true;
+        if self.chat_open {
+            self.chat_open = false;
+            self.list.remeasure();
+        }
     }
 
     /// The book's list as its scroll bar measures it: a PDF's pages in pixels at the width they
@@ -587,6 +620,7 @@ impl Render for ReaderView {
             } else {
                 0.0
             }
+            + if self.chat_open { ask_book::PANEL } else { 0.0 }
             + 2.0 * GAP;
         let room = (window.viewport_size().width.as_f32() - beside).max(280.0);
         if (room - self.room).abs() > 0.5 {
@@ -643,6 +677,7 @@ impl Render for ReaderView {
                             .child(scrollbar("reader-scroll-bar", &book, t))
                             .when(ring, |book| book.child(focus_ring(t, Radius::ROW, -3.0))),
                     )
+                    .children(self.chat_panel(t, window, cx))
                     .into_any_element()
             }
         };

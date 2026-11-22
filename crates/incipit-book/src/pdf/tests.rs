@@ -62,6 +62,7 @@ fn sheet(lines: &[(&str, f32)]) -> Page {
         pixel_height: 0,
         glyphs: glyphs(lines),
         pictures: Vec::new(),
+        links: Vec::new(),
     }
 }
 
@@ -337,6 +338,37 @@ fn the_contents_say_how_far_down_its_page_a_section_starts() {
     assert!(contents
         .iter()
         .all(|e| e.y.is_some_and(|y| y > 0.0 && y < 1.0)));
+}
+
+#[test]
+#[ignore = "requires pdfium in lib/ and the sample paper from tools/setup"]
+fn a_pages_links_lead_to_pages_of_the_paper_and_to_the_web() {
+    let pdf = sample();
+    let page = pdf.page(1, 400).unwrap();
+    // The second page cites the references, at the end of the paper.
+    let cited: Vec<&PageLink> = page
+        .links
+        .iter()
+        .filter(|l| matches!(l.to, LinkTo::Page { index, .. } if index >= 9))
+        .collect();
+    assert!(!cited.is_empty(), "{:?}", page.links);
+    for link in &page.links {
+        assert!(link.w > 0.0 && link.h > 0.0 && link.x >= 0.0 && link.y >= 0.0);
+        assert!(link.x + link.w <= page.width + 1.0 && link.y + link.h <= page.height + 1.0);
+    }
+    let first = cited[0];
+    let (x, y) = (first.x + first.w / 2.0, first.y + first.h / 2.0);
+    assert_eq!(page.link_at(x, y), Some(first));
+    assert_eq!(page.link_at(-5.0, -5.0), None);
+    // Somewhere in the paper there is a link to the web.
+    let web = (0..pdf.pages()).any(|i| {
+        pdf.page(i, 100)
+            .unwrap()
+            .links
+            .iter()
+            .any(|l| matches!(&l.to, LinkTo::Web(a) if a.starts_with("http")))
+    });
+    assert!(web);
 }
 
 #[test]

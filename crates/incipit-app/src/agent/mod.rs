@@ -37,8 +37,9 @@
 //! working, and `diff` the first with its changes shown ("Show the changes"); none calls a
 //! model, and what is done with them changes nothing. INCIPIT_AGENT=open
 //! opens the sheet as the key does, on the vault's own runs. INCIPIT_AGENT with other words runs
-//! them once the vault is open, with the learner's login. On the Reader page,
-//! the sheet knows the book and the selection once the reader has them.
+//! them once the vault is open, with the learner's login. On the Reader page, the sheet knows the
+//! book and the selection once the reader has them, and with a book named (INCIPIT_OPEN) the words
+//! wait for it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

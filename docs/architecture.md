@@ -372,9 +372,10 @@ only, never in `.jj` nor, where its sandbox can keep them, in what the app
 keeps there (the logs, the books' records and files), and reads the vault;
 the app adds no other way in or out. Its instructions are a constant (`agent/prompt.rs`); the learner's words
 are the request; where the learner is (the page, the note or concept open,
-the book with its chapter and page, the selection: `agent/here.rs`) and what
-it reads in the files are material. It ends with a reply in JSON: what it
-did or the answer, and the main file it made or changed, which the sheet
+the book with its chapter and page, the text at the reading line, the
+selection: `agent/here.rs`) and what it reads in the files are
+material. It ends with a reply in JSON: what it did or the answer, and
+the main file it made or changed, which the sheet
 offers to open. Up to four requests are worked on at once, each logged in
 the vault (`agent/runs.rs`, [vault.md](vault.md)); a follow-up continues a
 conversation, and the agent is told its earlier turns. One request is one

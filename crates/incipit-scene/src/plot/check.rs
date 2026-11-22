@@ -358,6 +358,27 @@ mod tests {
     }
 
     #[test]
+    fn the_label_of_a_thin_area_against_the_y_axis_stays_off_the_axis_numbers() {
+        // A model's figure for "d_k = d_model / h": with one head, the shaded block is one column
+        // 512 tall against the y axis, and a label centred on it ran over the axis's "250".
+        let figure: Figure = serde_json::from_str(
+            r#"{"kind": "plot", "title": "More heads, same total width",
+                "hint": "Drag the number of heads.",
+                "x": {"label": "number of heads h", "min": 0.0, "max": 17.0},
+                "y": {"label": "dimensions", "min": 0.0, "max": 600.0},
+                "equal": false,
+                "params": [{"name": "h", "label": "number of heads", "min": 1.0, "max": 16.0,
+                            "start": 8.0}],
+                "layers": [{"type": "area", "id": "total_area", "y": "512/h", "base": "0",
+                            "from": "0", "to": "h", "label": "area = 512", "tone": "lit"}],
+                "steps": []}"#,
+        )
+        .unwrap();
+        let report = check(&figure, &Rough);
+        assert!(report.ok(), "{:#?}", report.errors);
+    }
+
+    #[test]
     fn an_expression_with_an_unknown_name_is_refused_by_layer() {
         let report = checked(plain(
             vec![curve("f", "a*x + b")],

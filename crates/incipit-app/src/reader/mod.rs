@@ -373,10 +373,16 @@ impl ReaderView {
             _reply_events: reply_events,
             _vault_events: vault_events,
         };
-        // A book scrolled by hand is reading, and a place to keep.
+        // A book scrolled by hand is reading, and a place to keep. GPUI calls this handler while
+        // it holds the list's state borrowed, and the place is read from the list, so the report
+        // waits until the scroll is done: reading the list here borrows it twice, and the panic
+        // that makes cannot unwind through AppKit's event callback, so the program aborts.
         let weak = cx.entity().downgrade();
         view.list.set_scroll_handler(move |_, _, cx| {
-            let _ = weak.update(cx, |this, cx| this.moved(cx));
+            let weak = weak.clone();
+            cx.defer(move |cx| {
+                let _ = weak.update(cx, |this, cx| this.moved(cx));
+            });
         });
         // The sample books, for looking at the reader without a vault.
         let sample = match std::env::var("INCIPIT_BOOK").as_deref() {

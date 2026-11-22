@@ -288,6 +288,23 @@ read is left out and the rest is read; a book with no text, or locked by
 DRM, is refused with a sentence that says so (fonts hidden by the EPUB's own
 obfuscation are not DRM).
 
+**The reader breaks a book's lines itself.** GPUI may break a line before
+any character outside its list of word characters, so a prime or an index
+could start a line and a word of Greek, Hebrew, Arabic or Devanagari could
+be cut in two, and lines set right to left come out of order. The reader
+chooses each paragraph's line ends at spaces, measuring stretches of the
+paragraph as GPUI shapes it, and shows those spaces as line ends, one byte
+for one, so no offset in the text moves (`reader/breaking.rs`). Code keeps
+its own lines. A paragraph whose first letter is Hebrew or Arabic is set
+flush right; GPUI finds the letter under the mouse as if every row began at
+the left and paints no highlight on glyphs set right to left, so the reader
+moves the mouse's place back by its row's shift and paints those marks
+itself (`reader/right_to_left.rs`). Markdown (answers, cards, notes in the
+margin) with characters GPUI would break before is set as a flow of whole
+words, as text with formulas is, and a Markdown paragraph that runs right to
+left is a flow set from the right, with the words written left to right
+inside it (a name, a number) kept together.
+
 **A note is tied to words.** An `Anchor` keeps a position, the passage
 itself and up to 32 characters either side of it, as a web annotation's text
 quote does. When the text has moved, the words find the place again, and the

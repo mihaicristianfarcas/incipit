@@ -3,19 +3,22 @@
 //! an item of a list (with its mark, "•" or "3.", at the start of its text, where it is seen and
 //! read), text whose lines are as written (code), a caption and a row of a table (its cells
 //! apart by " | "). Nothing in the book is dropped for its markup: text loose in a division
-//! beside its paragraphs is a paragraph of its own, a table is its rows, and a formula is the
-//! words or TeX the book gives for it (MathML's `alttext` or TeX annotation, else its text).
+//! beside its paragraphs is a paragraph of its own, a table is its rows, and a formula is
+//! written as Unicode math (`math`): from its MathML, else the TeX or spoken words the book gives
+//! for it.
 //!
 //! A picture alone in its block, in a figure or among the text but larger than a line is a
 //! block of its own; one the size of a word (a symbol, a formula drawn as a picture) is its
-//! alternative text in the line. Links are kept with the text they cover: one to a place in the
-//! book is resolved to the block it leads to once the whole book is read (`Walker::finish`),
-//! one to the web is kept as its address, which the window may open and never fetches.
+//! alternative text in the line, as math when that is TeX or spoken math. Links are kept with the
+//! text they cover: one to a place in the book is resolved to the block it leads to once the whole
+//! book is read (`Walker::finish`), one to the web is kept as its address, which the window may
+//! open and never fetches.
 
 use std::collections::HashMap;
 
 use scraper::{ElementRef, Node};
 
+use super::math;
 use super::xhtml::{picture_size, resolve, Href};
 use super::{Block, Kind, Link, Rich, Span, Target};
 
@@ -283,16 +286,16 @@ impl<'a> Walker<'a> {
                     }
                     _ => {
                         if let Some(alt) = alt {
-                            push_words(&mut run.rich, alt, style.with(Style::ITALIC));
+                            push_words(&mut run.rich, &formula(alt), style.with(Style::ITALIC));
                         }
                     }
                 }
             }
             "math" => {
-                let said = e
-                    .attr("alttext")
-                    .map(str::to_owned)
-                    .or_else(|| tex_of(element))
+                let said = Some(math::mathml(element))
+                    .filter(|said| !said.is_empty())
+                    .or_else(|| e.attr("alttext").map(formula))
+                    .or_else(|| tex_of(element).map(|tex| math::tex(&tex)))
                     .unwrap_or_else(|| element.text().collect::<Vec<_>>().join(""));
                 push_words(&mut run.rich, &said, style.with(Style::ITALIC));
             }
@@ -536,6 +539,16 @@ fn in_line(bytes: &[u8], alt: Option<&str>) -> bool {
 fn is_web(address: &str) -> bool {
     let lower = address.to_ascii_lowercase();
     lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+/// A formula's words as a reader reads them: TeX and spoken math as Unicode math, other words
+/// as they are.
+fn formula(said: &str) -> String {
+    if math::looks_like_tex(said) || said.contains('^') || said.contains('_') {
+        math::tex(said)
+    } else {
+        math::spoken(said).unwrap_or_else(|| said.to_owned())
+    }
 }
 
 /// The TeX a MathML formula carries as an annotation, if it does.

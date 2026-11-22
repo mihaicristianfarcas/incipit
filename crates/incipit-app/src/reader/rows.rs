@@ -14,8 +14,10 @@ use incipit_book::dark::{self, Dark};
 use incipit_book::{Block, Kind, Page, Rich};
 use incipit_ui::Theme;
 
+use super::breaking;
 use super::links::Jump;
 use super::model::{byte_of, Doc, Note, Opened, Place};
+use super::right_to_left;
 use super::{ReaderView, State, ANSWER, COLUMN, GAP, MARGIN, PAGE_GAP};
 
 const SERIF: &str = "Charter";
@@ -24,6 +26,8 @@ const MONO: &str = "Menlo";
 /// How far in an item of a list is set for each list it is in, and a quotation, as a share of
 /// the text's size.
 const INDENT: f32 = 1.6;
+/// The rule beside a quotation, in pixels.
+const QUOTE_RULE: f32 = 2.0;
 /// Room kept for a card when placing the next one under it: closed, open (the most it can
 /// take: its quote, what it says, its buttons), and being written.
 const CARD: (f32, f32, f32) = (44.0, ANSWER + 160.0, 150.0);
@@ -413,12 +417,13 @@ impl ReaderView {
                     3 => 1.25,
                     _ => 1.1,
                 };
-                self.passage(index, text, chars, size * scale, Face::Heading, t, cx)
+                let shape = (size * scale, Face::Heading, 0.0);
+                self.passage(index, text, chars, shape, t, window, cx)
                     .pt(px(18.0))
                     .into_any_element()
             }
             Block::Paragraph(text) => self
-                .passage(index, text, chars, size, Face::Body, t, cx)
+                .passage(index, text, chars, (size, Face::Body, 0.0), t, window, cx)
                 .into_any_element(),
             Block::Text { kind, text } => {
                 let face = match kind {
@@ -431,12 +436,19 @@ impl ReaderView {
                     Face::Small => size * 0.85,
                     _ => size,
                 };
-                let passage = self.passage(index, text, chars, size, face, t, cx);
+                // What the block's margin, padding and border take from the column's width.
+                let inset = match kind {
+                    Kind::Quote => size * INDENT + QUOTE_RULE,
+                    Kind::Item { depth } => size * INDENT * f32::from((*depth).min(6)),
+                    // Code keeps its own lines: it is not broken.
+                    Kind::Pre | Kind::Caption | Kind::Row => 0.0,
+                };
+                let passage = self.passage(index, text, chars, (size, face, inset), t, window, cx);
                 match kind {
                     Kind::Quote => passage
                         .ml(px(size * INDENT * 0.5))
                         .pl(px(size * INDENT * 0.5))
-                        .border_l_2()
+                        .border_l(px(QUOTE_RULE))
                         .border_color(t.hairline)
                         .text_color(t.secondary)
                         .into_any_element(),
@@ -502,9 +514,9 @@ impl ReaderView {
         index: usize,
         text: &Rich,
         chars: &[char],
-        size: f32,
-        face: Face,
+        (size, face, inset): (f32, Face, f32),
         t: Theme,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::Div {
         let heading = face == Face::Heading;
@@ -534,6 +546,8 @@ impl ReaderView {
             let found = (byte_of(&text.text, start), byte_of(&text.text, end));
             marks.push((found.0, found.1, tint(t.attention, FOUND)));
         }
+        // Text set right to left has its marks painted by the reader, not by its runs.
+        let flush_right = face != Face::Mono && incipit_ui::right_to_left(&text.text);
         let mut cuts: Vec<usize> = vec![0, text.text.len()];
         cuts.extend(text.spans.iter().flat_map(|s| [s.start, s.end]));
         cuts.extend(marks.iter().flat_map(|m| [m.0, m.1]));
@@ -568,7 +582,11 @@ impl ReaderView {
                     } else {
                         t.primary.into()
                     },
-                    background_color: marks.iter().rev().find(|m| inside(m.0, m.1)).map(|m| m.2),
+                    background_color: marks
+                        .iter()
+                        .rev()
+                        .find(|m| inside(m.0, m.1) && !flush_right)
+                        .map(|m| m.2),
                     underline: linked.then(|| gpui::UnderlineStyle {
                         thickness: px(1.0),
                         color: Some(tint(t.accent, 0.5)),
@@ -578,10 +596,39 @@ impl ReaderView {
                 }
             })
             .collect();
-        let styled = StyledText::new(text.text.clone()).with_runs(runs);
+        // Code is shown as written; any other text has its lines broken by the reader, between
+        // words (`breaking`), in the column less the block's indent.
+        let shown = if face == Face::Mono {
+            text.text.clone()
+        } else {
+            breaking::broken(
+                &text.text,
+                &runs,
+                px(size),
+                COLUMN.min(self.room) - inset,
+                window,
+            )
+        };
+        let styled = StyledText::new(shown).with_runs(runs);
         let layout = styled.layout().clone();
-        let place = move |position: Point<Pixels>| match layout.index_for_position(position) {
-            Ok(at) | Err(at) => Place { part: index, at },
+        let backdrop = flush_right.then(|| {
+            let (layout, marks) = (layout.clone(), marks.clone());
+            canvas(
+                |_, _, _| {},
+                move |_, _, window, _| right_to_left::paint_marks(&layout, &marks, window),
+            )
+            .absolute()
+            .size_full()
+        });
+        let place = move |position: Point<Pixels>| {
+            let position = if flush_right {
+                right_to_left::unaligned(&layout, position)
+            } else {
+                position
+            };
+            match layout.index_for_position(position) {
+                Ok(at) | Err(at) => Place { part: index, at },
+            }
         };
         let (down, moved, up) = (place.clone(), place.clone(), place);
         let links: Vec<(usize, usize, Jump)> = text
@@ -599,8 +646,10 @@ impl ReaderView {
         div()
             .text_size(px(size))
             .line_height(px(size * line))
+            .when(flush_right, |text| text.text_right())
             .pb(px(if heading { 6.0 } else { size * 0.8 }))
             .cursor_text()
+            .children(backdrop)
             .child(styled)
             .on_mouse_down(
                 MouseButton::Left,

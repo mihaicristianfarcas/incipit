@@ -36,17 +36,20 @@ fn main() {
         let book = Book::open(Path::new(file)).expect("the EPUB opens");
         let count = |f: fn(&Block) -> bool| book.blocks.iter().filter(|b| f(b)).count();
         println!(
-            "{:?} in {:?}: {} headings, {} paragraphs, {} pictures",
+            "{:?} in {:?}: {} headings, {} paragraphs, {} set apart, {} pictures, {} lines of contents",
             book.title,
             started.elapsed(),
             count(|b| matches!(b, Block::Heading { .. })),
             count(|b| matches!(b, Block::Paragraph(_))),
+            count(|b| matches!(b, Block::Text { .. })),
             count(|b| matches!(b, Block::Image { .. })),
+            book.contents.len(),
         );
         for block in book.blocks.iter().skip(40).take(6) {
             match block {
                 Block::Heading { level, text } => println!("h{level}: {}", text.text),
                 Block::Paragraph(p) => println!("p: {:.110} ({} spans)", p.text, p.spans.len()),
+                Block::Text { kind, text } => println!("{kind:?}: {:.110}", text.text),
                 Block::Image { name, bytes } => println!("img: {name} ({} bytes)", bytes.len()),
             }
         }

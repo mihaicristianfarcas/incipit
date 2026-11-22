@@ -167,7 +167,9 @@ impl Opened {
 
 pub fn rich(block: &Block) -> Option<&Rich> {
     match block {
-        Block::Heading { text, .. } | Block::Paragraph(text) => Some(text),
+        Block::Heading { text, .. } | Block::Paragraph(text) | Block::Text { text, .. } => {
+            Some(text)
+        }
         Block::Image { .. } => None,
     }
 }
@@ -238,7 +240,7 @@ mod tests {
         let block = |paragraph: bool, text: &str| {
             let rich = Rich {
                 text: text.to_owned(),
-                spans: Vec::new(),
+                ..Rich::default()
             };
             let block = if paragraph {
                 Block::Paragraph(rich)

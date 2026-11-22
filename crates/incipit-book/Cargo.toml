@@ -12,3 +12,7 @@ pdfium-render = "0.9.5"
 scraper = "0.29.0"
 zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
 unicode-normalization = "0.1.26"
+percent-encoding = "2.3.2"
+
+[dev-dependencies]
+tempfile = "3.27.0"

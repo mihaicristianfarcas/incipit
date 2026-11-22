@@ -10,9 +10,11 @@ use super::{Indexed, Source, TextIndex, Word};
 use crate::pdf::Entry;
 
 /// What a file of this kind starts with, and the form's version: a file of another version is
-/// made again.
+/// made again. The version also changes when a book is read into parts differently (an EPUB's
+/// blocks), since an index names the parts its words are in: 2 is the reading that keeps lists,
+/// tables, figures and text loose beside paragraphs as blocks of their own.
 const MAGIC: &[u8] = b"incipit text index\n";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 pub(super) fn encode(index: &TextIndex) -> Vec<u8> {
     let mut out = Vec::new();

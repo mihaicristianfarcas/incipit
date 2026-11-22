@@ -1,0 +1,58 @@
+#!/bin/sh
+# Installs Incipit on this Mac for its user: builds the bundle from this checkout with
+# tools/package-mac and puts it at ~/Applications/Incipit.app, in place of the copy there. Run it
+# again to install the checkout as it is now.
+#
+#   tools/setup            once: pdfium's library, which goes inside the bundle
+#   tools/install-mac
+#
+# The copy is the bundle the disk image holds, so it is what a learner gets. macOS does not ask to
+# allow it, because it was built here: only a downloaded file carries the mark that makes it ask.
+# The user's own Applications folder needs no administrator's password. The bundle is registered
+# with Launch Services, so Launchpad and "Open With" know it at once, not after the next scan.
+#
+# The new copy is made beside the old one and checked before the old one goes, so a failed build
+# or copy leaves the installed app as it was. The script refuses, changing nothing, while the
+# installed copy is running (the old program would go on from deleted files; quit it first), and
+# when ~/Applications/Incipit.app is some other app (its identifier is not Incipit's).
+set -eu
+. "$(dirname "$0")/package-common"
+
+[ "$(uname -s)" = Darwin ] || package_fail "this installs the macOS app and runs on a Mac"
+folder="$HOME/Applications"
+installed="$folder/Incipit.app"
+built="$package_out/Incipit.app"
+identifier=$(package_identifier)
+lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
+# Checked before the build, so a running app is said at once, and again after it, since the build
+# takes minutes and the app may have been started meanwhile.
+refuse_if_running() {
+    if pgrep -f "^$installed/Contents/MacOS/incipit" >/dev/null; then
+        package_fail "Incipit is running from $installed; quit it (⌘Q) and run this again"
+    fi
+}
+
+if [ -e "$installed" ]; then
+    found=$(plutil -extract CFBundleIdentifier raw -o - "$installed/Contents/Info.plist" 2>/dev/null || true)
+    [ "$found" = "$identifier" ] ||
+        package_fail "$installed is not Incipit (its identifier is '${found:-none}', not $identifier); move it away first"
+fi
+refuse_if_running
+
+"$package_root/tools/package-mac"
+
+refuse_if_running
+mkdir -p "$folder"
+# A folder beside the installed app, on the same disk, so putting the new copy in place is a rename.
+stage=$(mktemp -d "$folder/.incipit-install.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+ditto "$built" "$stage/Incipit.app"
+codesign --verify --strict "$stage/Incipit.app"
+rm -rf "$installed"
+mv "$stage/Incipit.app" "$installed"
+"$lsregister" -f "$installed"
+
+echo
+echo "Installed:  $installed (version $(package_version), $(package_size "$installed"))"
+echo "Open it from Launchpad, Spotlight or the Finder."

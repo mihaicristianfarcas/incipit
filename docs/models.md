@@ -38,7 +38,9 @@ updates (text as it arrives, what an agent is doing, a page to open, then the
 result) through a channel; `spawn_with` sends them to a callback instead.
 Neither needs an async runtime. `Cancel::cancel` stops a call at once: it
 kills the child process group or shuts the connection, whatever the call is
-waiting on.
+waiting on. When the app quits, every command-line agent still running is
+stopped with what it started (`process::stop_all`), so none goes on working
+for an answer no one will read.
 
 ## Requests and material
 

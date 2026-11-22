@@ -180,25 +180,89 @@ fn render_text(
     size: f32,
     weight: FontWeight,
 ) -> AnyElement {
-    if inline.math.is_empty() && !breaks_badly(&inline.text) {
+    let backward = crate::direction::right_to_left(&inline.text);
+    if inline.math.is_empty() && !backward && !breaks_badly(&inline.text) {
         render_inline(key, inline, t, size, weight).into_any_element()
     } else {
-        render_flow(key, inline, t, size, weight)
+        render_flow(key, inline, t, size, weight, backward)
     }
+}
+
+/// The marks that end a sentence or a clause: after words written left to right in a paragraph set
+/// from the right they take the paragraph's way. Brackets and quotes are not among them: a pair
+/// keeps the way of what it encloses.
+const SENTENCE_MARKS: &[char] = &['.', ',', ';', ':', '!', '?', '…'];
+
+/// About how wide a space is, as a share of the text's size: the room between the words of a
+/// paragraph set from the right, whose pieces lose their spaces (`backward_pieces`).
+const SPACE: f32 = 0.27;
+
+/// The pieces of a paragraph that runs right to left, as they are set from the right: each word
+/// without the spaces after it (the flow keeps the words apart), and the words written left to
+/// right inside it (a name, a phrase in English, a number), with what stands between them, kept
+/// together as one piece, so they read in their own order.
+pub(super) fn backward_pieces(text: &str, pieces: Vec<Piece>) -> Vec<Piece> {
+    let forward = |range: &Range<usize>| {
+        let words = &text[range.clone()];
+        !words.chars().any(crate::direction::is_right_to_left)
+            && words.chars().any(char::is_alphanumeric)
+    };
+    let mut out: Vec<Piece> = Vec::new();
+    // The piece being gathered, and whether it is of words written left to right.
+    let mut open: Option<(Range<usize>, bool)> = None;
+    for piece in pieces {
+        let Piece::Words(range) = piece else {
+            out.extend(open.take().map(|(range, _)| Piece::Words(range)));
+            out.push(Piece::Break);
+            continue;
+        };
+        let ahead = forward(&range);
+        match &mut open {
+            Some((gathered, true)) if ahead => gathered.end = range.end,
+            _ => {
+                out.extend(open.take().map(|(range, _)| Piece::Words(range)));
+                open = Some((range, ahead));
+            }
+        }
+    }
+    out.extend(open.map(|(range, _)| Piece::Words(range)));
+    out.into_iter()
+        .filter_map(|piece| {
+            let Piece::Words(range) = piece else {
+                return Some(piece);
+            };
+            let end = range.start + text[range.clone()].trim_end().len();
+            if end == range.start {
+                return None;
+            }
+            if !forward(&range) {
+                return Some(Piece::Words(range.start..end));
+            }
+            let words = text[range.start..end].trim_end_matches(SENTENCE_MARKS);
+            let turn = range.start + words.len();
+            Some(if turn == end || turn == range.start {
+                Piece::Words(range.start..end)
+            } else {
+                Piece::Turned {
+                    words: range.start..turn,
+                    marks: turn..end,
+                }
+            })
+        })
+        .collect()
 }
 
 /// Whether GPUI's own wrapping would cut `text` where it should not. It may break a line before
 /// any character outside its list of word characters (ASCII, Latin, Cyrillic and a few more), so
 /// before a prime or an index (`M′`, `x₀`), a combining accent, and inside every word of Greek or
 /// of an Indic script. Such text is set as a flow of whole words, as text with formulas is
-/// (`render_flow`). Text with words set right to left (Hebrew, Arabic) keeps GPUI's lines: a
-/// flow puts its words left to right.
+/// (`render_flow`). A paragraph that runs left to right with words set right to left inside it
+/// (a Hebrew name in English) keeps GPUI's lines: a flow would set those words in the order they
+/// are written, left to right.
 pub(super) fn breaks_badly(text: &str) -> bool {
     let mut bad = false;
     for c in text.chars() {
-        if matches!(c,
-            '\u{0590}'..='\u{08FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
-        {
+        if crate::direction::is_right_to_left(c) {
             return false;
         }
         bad |= matches!(c,
@@ -222,6 +286,13 @@ pub(super) fn breaks_badly(text: &str) -> bool {
 pub(super) enum Piece {
     /// A word and the spaces after it, or spaces alone where a line starts with them.
     Words(Range<usize>),
+    /// In a paragraph set from the right, words written left to right and the sentence marks
+    /// after them, which stand before them there, on their left (`,Albert Einstein`), as the
+    /// Unicode bidirectional algorithm sets them.
+    Turned {
+        words: Range<usize>,
+        marks: Range<usize>,
+    },
     /// The end of a line the text breaks.
     Break,
 }
@@ -258,23 +329,36 @@ pub(super) fn pieces(text: &str, range: Range<usize>) -> Vec<Piece> {
 
 /// Text with formulas in it, or that GPUI would break badly: its words and its formulas side by
 /// side, wrapping where its words do, each formula on the words' baseline. Where the text is not
-/// to wrap (a line cut short), they stay on one line, cut at its end.
+/// to wrap (a line cut short), they stay on one line, cut at its end. A paragraph that runs right
+/// to left (`backward`) is set from the right, its words apart by a space's width.
 fn render_flow(
     key: ElementId,
     inline: &Inline,
     t: Theme,
     size: f32,
     weight: FontWeight,
+    backward: bool,
 ) -> AnyElement {
     let mut items: Vec<AnyElement> = Vec::new();
     let mut n = 0usize;
     let mut words = |range: Range<usize>, items: &mut Vec<AnyElement>| {
-        for piece in pieces(&inline.text, range) {
+        let mut pieces = pieces(&inline.text, range);
+        if backward {
+            pieces = backward_pieces(&inline.text, pieces);
+        }
+        for piece in pieces {
             items.push(match piece {
                 Piece::Words(r) => {
                     n += 1;
                     let key = ElementId::Name(format!("{key:?}-{n}").into());
                     render_inline(key, &inline.slice(r), t, size, weight).into_any_element()
+                }
+                Piece::Turned { words, marks } => {
+                    n += 1;
+                    let key = ElementId::Name(format!("{key:?}-{n}").into());
+                    let mut turned = inline.slice(marks);
+                    turned.append(inline.slice(words));
+                    render_inline(key, &turned, t, size, weight).into_any_element()
                 }
                 // A piece as wide as the line ends it.
                 Piece::Break => div().w_full().h_0().into_any_element(),
@@ -305,6 +389,9 @@ fn render_flow(
         div()
             .flex()
             .items_baseline()
+            .when(backward, |row| {
+                row.flex_row_reverse().gap_x(px(size * SPACE))
+            })
             .when(wraps, |row| row.flex_wrap())
             .when(!wraps, |row| row.overflow_hidden())
             .children(items)

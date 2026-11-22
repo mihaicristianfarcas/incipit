@@ -371,14 +371,19 @@ impl Root {
         })
         .detach();
         // INCIPIT_AGENT=demo, diff, review, refused, thread or recent shows made-up runs, `open` opens
-        // the sheet as the key does; other words are run for real.
+        // the sheet as the key does; other words are run for real. On the Reader page with a book
+        // named (INCIPIT_OPEN) they wait for the book, so the agent knows where the learner is, as
+        // when the key is pressed in a book that is open.
+        let mut words_for_book = None;
         let acting = match std::env::var("INCIPIT_AGENT") {
             Ok(words) if !words.trim().is_empty() => {
+                let waits = page == Page::Reader && std::env::var_os("INCIPIT_OPEN").is_some();
                 agent.update(cx, |agent, cx| match words.trim() {
                     which @ ("demo" | "diff" | "review" | "refused" | "thread" | "recent") => {
                         agent.show_demo(which, cx)
                     }
                     "open" => {}
+                    _ if waits => words_for_book = Some(words.clone()),
                     _ => agent.run_words(&words, cx),
                 });
                 let here = agent::here::Here {
@@ -408,7 +413,12 @@ impl Root {
                     book,
                     selection,
                 };
-                agent.update(cx, |agent, cx| agent.know(here, cx));
+                agent.update(cx, |agent, cx| {
+                    agent.know(here, cx);
+                    if let Some(words) = words_for_book.take() {
+                        agent.run_words(&words, cx);
+                    }
+                });
             })
             .detach();
         }

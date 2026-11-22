@@ -8,7 +8,8 @@
 //! a PDF's from the PDF's thread, without drawing the pages, and hands it to the tool's sheet.
 //!
 //! The vault's agent is told where the learner is in the book: the page or block at the reading
-//! line, the chapter its top falls in, and the selected text (`here`).
+//! line, the chapter its top falls in, the text from the reading line on, and the selected text
+//! (`here`). A PDF's text there is the page's on screen, which is drawn and so held.
 //!
 //! The chapter on screen is the line of the contents the top of the screen falls under, and runs
 //! as when it is mapped into concepts (`concepts::chapter::span`). A book that lists no contents
@@ -22,10 +23,10 @@ use gpui::Context;
 use incipit_book::{Anchor, Cut};
 
 use super::asking::passage_of;
-use super::model::Doc;
-use super::place::{chapter_from, in_list};
+use super::model::{rich, Doc};
+use super::place::{chapter_from, in_list, item_of};
 use super::{ReaderView, State};
-use crate::agent::here::{selected, BookAt};
+use crate::agent::here::{selected, BookAt, ON_SCREEN};
 use crate::concepts::chapter::span;
 use crate::drafter::From;
 use crate::explain::About;
@@ -60,6 +61,7 @@ impl ReaderView {
                     .place()
                     .and_then(|place| chapter_from(&opened.contents, in_list(pdf, place)))
                     .map(|index| (index, opened.contents[index].title.clone())),
+                on_screen: self.place().and_then(|place| on_screen(&opened.doc, place)),
             });
         (book, selected(&passage_of(&self.anchors())))
     }
@@ -404,4 +406,41 @@ impl ReaderView {
         })
         .detach();
     }
+}
+
+/// The text from the reading line at `place` on, its white space made single spaces, at most
+/// `ON_SCREEN` characters of it: an EPUB's from the block there, a PDF's from the passage there
+/// to the end of its page, when the page is drawn.
+fn on_screen(doc: &Doc, place: f64) -> Option<String> {
+    let pdf = matches!(doc, Doc::Pdf(_));
+    let (item, fraction) = item_of(pdf, place);
+    let words: Vec<String> = match doc {
+        Doc::Pdf(pdf) => {
+            let page = &pdf.pages.get(&item)?.page;
+            let text = page.text();
+            let from = page
+                .lines_at(fraction as f32 * page.height)
+                .map_or(0, |(first, _)| first);
+            vec![text.get(from..)?.iter().collect()]
+        }
+        Doc::Epub(book) => book
+            .blocks
+            .iter()
+            .skip(item)
+            .filter_map(|block| rich(&block.0).map(|r| r.text.clone()))
+            .scan(0, |taken, text| {
+                (*taken < ON_SCREEN).then(|| {
+                    *taken += text.chars().count();
+                    text
+                })
+            })
+            .collect(),
+    };
+    let text = words
+        .iter()
+        .flat_map(|w| w.split_whitespace())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let text: String = text.chars().take(ON_SCREEN).collect();
+    (!text.is_empty()).then_some(text)
 }

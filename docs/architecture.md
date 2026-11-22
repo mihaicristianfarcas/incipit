@@ -242,7 +242,11 @@ and highlights are made from.
 it is never run or displayed as HTML. What a reader needs of it is kept as
 data: italic and bold, text set apart (quotations, list items with their
 depth, code, captions, table rows with their cells), pictures, and links,
-each to a block of the book or to the web. A formula on a line of its own
+each to a block of the book or to the web. A formula inside a sentence is
+written as Unicode math (`x′ = ct′`, `E₀/c²`), since a line is one run of
+text that is selected, found and noted: from its MathML's structure, else
+the TeX the book gives, else the spoken words a formula drawn as a picture
+carries (`epub/math/`, a module for each). A formula on a line of its own
 that the book draws as a picture stays a picture. A chapter that cannot be
 read is left out and the rest is read; a book with no text, or locked by
 DRM, is refused with a sentence that says so (fonts hidden by the EPUB's own

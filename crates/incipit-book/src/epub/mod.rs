@@ -10,6 +10,7 @@
 //! the book's own (EPUB 3's navigation document, else EPUB 2's NCX), each line led to the block
 //! it names; a book whose contents lead nowhere is given its headings instead.
 
+mod math;
 mod walk;
 mod xhtml;
 

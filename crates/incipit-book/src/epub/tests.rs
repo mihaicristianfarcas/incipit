@@ -317,8 +317,10 @@ fn math_hidden_text_and_scripts_are_read_as_a_reader_sees_them() {
         &[(
             "OEBPS/one.xhtml",
             chapter(
-                r#"<p>Energy is <math alttext="E = mc^2"><mi>E</mi></math> here.</p>
-                <p>So <math><semantics><mi>x</mi><annotation encoding="application/x-tex">x^2</annotation></semantics></math>.</p>
+                r#"<p>Energy is <math alttext="E = mc^2"><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></math> here.</p>
+                <p>So <math><semantics><annotation encoding="application/x-tex">x^2</annotation></semantics></math>.</p>
+                <p>Half is <math alttext="\frac{1}{2}"></math>.</p>
+                <p>Then <img src="eq.svg" alt="" title="x prime equals c t prime"/> holds.</p>
                 <p style="display: none">Hidden.</p><script>alert(1)</script><p onclick="x()">Shown.</p>"#,
             ),
         )],
@@ -329,7 +331,13 @@ fn math_hidden_text_and_scripts_are_read_as_a_reader_sees_them() {
     let book = Book::open(&path).unwrap();
     assert_eq!(
         texts(&book),
-        ["Energy is E = mc^2 here.", "So x^2.", "Shown."]
+        [
+            "Energy is E = mc² here.",
+            "So x².",
+            "Half is 1/2.",
+            "Then x′ = ct′ holds.",
+            "Shown."
+        ]
     );
 }
 

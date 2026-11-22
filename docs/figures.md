@@ -49,9 +49,14 @@ A problem is reported once, with the first state it was seen in: "the text
 
 Labels are placed by `labels::Labels`: each label tries the spots its
 layout offers in order and takes the first clear of what is reserved
-(boxes, earlier labels, lines). Text is never cut: `labels::wrap` breaks a
-label at spaces, and says when it cannot fit, which becomes an error
-naming the label.
+(boxes, earlier labels, lines); a spot past the left or right of the box
+is also tried slid back inside, so a label centred on a thin column by the
+y axis sits beside it instead of over the axis's numbers. With none clear,
+it takes the first spot inside the box that only a line runs through,
+since words over a line can be read and the checks only warn of it; words
+over words, or over an axis's numbers, would fail the figure. Text is
+never cut: `labels::wrap` breaks a label at spaces, and says when it
+cannot fit, which becomes an error naming the label.
 
 ## The kinds
 

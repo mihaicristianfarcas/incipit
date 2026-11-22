@@ -288,9 +288,9 @@ fn the_sample_books_indexes_are_made_kept_and_queried() {
         .iter()
         .enumerate()
         .filter_map(|(i, block)| match block {
-            crate::Block::Heading { text, .. } | crate::Block::Paragraph(text) => {
-                Some((i, text.text.as_str()))
-            }
+            crate::Block::Heading { text, .. }
+            | crate::Block::Paragraph(text)
+            | crate::Block::Text { text, .. } => Some((i, text.text.as_str())),
             crate::Block::Image { .. } => None,
         })
         .collect();

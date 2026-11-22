@@ -371,7 +371,7 @@ impl ReaderView {
                     .pt(px(18.0))
                     .into_any_element()
             }
-            Block::Paragraph(text) => self
+            Block::Paragraph(text) | Block::Text { text, .. } => self
                 .passage(index, text, chars, self.scale, false, t, cx)
                 .into_any_element(),
         };

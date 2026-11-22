@@ -823,13 +823,15 @@ fn main() {
         cx.on_action(move |_: &Find, cx| later(cx, Root::find));
         cx.on_action(move |_: &Act, cx| later(cx, Root::act));
         cx.on_action(move |_: &FindInBook, cx| later(cx, Root::find_in_book));
-        // Reading in progress is written before the app goes.
+        // Reading in progress is written before the app goes, and the models still at work for it
+        // are stopped: their answers would go nowhere.
         cx.on_app_quit(move |cx| {
             if let Some(window) = front::window(cx) {
                 let _ = window.update(cx, |root, _, cx| {
                     root.reader.update(cx, |reader, cx| reader.end_sittings(cx))
                 });
             }
+            incipit_llm::process::stop_all();
             async {}
         })
         .detach();

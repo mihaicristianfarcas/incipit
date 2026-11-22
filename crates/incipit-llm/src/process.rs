@@ -5,7 +5,8 @@
 //! On unix the child leads a process group of its own, and stopping it signals the whole group
 //! (SIGTERM, then SIGKILL after `GRACE`), so the shells and tools an agent started stop with it
 //! and none keeps a pipe open. On Windows `taskkill /T` ends the tree, and the child gets no
-//! console window. Stopping is driven by events: the cancel hook, the deadline, the child's exit.
+//! console window. Stopping is driven by events: the cancel hook, the deadline, the child's exit,
+//! and the app quitting (`stop_all`), which stops every child still running.
 //!
 //! Reading ends when the child has exited and both its streams have closed, so a line written to
 //! stderr just before the end (a sign-in page) is not lost when stdout closes first. What the
@@ -16,6 +17,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
@@ -128,6 +130,7 @@ pub fn run_both(
         }
     })?;
     let pid = child.id();
+    running().push(pid);
 
     if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
         let text = text.to_owned();
@@ -210,6 +213,7 @@ pub fn run_both(
         let messages = messages.clone();
         move || {
             let status = child.wait().ok();
+            running().retain(|&other| other != pid);
             let _ = control.send(Control::Exited);
             let _ = messages.send(Message::Exited(status));
         }
@@ -287,6 +291,26 @@ pub fn output(
 enum Stop {
     Cancelled,
     TimedOut,
+}
+
+/// The children running now, by their process group: a child outlives an app that quits without
+/// stopping it, still at work (and spending the learner's model) for an answer no one will read.
+static RUNNING: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+fn running() -> MutexGuard<'static, Vec<u32>> {
+    // The list is only pushed to and filtered: a thread that panicked holding it left it whole.
+    RUNNING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Asks every child still running to end, with what it started: for the app as it quits, which
+/// cannot wait out `GRACE`. A call whose child is stopped returns as a cancelled one does not:
+/// with the child's exit, and the app is gone by then.
+pub fn stop_all() {
+    for pid in std::mem::take(&mut *running()) {
+        terminate(pid, false);
+    }
 }
 
 #[cfg(unix)]

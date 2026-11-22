@@ -363,12 +363,15 @@ fn render_inline(
         .with_font_family_overrides(mono);
     let urls: Vec<String> = inline.links.iter().map(|(_, u)| u.clone()).collect();
     let ranges: Vec<Range<usize>> = inline.links.iter().map(|(r, _)| r.clone()).collect();
+    let on_link = ON_LINK.with_borrow(Clone::clone);
     let body = InteractiveText::new(key, styled).on_click(
         ranges,
-        move |i, _: &mut Window, cx: &mut App| {
+        move |i, window: &mut Window, cx: &mut App| {
             if let Some(u) = urls.get(i) {
                 if u.starts_with("http://") || u.starts_with("https://") {
                     cx.open_url(u);
+                } else if let Some(on_link) = &on_link {
+                    on_link(u, window, cx);
                 }
             }
         },

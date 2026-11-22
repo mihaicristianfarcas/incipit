@@ -47,7 +47,7 @@ pub use focus::{
 };
 pub use formula::{typeset_with, Typeset, Typesetter};
 pub use icon::{icon, Assets, Icon, IconName, IconSize};
-pub use markdown::{markdown, markdown_cloze, Cloze};
+pub use markdown::{markdown, markdown_cloze, markdown_linked, Cloze};
 pub use meter::meter;
 pub use motion::{ease, fade_in, Fade, Glide, Grow, FADE, RESIZE};
 pub use snapshot::snapshot;

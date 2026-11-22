@@ -96,6 +96,13 @@ impl PdfWorker {
         Ok((PdfWorker { requests }, info))
     }
 
+    /// A handle with no PDF behind it, whose requests are never answered: for a test of what
+    /// holds a PDF without opening one.
+    pub fn closed() -> PdfWorker {
+        let (requests, _) = channel();
+        PdfWorker { requests }
+    }
+
     /// Ask for page `index` drawn `pixel_width` pixels wide. `reply` runs on the PDF's thread.
     pub fn page(
         &self,

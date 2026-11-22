@@ -54,7 +54,7 @@ pub use meter::meter;
 pub use motion::{ease, fade_in, Fade, Glide, Grow, FADE, RESIZE};
 pub use snapshot::snapshot;
 pub use text_field::{field, Field, FieldEvent, Pasted, TextField};
-pub use theme::{hex, rgba, Ink, Layer, Metrics, Radius, Theme, Type};
+pub use theme::{hex, rgba, Ink, Layer, Marker, Metrics, Radius, Theme, Type};
 
 static UI_FONT: OnceLock<SharedString> = OnceLock::new();
 static MONO_FONT: OnceLock<SharedString> = OnceLock::new();

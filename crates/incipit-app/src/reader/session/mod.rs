@@ -414,13 +414,10 @@ impl ReaderView {
         };
         self.notes[at].turns = turns.clone();
         self.notes[at].mode = mode;
-        let (Some(vault), Some(first)) = (
-            self.workspace.read(cx).vault.clone(),
-            self.notes[at].anchors.first(),
-        ) else {
+        let Some(vault) = self.workspace.read(cx).vault.clone() else {
             return;
         };
-        let Some(source) = self.passage_source(first) else {
+        let Some(source) = self.passage_source(&self.notes[at].anchors) else {
             return;
         };
         let held = self.notes[at].doc.as_ref().and_then(|id| vault.get(id));

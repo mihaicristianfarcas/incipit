@@ -18,7 +18,7 @@ use incipit_learn::{Beat, Ended, Sittings};
 use incipit_vault::{Book, DocId, Kind, Vault};
 
 use super::model::Doc;
-use super::place::{chapter_at, item_of, place_of, Places, LINE};
+use super::place::{chapter_at, item_of, place_of, Places, Sizes, LINE};
 use super::{ReaderView, Shelved, State};
 use crate::study::now;
 
@@ -53,6 +53,7 @@ pub(super) struct Reading {
     /// The reader is the page shown.
     shown: bool,
     places: Option<Places>,
+    sizes: Option<Sizes>,
     saving: Option<Task<()>>,
     /// How far down its page a PDF's restored place is, to apply once the page's height is known.
     pub(super) fraction: Option<f64>,
@@ -68,6 +69,7 @@ impl Reading {
             window_active: true,
             shown: true,
             places: None,
+            sizes: None,
             saving: None,
             fraction: None,
             _activation: None,
@@ -81,6 +83,12 @@ impl Reading {
     fn places(&mut self) -> &mut Places {
         self.places
             .get_or_insert_with(|| Places::load(&crate::workspace::home()))
+    }
+
+    /// The sizes books are read at, in the app's folder.
+    pub(super) fn sizes(&mut self) -> &mut Sizes {
+        self.sizes
+            .get_or_insert_with(|| Sizes::load(&crate::workspace::home()))
     }
 }
 

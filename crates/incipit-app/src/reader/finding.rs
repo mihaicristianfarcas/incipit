@@ -40,7 +40,7 @@ const LIST_FILE: &str = "find-list";
 const ABOVE_LINE: f32 = 4.0;
 
 /// The book's text, as far as it has been read.
-enum Text {
+pub(super) enum Text {
     Unread,
     Reading,
     Ready(Arc<TextIndex>),
@@ -56,7 +56,7 @@ pub(super) struct Finding {
     at: usize,
     /// The list of every place is shown.
     list: bool,
-    text: Text,
+    pub(super) text: Text,
     /// Counts the searches, so that only the newest one's places are taken.
     asked: u64,
     scroll: ScrollHandle,

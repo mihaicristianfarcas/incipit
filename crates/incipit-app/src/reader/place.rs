@@ -3,7 +3,9 @@
 //! how far into it. The reader's list counts its items from 0, so a PDF's page is its item plus
 //! one. A book's place is kept on this computer, in the app's own folder (the earlier app kept it
 //! in the browser), because where one was reading on this device is not part of what a vault
-//! holds. Nothing here asks a window anything.
+//! holds. So is the size a book is read at (`Sizes`): a PDF's pages' width, each book's own, and
+//! the size of an EPUB's text, one for every EPUB, since a reader who wants larger text wants it
+//! in every book. Nothing here asks a window anything.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -48,14 +50,18 @@ pub fn chapter_at(contents: &[Entry], at: f64) -> Option<usize> {
         .or((!contents.is_empty()).then_some(0))
 }
 
-/// The chapter the top of list item `item` falls in, as the earlier app's `chapterAt` found it
-/// for the agent: the last entry of the contents that starts at or before it, and none before
-/// the first. Returns the entry's index in the contents.
-pub fn chapter_from(contents: &[Entry], item: usize) -> Option<usize> {
+/// The chapter a place in the list falls in (`at`: its item and how far down it), as the earlier
+/// app's `chapterAt` found it for the agent: the last entry of the contents that starts at or
+/// before it, and none before the first. Returns the entry's index in the contents.
+pub fn chapter_from(contents: &[Entry], at: f64) -> Option<usize> {
     let start = |e: &Entry| e.page as f64 + f64::from(e.y.unwrap_or(0.0));
-    contents
-        .iter()
-        .rposition(|e| start(e) <= item as f64 + 1e-6)
+    contents.iter().rposition(|e| start(e) <= at + 1e-6)
+}
+
+/// A place (`place_of`) as its item in the list and how far down it.
+pub fn in_list(pdf: bool, place: f64) -> f64 {
+    let (item, fraction) = item_of(pdf, place);
+    item as f64 + fraction
 }
 
 /// The places of the books, each as the earlier app kept it: three decimals.
@@ -99,6 +105,51 @@ impl Places {
     }
 }
 
+/// The sizes books are read at: a PDF's width by the book's id, and every EPUB's text under
+/// `EPUB`, in `sizes.json`.
+pub struct Sizes {
+    file: PathBuf,
+    sizes: BTreeMap<String, f32>,
+}
+
+impl Sizes {
+    /// The key every EPUB's text size is kept under: no book's id is a word in capitals alone.
+    pub const EPUB: &'static str = "EPUB";
+
+    /// The sizes kept in `folder`; none when there is no file or it cannot be read.
+    pub fn load(folder: &Path) -> Sizes {
+        let file = folder.join("sizes.json");
+        let sizes = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        Sizes { file, sizes }
+    }
+
+    pub fn get(&self, key: &str) -> Option<f32> {
+        self.sizes
+            .get(key)
+            .copied()
+            .filter(|s| s.is_finite() && *s > 0.0)
+    }
+
+    /// Remembers the size, to a tenth, and writes the file.
+    pub fn keep(&mut self, key: &str, size: f32) -> std::io::Result<()> {
+        let size = (size * 10.0).round() / 10.0;
+        if self.sizes.get(key) == Some(&size) {
+            return Ok(());
+        }
+        self.sizes.insert(key.to_owned(), size);
+        if let Some(folder) = self.file.parent() {
+            std::fs::create_dir_all(folder)?;
+        }
+        let text = serde_json::to_string_pretty(&self.sizes).map_err(std::io::Error::other)?;
+        let part = self.file.with_extension("json.part");
+        std::fs::write(&part, text)?;
+        std::fs::rename(&part, &self.file)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,22 +164,27 @@ mod tests {
     }
 
     #[test]
-    fn the_agent_is_told_the_chapter_the_page_starts_in_and_none_before_the_first() {
+    fn the_chapter_is_the_last_one_started_at_the_place_and_none_before_the_first() {
         let contents = [
             entry("Preface", 2, None),
             entry("One", 4, Some(0.5)),
             entry("Two", 9, None),
         ];
-        assert_eq!(chapter_from(&contents, 0), None);
-        assert_eq!(chapter_from(&contents, 2), Some(0));
+        assert_eq!(chapter_from(&contents, 0.0), None);
+        assert_eq!(chapter_from(&contents, 2.0), Some(0));
         assert_eq!(
-            chapter_from(&contents, 4),
+            chapter_from(&contents, 4.3),
             Some(0),
             "One starts halfway down"
         );
-        assert_eq!(chapter_from(&contents, 5), Some(1));
-        assert_eq!(chapter_from(&contents, 30), Some(2));
-        assert_eq!(chapter_from(&[], 3), None);
+        assert_eq!(
+            chapter_from(&contents, 4.6),
+            Some(1),
+            "past where One starts"
+        );
+        assert_eq!(chapter_from(&contents, 5.0), Some(1));
+        assert_eq!(chapter_from(&contents, 30.0), Some(2));
+        assert_eq!(chapter_from(&[], 3.0), None);
     }
 
     #[test]
@@ -178,6 +234,19 @@ mod tests {
         assert_eq!(places.get("b"), Some(12.346));
         let again = Places::load(folder.path());
         assert_eq!(again.get("b"), Some(12.346));
+        assert_eq!(again.get("other"), None);
+    }
+
+    #[test]
+    fn a_books_size_is_kept_to_a_tenth_and_comes_back_after_a_restart() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut sizes = Sizes::load(folder.path());
+        assert_eq!(sizes.get("b"), None);
+        sizes.keep("b", 736.04).unwrap();
+        sizes.keep(Sizes::EPUB, 19.55).unwrap();
+        let again = Sizes::load(folder.path());
+        assert_eq!(again.get("b"), Some(736.0));
+        assert_eq!(again.get(Sizes::EPUB), Some(19.6));
         assert_eq!(again.get("other"), None);
     }
 

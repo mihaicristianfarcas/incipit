@@ -7,7 +7,7 @@
 //!
 //! Without clicking: INCIPIT_CONNECTOR=demo opens the sheet on three made-up connections,
 //! `kept` on the same with the first one saved, `writing` while the model is writing them and
-//! `failed` on a refused reply, on the Reader or the Brain page; no model is called and nothing
+//! `failed` on a refused reply, on the Reader or the Concepts page; no model is called and nothing
 //! is written.
 
 use futures::StreamExt;

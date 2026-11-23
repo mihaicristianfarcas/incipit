@@ -778,6 +778,9 @@ fn plain(message: &str) -> String {
 
 impl EventEmitter<OpenConcept> for NotesView {}
 
+/// A figure the open note embeds, to play in the figure sheet.
+impl EventEmitter<crate::reader::OpenFigure> for NotesView {}
+
 impl Render for NotesView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme(window);
@@ -953,7 +956,22 @@ impl Render for NotesView {
                                     )
                                 }))
                                 .when(!self.embeds.is_empty(), |note| match self.vault(cx) {
-                                    Some(vault) => note.child(self.embeds.view(&vault, t, window)),
+                                    Some(vault) => {
+                                        let notes = cx.entity().downgrade();
+                                        note.child(self.embeds.view(
+                                            &vault,
+                                            t,
+                                            window,
+                                            move |figure, doc, cx| {
+                                                let _ = notes.update(cx, |_, cx| {
+                                                    cx.emit(crate::reader::OpenFigure(
+                                                        figure,
+                                                        Some(doc),
+                                                    ))
+                                                });
+                                            },
+                                        ))
+                                    }
                                     None => note,
                                 }),
                         ),

@@ -1,9 +1,9 @@
-//! Redrawing the kept figure on the Figure page with the learner's notes: "Redraw…" opens a field
+//! Redrawing the kept figure in the figure sheet with the learner's notes: "Redraw…" opens a field
 //! for what should change, and the figure is made again from its passage with the learner's
-//! earlier request and these notes (`crate::redraw`). The old figure stays on the page until the
+//! earlier request and these notes (`crate::redraw`). The old figure stays in the sheet until the
 //! new one has passed the engine's checks; then it replaces the old one in the same document of
-//! the vault and is shown. When every try is refused the old one stays and the page says why.
-//! The book is not open on this page, so the model is not sent the text around the passage.
+//! the vault and is shown. When every try is refused the old one stays and the sheet says why.
+//! The book may not be open, so the model is not sent the text around the passage.
 
 use futures::StreamExt;
 use gpui::{div, prelude::*, px, AnyElement, Context, Window};
@@ -36,16 +36,22 @@ impl FigureView {
     }
 
     /// The kept figure on show, as the vault has it now: another redraw (from the reader) or an
-    /// edit may have changed it. One that is gone is no longer shown as kept.
+    /// edit may have changed it. One that is gone, or no longer reads, is no longer shown as
+    /// kept. A closed sheet stays closed.
     pub(super) fn follow_kept(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.shown.clone() else {
             return;
         };
-        match self.kept.iter().find(|k| k.id == id) {
+        let vault = self.workspace.read(cx).vault.clone();
+        let now = vault
+            .and_then(|vault| vault.get(&id))
+            .and_then(|doc| crate::note_embeds::figure_of(&doc));
+        match now {
             None => self.shown = None,
-            Some(kept) if self.figure.as_ref() != Ok(&kept.figure) => {
-                let figure = kept.figure.clone();
+            Some(figure) if self.figure.as_ref() != Ok(&figure) => {
+                let open = self.open;
                 self.present(figure, Some(id), cx);
+                self.open = open;
             }
             Some(_) => {}
         }

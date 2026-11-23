@@ -1,35 +1,18 @@
-//! The list of every concept on the Brain, best known first and those not practised last, with
-//! a field that narrows it to the concepts whose title, other names or summary have the words
-//! typed (`concepts::view`). A row says how well its concept is known and how many cards are
-//! about it, and opens the concept's page; Return in the field opens the first one. The switch
-//! at the top goes back to the picture.
+//! The list of every concept (the sidebar's Concepts, under Notes), best known first and those
+//! not practised last, with a field that narrows it to the concepts whose title, other names or
+//! summary have the words typed (`concepts::view`). A row says how well its concept is known and
+//! how many cards are about it, and opens the concept's page; Return in the field opens the
+//! first one.
 
 use gpui::{div, prelude::*, px, AnyElement, Context, IntoElement, Window};
-use incipit_ui::{field, page_header, segmented, Theme, Type};
+use incipit_ui::{field, page_header, Theme, Type};
 
 use super::concept::{band_ink, focus_row, mastery_bar};
-use super::{BrainView, Shown};
+use super::BrainView;
 use crate::concepts::known::words;
 use crate::concepts::view::matches;
 
 impl BrainView {
-    /// The switch between the picture and the list, `at` the one shown.
-    pub(super) fn switch(&self, at: usize, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {
-        let this = cx.entity().downgrade();
-        segmented("brain-shown", ["Graph", "Concepts"], at, t).on_select(move |picked, _, cx| {
-            let _ = this.update(cx, |this, cx| {
-                this.switch_to(
-                    if picked == 0 {
-                        Shown::Graph
-                    } else {
-                        Shown::List
-                    },
-                    cx,
-                )
-            });
-        })
-    }
-
     /// The concepts the find field matches, in the list's order.
     pub(super) fn found_concepts(&self, cx: &Context<Self>) -> Vec<usize> {
         let query = self.concepts_find.read(cx).text().to_string();
@@ -131,12 +114,7 @@ impl BrainView {
             .flex()
             .flex_col()
             .gap(px(16.0))
-            .child(page_header(
-                "Concepts",
-                count.map(Into::into),
-                Some(self.switch(1, t, cx).into_any_element()),
-                t,
-            ))
+            .child(page_header("Concepts", count.map(Into::into), None, t))
             .when(!self.listed.is_empty(), |body| {
                 body.child(field(&self.concepts_find, t))
             })

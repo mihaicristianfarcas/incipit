@@ -1,4 +1,4 @@
-//! The links an agent suggests, on the Brain: a button in the find card says how many wait and
+//! The links an agent suggests, on the graph: a button in the find card says how many wait and
 //! opens a card beside the picture that lists them all (the note or concept each goes in, the
 //! one it links to and why), with "Link" and "Not related" ("Not needed first", for what a
 //! concept builds on) on each, and two ways to ask for more: the agent reading the notes edited

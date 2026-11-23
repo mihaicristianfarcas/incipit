@@ -1,4 +1,4 @@
-//! One concept's page on the Brain: what it is and how well it is known, what it builds on and
+//! One concept's page, among the concepts: what it is and how well it is known, what it builds on and
 //! what leads from it, related concepts, its cards, the notes about it and the passages it came
 //! from (`concepts::view`), and ways to explain it back (`crate::explain`), practise it (`crate::practice`) and connect it to
 //! the world (`crate::connector`). A concept named on the page opens its own page; a card opens Review,

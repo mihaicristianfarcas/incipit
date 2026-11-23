@@ -355,7 +355,7 @@ mod tests {
         }
     }
 
-    /// The block on a slope with three forces, from the Figure page's pictures.
+    /// The block on a slope with three forces, from the figure sheet's pictures.
     fn slope() -> Diagram {
         let arrow =
             |id: &str, angle: &str, length: &str| link("arrow", id, "block", "0", angle, length);

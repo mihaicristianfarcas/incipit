@@ -36,7 +36,7 @@ pub struct Typeset {
 /// TeX could not be typeset.
 pub type Typesetter = fn(&str, bool, f32, (u8, u8, u8), f32) -> Result<Typeset, String>;
 
-/// How much larger than its text a formula of its own is set: as the app's math page sets them.
+/// How much larger than its text a formula of its own is set, as display math is in print.
 const DISPLAYED: f32 = 1.15;
 /// The formulas kept before those kept are let go: enough for every formula on screen many
 /// times over, as an answer or a card holds a few.

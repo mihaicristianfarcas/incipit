@@ -1,4 +1,4 @@
-//! The Brain: the vault's notes, concepts and books as a picture of what links to what. The
+//! The graph: the vault's notes, concepts and books as a picture of what links to what. The
 //! layout (`picture`, with `incipit-graph`) runs off the window's thread and the picture appears
 //! when it has settled; here it is drawn on a canvas (`draw`), panned by dragging empty space,
 //! zoomed with the wheel around the pointer, and a node under the pointer lights up with its
@@ -11,10 +11,10 @@
 //! left finds nodes by title as one types (`search`): they are ringed and named, and Enter
 //! selects the best one and brings it to the middle, then the next.
 //!
-//! A switch above that field turns the page into the list of every concept, best known first
-//! (`concepts`), and a concept opens on a page of its own (`concept`), with a way back to where
-//! it was opened from. The page asks the window to open a document with `Open`, a concept in
-//! Notes to edit it with `Edit`, and a passage in the reader with `Read`.
+//! The same view is the list of every concept, best known first (`concepts`): the sidebar's Graph
+//! and Concepts, under Notes, pick which. A concept opens on a page of its own (`concept`), with
+//! a way back to where it was opened from. The page asks the window to open a document with
+//! `Open`, a concept in Notes to edit it with `Edit`, and a passage in the reader with `Read`.
 //!
 //! A concept can be explained back from its page or from its card beside the picture
 //! (`crate::explain`), with its summary and the book its first passage is in, and from its page
@@ -26,7 +26,7 @@
 //! A concept's page lists the notes that name it without linking it, each with a button that
 //! makes the link (`mentions`).
 //!
-//! Without clicking: INCIPIT_PAGE=brain opens the page, and INCIPIT_NODE=words types the words
+//! Without clicking: INCIPIT_PAGE=graph opens the picture, and INCIPIT_NODE=words types the words
 //! into the field and presses Enter once the picture is there. INCIPIT_PAGE=concepts opens the
 //! list of concepts, and INCIPIT_CONCEPT=words the page of the concept whose title has the
 //! words, once the vault is open; with INCIPIT_EXPLAIN=write, the sheet to explain it back opens
@@ -411,6 +411,19 @@ impl BrainView {
         }
     }
 
+    /// Shows the picture: the sidebar's Graph.
+    pub fn show_graph(&mut self, cx: &mut Context<Self>) {
+        self.switch_to(Shown::Graph, cx);
+    }
+
+    /// Shows the list of concepts: the sidebar's Concepts. A concept's page open from the list
+    /// stays open.
+    pub fn show_list(&mut self, cx: &mut Context<Self>) {
+        if !matches!(self.shown, Shown::Concept(_)) || self.back != Shown::List {
+            self.switch_to(Shown::List, cx);
+        }
+    }
+
     /// Shows the picture or the list.
     fn switch_to(&mut self, shown: Shown, cx: &mut Context<Self>) {
         self.shown = shown;
@@ -702,7 +715,6 @@ impl BrainView {
                     .occlude()
                     .p(px(6.0))
                     .gap(px(6.0))
-                    .child(div().flex().child(self.switch(0, t, cx)))
                     .child(field(&self.find, t))
                     .child(self.suggestions_button(t, cx))
                     .when(typed, |card| {

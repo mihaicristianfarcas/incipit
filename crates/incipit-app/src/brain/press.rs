@@ -1,4 +1,4 @@
-//! What a press on the Brain's picture becomes. A press and release that stays put is a click:
+//! What a press on the graph's picture becomes. A press and release that stays put is a click:
 //! it selects the node under it, or clears the selection on empty space. One that moves further
 //! than `SLOP` drags the node it began on, or pans the picture when it began on empty space, and
 //! once it has moved it never becomes a click again. Pure: the window's handlers only turn events

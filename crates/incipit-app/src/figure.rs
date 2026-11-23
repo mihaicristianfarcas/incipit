@@ -1,19 +1,23 @@
-//! The figure page: one figure from a spec, checked, then shown with the controls its kind offers:
-//! play and scrub for a clock, back and next for steps, a slider for each parameter, and points to
-//! drag on the stage. The page knows no kind: the controls come from the figure's pace and from the
-//! handles its frame carries. The spec comes from INCIPIT_FIGURE (a JSON file a model wrote) or is
-//! one of the engine's examples, picked with the kind switcher or INCIPIT_KIND; INCIPIT_AT,
-//! INCIPIT_STEP, INCIPIT_PARAMS and INCIPIT_POINTS open it in a given state. Under the figure are
-//! the figures the open vault keeps (those made for passages in the reader), to show again.
+//! The figure sheet: one figure, checked, played over the page it was opened from, with the
+//! controls its kind offers: play and scrub for a clock, back and next for steps, a slider for
+//! each parameter, and points to drag on the stage. The sheet knows no kind: the controls come
+//! from the figure's pace and from the handles its frame carries. The reader's margin opens a
+//! figure made for a passage here, and Notes a figure a note embeds; a figure is drawn still
+//! everywhere else.
 //!
-//! A kept figure on show can be redrawn with notes on what should change (`crate::redraw`): the
-//! old figure stays on the page until the new one has passed the checks and replaces it in the
-//! vault, and when every try is refused it stays and the reasons are said. The book is not
-//! open here, so the model has the passage, the book's title, author and chapter, not the text
-//! around it. INCIPIT_REDRAW=field|busy|refused, with INCIPIT_VAULT on a throwaway folder, adds
-//! a made-up kept figure to a vault that has none and opens it with the field written in, a
-//! redraw under way or a refused one; no model is asked. `send` redraws it with those notes,
-//! which asks the model.
+//! A figure the vault keeps can be redrawn here with notes on what should change
+//! (`crate::redraw`): the old figure stays in the sheet until the new one has passed the checks
+//! and replaces it in the vault, and when every try is refused it stays and the reasons are
+//! said. The book may not be open, so the model has the passage, the book's title, author and
+//! chapter, not the text around it.
+//!
+//! For checks without a model, the sheet opens over the first page with INCIPIT_FIGURE (a JSON
+//! file a model wrote) or INCIPIT_KIND (one of the engine's examples); INCIPIT_AT, INCIPIT_STEP,
+//! INCIPIT_PARAMS and INCIPIT_POINTS open it in a given state. INCIPIT_REDRAW=field|busy|refused,
+//! with INCIPIT_VAULT on a throwaway folder and on any page but the reader, adds a made-up kept
+//! figure to a vault that has none and opens it with the redraw field written in, a redraw under
+//! way or a refused one; no model is asked. `send` redraws it with those notes, which asks the
+//! model.
 
 mod redrawing;
 
@@ -22,17 +26,14 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    div, prelude::*, px, AnyElement, Context, Entity, FontWeight, IntoElement, MouseButton, Pixels,
-    Point, Render, ScrollHandle, SharedString, Subscription, Window,
+    div, prelude::*, px, Context, Entity, FontWeight, IntoElement, MouseButton, Pixels, Point,
+    Render, ScrollHandle, Subscription, Window,
 };
 use incipit_llm::Cancel;
 use incipit_scene::{
     check, grab, layout, schema, ticks, Drag, Figure, Handle, Kind, Pace, Report, State, WIDTH,
 };
-use incipit_ui::{
-    button, card, icon_button, page, page_header, rows, section, segmented, setting, slider,
-    IconName, TextField, Theme, Type,
-};
+use incipit_ui::{button, card, icon_button, sheet, slider, IconName, TextField, Theme, Type};
 use incipit_vault::DocId;
 
 use crate::models::Models;
@@ -41,13 +42,19 @@ use crate::workspace::{Happened, Workspace};
 
 /// Time units played each second.
 const SPEED: f32 = 1.0;
-const STAGE_WIDTH: f32 = 720.0;
+/// The stage's width in the sheet: the engine's own width scaled to leave the sheet room beside
+/// a window's sidebar at the window's smallest size.
+const STAGE_WIDTH: f32 = 640.0;
+/// The sheet's width: the stage, its card's padding and the sheet's.
+const SHEET: f32 = STAGE_WIDTH + 24.0 + 48.0;
+/// The room kept above and below the sheet when the figure is taller than the window.
+const SHEET_MARGIN: f32 = 120.0;
 const SLIDER_WIDTH: f32 = 220.0;
 
 pub struct FigureView {
+    /// The sheet is over the page.
+    open: bool,
     figure: Result<Figure, String>,
-    /// The example shown when no file was given; None when the figure came from a file.
-    kind: Option<Kind>,
     state: State,
     /// What the checks said, with this window's text widths. None until the first draw.
     report: Option<Report>,
@@ -60,8 +67,6 @@ pub struct FigureView {
     origin: Rc<Cell<Point<Pixels>>>,
     scroll: ScrollHandle,
     workspace: Entity<Workspace>,
-    /// The figures the open vault keeps, newest first.
-    kept: Vec<Kept>,
     models: Entity<Models>,
     /// The kept figure on show, when the one on show is one.
     shown: Option<DocId>,
@@ -70,13 +75,6 @@ pub struct FigureView {
     demo: Option<String>,
     _heard: Subscription,
     _field: Subscription,
-}
-
-/// A figure the vault keeps, with the passage it was made for.
-struct Kept {
-    id: DocId,
-    figure: Figure,
-    quote: SharedString,
 }
 
 /// Redrawing the figure on show with the learner's notes.
@@ -109,7 +107,6 @@ impl FigureView {
                 Happened::Changed(event) => event.path.as_str().starts_with("figures/"),
             };
             if ours {
-                this.kept = kept(&this.workspace, cx);
                 this.follow_kept(cx);
                 if matches!(happened, Happened::Opened) {
                     this.show_demo_redraw(cx);
@@ -133,16 +130,17 @@ impl FigureView {
                 incipit_ui::FieldEvent::Changed => {}
             },
         );
-        let (figure, kind) = match std::env::var("INCIPIT_FIGURE") {
-            Ok(path) => (read(&path), None),
-            Err(_) => {
-                let kind = std::env::var("INCIPIT_KIND")
-                    .ok()
-                    .and_then(|k| Kind::parse(&k))
-                    .unwrap_or(Kind::ALL[0]);
-                (Ok(schema::example(kind)), Some(kind))
-            }
+        // A figure asked for in the environment opens the sheet at once, for checks.
+        let asked = match std::env::var("INCIPIT_FIGURE") {
+            Ok(path) => Some(read(&path)),
+            Err(_) => std::env::var("INCIPIT_KIND").ok().map(|kind| {
+                Kind::parse(&kind)
+                    .map(schema::example)
+                    .ok_or_else(|| format!("{kind} is not a kind of figure"))
+            }),
         };
+        let open = asked.is_some();
+        let figure = asked.unwrap_or_else(|| Err("No figure is open.".to_owned()));
         let mut state = figure.as_ref().map(Figure::start).unwrap_or_default();
         opened_in(&mut state);
         // Walk to the step asked for, so what each step sets on the way is set.
@@ -154,8 +152,8 @@ impl FigureView {
         }
         cx.notify();
         let mut view = FigureView {
+            open,
             figure,
-            kind,
             state,
             report: None,
             playing: None,
@@ -163,7 +161,6 @@ impl FigureView {
             dragging: None,
             origin: Rc::new(Cell::new(Point::default())),
             scroll: ScrollHandle::new(),
-            kept: kept(&workspace, cx),
             workspace,
             models,
             shown: None,
@@ -173,7 +170,10 @@ impl FigureView {
                 doing: None,
                 problem: None,
             },
-            demo: std::env::var("INCIPIT_REDRAW").ok(),
+            // On the reader the margin's figure card shows the redraw instead.
+            demo: std::env::var("INCIPIT_REDRAW")
+                .ok()
+                .filter(|_| std::env::var("INCIPIT_PAGE").as_deref() != Ok("reader")),
             _heard: heard,
             _field: field_heard,
         };
@@ -181,30 +181,26 @@ impl FigureView {
         view
     }
 
-    /// Show a figure made elsewhere (by a model, for a passage) in place of the examples. `doc` is
-    /// its document in the vault when it is kept there, which is what can be redrawn.
+    /// Opens the sheet on a figure made elsewhere (by a model, for a passage). `doc` is its
+    /// document in the vault when it is kept there, which is what can be redrawn.
     pub fn present(&mut self, figure: Figure, doc: Option<DocId>, cx: &mut Context<Self>) {
+        self.open = true;
         if self.shown != doc {
             self.redraw.open = false;
         }
         self.shown = doc;
         self.state = figure.start();
         self.figure = Ok(figure);
-        self.kind = None;
         self.report = None;
         self.playing = None;
         self.dragging = None;
         cx.notify();
     }
 
-    fn show(&mut self, kind: Kind, cx: &mut Context<Self>) {
-        self.shown = None;
-        self.redraw.open = false;
-        let figure = schema::example(kind);
-        self.state = figure.start();
-        self.figure = Ok(figure);
-        self.kind = Some(kind);
-        self.report = None;
+    /// Puts the sheet away. A redraw under way goes on, and its figure replaces the old one in
+    /// the vault when it passes.
+    fn close(&mut self, cx: &mut Context<Self>) {
+        self.open = false;
         self.playing = None;
         self.dragging = None;
         cx.notify();
@@ -268,27 +264,6 @@ impl FigureView {
     }
 }
 
-/// The figures in the open vault whose spec still reads, newest first.
-fn kept(workspace: &Entity<Workspace>, cx: &gpui::App) -> Vec<Kept> {
-    let Some(vault) = workspace.read(cx).vault.clone() else {
-        return Vec::new();
-    };
-    let mut docs = vault.list(Some(incipit_vault::Kind::Figure));
-    docs.sort_by_key(|doc| std::cmp::Reverse(doc.created()));
-    docs.into_iter()
-        .filter_map(|doc| {
-            let spec = doc.fields::<incipit_vault::Figure>()?.spec?;
-            let figure = serde_json::from_value::<Figure>(spec).ok()?;
-            let quote = doc.source().and_then(|s| s.quote).unwrap_or_default();
-            Some(Kept {
-                id: doc.id().clone(),
-                figure,
-                quote: quote.into(),
-            })
-        })
-        .collect()
-}
-
 fn read(path: &str) -> Result<Figure, String> {
     let json = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
     let mut value: serde_json::Value =
@@ -342,14 +317,26 @@ fn opened_in(state: &mut State) {
 
 impl Render for FigureView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.open {
+            return div().into_any_element();
+        }
         let t = crate::theme(window);
         let figure = match &self.figure {
             Ok(figure) => figure.clone(),
             Err(e) => {
                 let body = div()
-                    .text_color(t.danger)
-                    .child(format!("The figure could not be read: {e}"));
-                return page("figure", &self.scroll, 760.0, t, body);
+                    .flex()
+                    .flex_col()
+                    .gap(px(14.0))
+                    .child(self.head("Figure", None, t, cx))
+                    .child(
+                        div()
+                            .text_color(t.danger)
+                            .child(format!("The figure could not be read: {e}")),
+                    );
+                return sheet("figure", SHEET, t, body)
+                    .on_escape(cx.listener(|this, _, _, cx| this.close(cx)))
+                    .into_any_element();
             }
         };
         let measure = Shaped(window.text_system().clone());
@@ -414,23 +401,12 @@ impl Render for FigureView {
                 )
             });
 
-        let mut body = div().flex().flex_col().gap(px(14.0)).child(page_header(
-            figure.title().to_string(),
-            Some(figure.hint().to_string().into()),
-            None,
+        let mut body = div().flex().flex_col().gap(px(14.0)).child(self.head(
+            figure.title(),
+            Some(figure.hint()),
             t,
+            cx,
         ));
-        if let Some(kind) = self.kind {
-            let at = Kind::ALL.iter().position(|k| *k == kind).unwrap_or(0);
-            body = body.child(div().flex().child(
-                segmented("fig-kind", Kind::ALL.map(Kind::label), at, t).on_select({
-                    let view = cx.entity().downgrade();
-                    move |i, _, cx| {
-                        let _ = view.update(cx, |this, cx| this.show(Kind::ALL[i], cx));
-                    }
-                }),
-            ));
-        }
         body = body
             .child(
                 card(t)
@@ -488,32 +464,59 @@ impl Render for FigureView {
             }))
             .child(checked(&report, t));
         body = body.children(self.redraw_part(t, cx));
-        if !self.kept.is_empty() {
-            let kept: Vec<AnyElement> = self
-                .kept
-                .iter()
-                .enumerate()
-                .map(|(index, kept)| {
-                    let (shown, id) = (kept.figure.clone(), kept.id.clone());
-                    let detail = (!kept.quote.is_empty()).then(|| kept.quote.clone());
-                    setting(
-                        kept.figure.title().to_owned(),
-                        detail,
-                        button(("fig-kept", index), "Show", t).on_click(cx.listener(
-                            move |this, _, _, cx| this.present(shown.clone(), Some(id.clone()), cx),
-                        )),
-                        t,
-                    )
-                    .into_any_element()
-                })
-                .collect();
-            body = body.child(section("In your vault", t).child(rows(kept, t)));
-        }
-        page("figure", &self.scroll, 760.0, t, body)
+        let tallest = window.viewport_size().height.as_f32() - SHEET_MARGIN;
+        let scrolled = div()
+            .id("figure-scroll")
+            .max_h(px(tallest.max(SHEET_MARGIN)))
+            .overflow_y_scroll()
+            .track_scroll(&self.scroll)
+            .child(body);
+        sheet("figure", SHEET, t, scrolled)
+            .on_escape(cx.listener(|this, _, _, cx| this.close(cx)))
+            .into_any_element()
     }
 }
 
 impl FigureView {
+    /// The figure's title and what to do with it, and the button that puts the sheet away.
+    fn head(
+        &self,
+        title: &str,
+        hint: Option<&str>,
+        t: Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .flex()
+            .items_start()
+            .gap(px(12.0))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .text_size(px(Type::TITLE))
+                            .font_weight(Type::SEMIBOLD)
+                            .child(title.to_owned()),
+                    )
+                    .children(hint.map(|hint| {
+                        div()
+                            .text_size(px(Type::META))
+                            .text_color(t.secondary)
+                            .child(hint.to_owned())
+                    })),
+            )
+            .child(
+                icon_button("fig-close", IconName::Close, "Close (Escape)", t)
+                    .ghost()
+                    .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
+            )
+    }
+
     /// Play, back, next and the clock for a figure with a clock; back, next and the count for
     /// one with steps; nothing for one that only moves when the learner moves it.
     fn controls(&self, t: Theme, cx: &mut Context<Self>) -> impl IntoElement {

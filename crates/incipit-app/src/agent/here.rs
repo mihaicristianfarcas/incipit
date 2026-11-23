@@ -20,7 +20,7 @@ const PAGES: [(&str, &str); 6] = [
     ("library", "the Library (their books)"),
     ("notes", "Notes"),
     ("review", "Review (flashcards due)"),
-    ("brain", "the Brain (the graph of their notes and concepts)"),
+    ("brain", "the graph of their notes and concepts"),
     ("settings", "Settings"),
 ];
 
@@ -52,7 +52,7 @@ pub struct BookAt {
 pub struct Here {
     /// The page, by the earlier app's name for it; `None` for a page it said nothing of.
     pub page: Option<&'static str>,
-    /// The document open on the page: a note on Notes, a concept on the Brain.
+    /// The document open on the page: a note on Notes, a concept among the concepts.
     pub doc: Option<DocId>,
     pub book: Option<BookAt>,
     /// The text selected, its runs of white space made one space.
@@ -245,7 +245,7 @@ mod tests {
         assert_eq!(on("library").label, "Library");
         assert_eq!(
             on("brain").lines,
-            ["They are on the Brain (the graph of their notes and concepts)."]
+            ["They are on the graph of their notes and concepts."]
         );
         assert_eq!(on("math"), Described::default());
         assert_eq!(describe(&vault, &Here::default()), Described::default());

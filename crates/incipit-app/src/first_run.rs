@@ -19,7 +19,7 @@ use gpui::{
 use incipit_ui::{button, card, field, footnote, page, rows, section, TextField, Theme, Type};
 
 use crate::models::{Changed, Models};
-use crate::profile_form::{ProfileForm, Saved};
+use crate::profile_form::{Part, ProfileForm, Saved};
 use crate::workspace::{documents, Happened, Workspace};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,7 +110,15 @@ impl FirstRun {
         models: Entity<Models>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let form = cx.new(|cx| ProfileForm::new(workspace.clone(), "Start learning", None, cx));
+        let form = cx.new(|cx| {
+            ProfileForm::new(
+                workspace.clone(),
+                Part::Whole,
+                Some("Start learning"),
+                None,
+                cx,
+            )
+        });
         let name = cx.new(|cx| {
             let mut field = TextField::new(cx).placeholder("Incipit");
             field.set_text("Incipit", cx);

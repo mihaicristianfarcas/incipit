@@ -186,6 +186,9 @@ impl ReaderView {
             }
             "n" if selection_menu => self.start_writing(Compose::Note, window, cx),
             "a" if selection_menu => self.start_writing(Compose::Ask, window, cx),
+            "t" if selection_menu && self.has(incipit_vault::Method::ExplainBack, cx) => {
+                self.teach_back(cx)
+            }
             "v" if selection_menu && self.has(incipit_vault::Method::Figures, cx) => {
                 self.start_writing(Compose::Figure, window, cx)
             }

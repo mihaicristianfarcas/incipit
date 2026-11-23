@@ -57,10 +57,9 @@ impl SettingsView {
         ];
         // Whatever the models say about themselves (a sign-in under way) shows here.
         cx.observe(&models, |_, _, cx| cx.notify()).detach();
-        let you = cx.new(|cx| ProfileForm::new(workspace.clone(), Part::You, None, None, cx));
-        let flashcards = cx.new(|cx| {
-            ProfileForm::new(workspace.clone(), Part::Flashcards, None, Some(fitting), cx)
-        });
+        let you = cx.new(|cx| ProfileForm::new(workspace.clone(), Part::You, None, cx));
+        let flashcards =
+            cx.new(|cx| ProfileForm::new(workspace.clone(), Part::Flashcards, Some(fitting), cx));
         SettingsView {
             workspace,
             models,

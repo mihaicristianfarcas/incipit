@@ -1,5 +1,6 @@
 //! Today: where the app starts, as the earlier app's Today is. A greeting with the date, a field
-//! for the agent (ask the library anything, or tell it what to do), what waits in Review and the way
+//! for the agent while it is switched on (ask the library anything, or tell it what to do; an
+//! extra, off to begin with), what waits in Review and the way
 //! in; the book read last to carry on with (its chapter, how far through it and when it would be
 //! finished at the recent pace) beside the other books by how lately they were touched; the few
 //! other things worth doing next, each one press from doing it (`incipit_learn::plan`: explain a
@@ -559,7 +560,12 @@ impl Render for TodayView {
             .flex_col()
             .gap(px(22.0))
             .child(self.greeting(t, cx))
-            .child(self.ask_bar(t, cx))
+            .when(
+                self.workspace
+                    .read(cx)
+                    .has_extra(incipit_vault::Extra::Agent),
+                |body| body.child(self.ask_bar(t, cx)),
+            )
             .child(self.review(t, cx))
             .children(reading)
             .children(first_book)

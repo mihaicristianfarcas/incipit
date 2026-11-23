@@ -248,7 +248,7 @@ of the activity log, and from the `score` (0 to 100) of notes of type
 Markdown but not a document: it has no id, is not listed among the notes,
 and the vault reads and writes it itself (`Vault::profile`,
 `Vault::save_profile`). The names are the earlier app's, but for
-`fittedSchedule` and `methods`, which are Incipit's own.
+`fittedSchedule`, `methods` and `extras`, which are Incipit's own.
 
 | Property | |
 |---|---|
@@ -263,6 +263,7 @@ and the vault reads and writes it itself (`Vault::profile`,
 | `retention` | the recall a card is scheduled to fall to when it comes due, 0.7 to 0.97 (default 0.9) |
 | `fittedSchedule` | `true` (default): the cards' schedule is fitted to the learner's own reviews once there are enough (see Generated files); `false`: always the standard schedule |
 | `methods` | the ways of learning switched on, a list of their names: `explain-back`, `quizzes`, `figures`, `concept-map`, `tutor`, `connect`, `further-reading`. Without it, the first three. An empty list is every one off; a name the app does not know is kept. Switching one off writes nothing else: what it made stays |
+| `extras` | what beyond the methods is switched on, a list of names: `agent`. Without it, none. A name the app does not know is kept |
 | `onboarded` | `true` once the first run is done |
 
 The body is the learner's own words about how they learn; until they write

@@ -1,9 +1,9 @@
 //! The learner's profile: `profile.md` at the vault's root. Who they are and how they like to
 //! learn are its properties, in the earlier app's names (`name`, `role`, `goals`, `background`,
-//! `level`, `styles`, `interests`, `dailyNew`, `retention`, `onboarded`), and two of Incipit's
-//! own: `fittedSchedule`, whether the flashcards' schedule is fitted to their reviews, and
-//! `methods`, the ways of learning switched on (a list of their names, which reads as a list in
-//! Obsidian; without it, the defaults). Their own words about how they learn are its body. It is not a document (it is not listed among the
+//! `level`, `styles`, `interests`, `dailyNew`, `retention`, `onboarded`), and three of Incipit's
+//! own: `fittedSchedule`, whether the flashcards' schedule is fitted to their reviews;
+//! `methods`, the ways of learning switched on; and `extras`, what beyond them is switched on
+//! (each a list of names, which reads as a list in Obsidian; without it, the defaults). Their own words about how they learn are its body. It is not a document (it is not listed among the
 //! notes, and has no id): the vault reads and writes it here, and the app's model prompts and
 //! review settings read it from here.
 //!
@@ -230,6 +230,32 @@ impl<T: Switch> Switches<T> {
 /// The methods switched on.
 pub type Methods = Switches<Method>;
 
+/// What the app offers beyond learning methods, off until the learner switches it on
+/// (Settings' Extras).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Extra {
+    /// The agent that works on the vault: its sheet, Today's field, and the links it suggests.
+    Agent,
+}
+
+impl Switch for Extra {
+    const ALL: &'static [Extra] = &[Extra::Agent];
+
+    fn key(self) -> &'static str {
+        match self {
+            Extra::Agent => "agent",
+        }
+    }
+
+    /// Every extra starts off: each is a switch away until the learner wants it.
+    fn on_by_default(self) -> bool {
+        false
+    }
+}
+
+/// The extras switched on.
+pub type Extras = Switches<Extra>;
+
 /// How much the learner wants pictures, words, and things to touch, each 0 to 1.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Styles {
@@ -258,6 +284,8 @@ pub struct Profile {
     pub fitted_schedule: bool,
     /// The ways of learning switched on.
     pub methods: Methods,
+    /// The extras switched on.
+    pub extras: Extras,
     /// Their own words, the file's body. Empty when they wrote none.
     pub notes: String,
     /// Whether the first run is done.
@@ -282,6 +310,7 @@ impl Default for Profile {
             retention: 0.9,
             fitted_schedule: true,
             methods: Methods::default(),
+            extras: Extras::default(),
             notes: String::new(),
             onboarded: false,
         }
@@ -351,6 +380,7 @@ impl Profile {
                 .and_then(Value::as_bool)
                 .unwrap_or(default.fitted_schedule),
             methods: Methods::read(&props, "methods"),
+            extras: Extras::read(&props, "extras"),
             notes: if notes == HINT {
                 String::new()
             } else {
@@ -409,6 +439,7 @@ impl Profile {
         props.set("retention", self.retention);
         props.set("fittedSchedule", self.fitted_schedule);
         props.set("methods", self.methods.keys());
+        props.set("extras", self.extras.keys());
         props.set("onboarded", self.onboarded);
         let body = if self.notes.trim().is_empty() {
             HINT
@@ -506,6 +537,7 @@ mod tests {
             retention: 0.85,
             fitted_schedule: false,
             methods: Methods::from_keys(&["tutor".into(), "connect".into()]),
+            extras: Extras::from_keys(&["agent".into()]),
             notes: "I like proofs first.".into(),
             onboarded: true,
         };
@@ -596,6 +628,13 @@ mod tests {
         let again = vault.profile();
         assert!(again.methods.has(Method::ConceptMap) && !again.methods.has(Method::Tutor));
         assert_eq!(again.methods, p.methods);
+    }
+
+    #[test]
+    fn the_agent_is_off_until_it_is_switched_on() {
+        assert!(!Profile::parse("").extras.has(Extra::Agent));
+        let on = Profile::parse("---\nextras: [agent]\n---\n");
+        assert!(on.extras.has(Extra::Agent));
     }
 
     #[test]

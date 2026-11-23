@@ -10,9 +10,11 @@
 //! without Obsidian's `.obsidian` is refused with words saying what to pick. INCIPIT_OBSIDIAN
 //! opens a folder the way that choice does, so both outcomes can be looked at without a dialog.
 //!
-//! The ways of learning switched on (`methods` in the vault's profile) are kept here as well, read
+//! The ways of learning and the extras switched on (`methods` and `extras` in the vault's
+//! profile) are kept here as well, read
 //! again when a vault opens and when `profile.md` changes, so every page can ask whether a
-//! method is on while it is drawn without reading a file. With no vault open, the defaults.
+//! method or an extra is on while it is drawn without reading a file. With no vault open, the
+//! defaults.
 //!
 //! A vault another program has open is not opened (`incipit_vault::Error::Held`): the learner is
 //! told so, where every other failure to open is said, and the app goes on as with no vault. The
@@ -25,7 +27,7 @@ use std::path::{Path, PathBuf};
 use futures::channel::mpsc::unbounded;
 use futures::StreamExt;
 use gpui::{Context, EventEmitter, PathPromptOptions};
-use incipit_vault::{Event, KnownVaults, Method, Methods, Vault};
+use incipit_vault::{Event, Extra, Extras, KnownVaults, Method, Methods, Profile, Vault};
 
 /// What the learner is told when the vault is open in another program.
 pub const HELD: &str =
@@ -40,6 +42,8 @@ pub struct Workspace {
     pub opening: bool,
     /// The ways of learning switched on in the open vault's profile.
     pub methods: Methods,
+    /// The extras switched on.
+    pub extras: Extras,
     /// Counts the vaults opened, so the changes of one that is no longer open stop being passed
     /// on, even when the same vault is opened again.
     opened: u64,
@@ -77,6 +81,7 @@ impl Workspace {
             problem: None,
             opening: false,
             methods: Methods::default(),
+            extras: Extras::default(),
             opened: 0,
             home: home(),
         };
@@ -144,7 +149,7 @@ impl Workspace {
                         this.remember(&vault);
                         this.opened += 1;
                         this.listen(&vault, cx);
-                        this.methods = vault.profile().methods;
+                        this.follow(&vault.profile());
                         this.vault = Some(vault);
                         this.problem = None;
                     }
@@ -194,8 +199,8 @@ impl Workspace {
                     let open = this.opened == opened;
                     if open {
                         if event.path.as_str() == incipit_vault::profile::PROFILE {
-                            if let Some(vault) = &this.vault {
-                                this.methods = vault.profile().methods;
+                            if let Some(profile) = this.vault.as_ref().map(Vault::profile) {
+                                this.follow(&profile);
                             }
                         }
                         cx.emit(Happened::Changed(event));
@@ -215,17 +220,38 @@ impl Workspace {
         self.methods.has(method)
     }
 
+    /// Whether `extra` is switched on.
+    pub fn has_extra(&self, extra: Extra) -> bool {
+        self.extras.has(extra)
+    }
+
     /// Switches `method` on or off in the open vault's profile. The change is heard back as the
     /// profile's, and every page follows it.
     pub fn switch(&mut self, method: Method, on: bool) -> Result<(), String> {
+        self.change_profile(|p| p.methods.set(method, on))
+    }
+
+    /// Switches `extra` on or off, as `switch` does a method.
+    pub fn switch_extra(&mut self, extra: Extra, on: bool) -> Result<(), String> {
+        self.change_profile(|p| p.extras.set(extra, on))
+    }
+
+    /// Changes the open vault's profile and keeps it.
+    fn change_profile(&mut self, change: impl FnOnce(&mut Profile)) -> Result<(), String> {
         let vault = self.vault.as_ref().ok_or("Open a vault first.")?;
         let mut profile = vault.profile();
-        profile.methods.set(method, on);
+        change(&mut profile);
         let saved = vault
             .save_profile(&profile)
             .map_err(|e| format!("The change could not be kept: {e}"))?;
-        self.methods = saved.methods;
+        self.follow(&saved);
         Ok(())
+    }
+
+    /// Takes what is switched on from `profile`.
+    fn follow(&mut self, profile: &Profile) {
+        self.methods = profile.methods.clone();
+        self.extras = profile.extras.clone();
     }
 
     /// Make a new folder called `name` in `parent` and open a vault in it.

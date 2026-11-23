@@ -1,25 +1,23 @@
-//! The menus a Mac app is expected to have, and the actions behind them, for
-//! Helio and Helio Host alike: the app's own menu (About, Check for Updates,
-//! Services, Hide, Quit), Edit (the text fields' cut, copy and paste, which
-//! also makes them findable), Window and Help. Each app adds its own File
-//! and View between them.
+//! The menus a Mac app is expected to have, and the actions behind them: the
+//! app's own menu (About, Services, Hide, Quit), Edit (the text fields' undo,
+//! cut, copy and paste, which also makes them findable) and Window. The app
+//! sets them as its menu bar (`cx.set_menus`) after `init`.
 //!
-//! GPUI draws a menu bar only on a Mac. On Windows and Linux the actions
-//! and their keys work all the same; what the menus would offer is on the
-//! window itself there.
-
-use std::path::PathBuf;
+//! Only items with something behind them: there is no update check, log
+//! file or help page to offer, so there is no Check for Updates, Show Logs
+//! or Help.
+//!
+//! GPUI draws a menu bar only on a Mac. On Windows and Linux, Ctrl+Q quits;
+//! the other keys are a Mac's.
 
 use gpui::{actions, App, KeyBinding, Menu, MenuItem, OsAction, SystemMenuType, Window};
 
 use crate::text_field;
 
 actions!(
-    helio,
+    menus,
     [
         About,
-        /// Handled by each app: they own their update check.
-        CheckForUpdates,
         Quit,
         HideApp,
         HideOthers,
@@ -28,32 +26,12 @@ actions!(
         Minimize,
         Zoom,
         BringAllToFront,
-        Help,
-        ReportIssue,
-        ShowLogs,
     ]
 );
 
-/// What the shared items say and open for one app.
-#[derive(Debug, Clone)]
-pub struct AppMenus {
-    /// "Helio" or "Helio Host".
-    pub name: &'static str,
-    /// The version the About panel shows, and the build after it in
-    /// brackets (a checkout's commit; empty for a release).
-    pub version: String,
-    pub build: String,
-    /// The page Help opens, as a path in the repository ("docs/usage.md").
-    pub help: &'static str,
-    /// The app's log, for Show Logs.
-    pub log: PathBuf,
-}
-
-/// The project's pages on GitHub (the workspace's `repository`).
-const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
-
 /// Once, when the app starts: the shared actions' keys and what they do.
-pub fn init(app: AppMenus, cx: &mut App) {
+/// `name` and `version` are what the About panel says.
+pub fn init(name: &'static str, version: &'static str, cx: &mut App) {
     let cmd = if cfg!(target_os = "macos") {
         "cmd"
     } else {
@@ -77,14 +55,7 @@ pub fn init(app: AppMenus, cx: &mut App) {
     cx.on_action(|_: &CloseWindow, cx| in_front(cx, Window::remove_window));
     cx.on_action(|_: &Minimize, cx| in_front(cx, |w| w.minimize_window()));
     cx.on_action(|_: &Zoom, cx| in_front(cx, |w| w.zoom_window()));
-    let about = app.clone();
-    cx.on_action(move |_: &About, _| {
-        crate::desktop::show_about(about.name, &about.version, &about.build)
-    });
-    let help = format!("{REPOSITORY}/blob/main/{}", app.help);
-    cx.on_action(move |_: &Help, cx| cx.open_url(&help));
-    cx.on_action(|_: &ReportIssue, cx| cx.open_url(&format!("{REPOSITORY}/issues")));
-    cx.on_action(move |_: &ShowLogs, cx| cx.reveal_path(&app.log));
+    cx.on_action(move |_: &About, _| crate::desktop::show_about(name, version, ""));
 }
 
 /// Do `what` to the window in front, once the action that asked is over.
@@ -106,19 +77,11 @@ fn in_front(cx: &mut App, what: fn(&mut Window)) {
     });
 }
 
-/// The app's own menu. `settings` is the app's Settings item, if it has a
-/// settings page to open.
-pub fn app_menu(name: &str, settings: Option<MenuItem>) -> Menu {
-    let mut items = vec![
+/// The app's own menu, the first in the bar.
+pub fn app_menu(name: &str) -> Menu {
+    Menu::new(name.to_string()).items([
         MenuItem::action(format!("About {name}"), About),
-        MenuItem::action("Check for Updates…", CheckForUpdates),
         MenuItem::separator(),
-    ];
-    if let Some(settings) = settings {
-        items.push(settings);
-        items.push(MenuItem::separator());
-    }
-    items.extend([
         MenuItem::os_submenu("Services", SystemMenuType::Services),
         MenuItem::separator(),
         MenuItem::action(format!("Hide {name}"), HideApp),
@@ -126,39 +89,30 @@ pub fn app_menu(name: &str, settings: Option<MenuItem>) -> Menu {
         MenuItem::action("Show All", ShowAll),
         MenuItem::separator(),
         MenuItem::action(format!("Quit {name}"), Quit),
-    ]);
-    Menu::new(name.to_string()).items(items)
+    ])
 }
 
-/// Edit: what the text fields do. No Undo: the fields keep no history to
-/// undo into, and an item that never does anything is worse than none.
+/// Edit: what the text fields do.
 pub fn edit_menu() -> Menu {
     Menu::new("Edit").items([
+        MenuItem::os_action("Undo", text_field::Undo, OsAction::Undo),
+        MenuItem::os_action("Redo", text_field::Redo, OsAction::Redo),
+        MenuItem::separator(),
         MenuItem::os_action("Cut", text_field::Cut, OsAction::Cut),
         MenuItem::os_action("Copy", text_field::Copy, OsAction::Copy),
         MenuItem::os_action("Paste", text_field::Paste, OsAction::Paste),
-        MenuItem::separator(),
         MenuItem::os_action("Select All", text_field::SelectAll, OsAction::SelectAll),
     ])
 }
 
 /// Window: the system lists the app's windows under these (it does so for
-/// the menu named "Window").
+/// the menu named "Window"). Close is here, as there is no File menu.
 pub fn window_menu() -> Menu {
     Menu::new("Window").items([
+        MenuItem::action("Close Window", CloseWindow),
         MenuItem::action("Minimize", Minimize),
         MenuItem::action("Zoom", Zoom),
         MenuItem::separator(),
         MenuItem::action("Bring All to Front", BringAllToFront),
-    ])
-}
-
-/// Help: the system puts its search field in the menu named "Help".
-pub fn help_menu(name: &str) -> Menu {
-    Menu::new("Help").items([
-        MenuItem::action(format!("{name} Help"), Help),
-        MenuItem::separator(),
-        MenuItem::action("Show Logs in Finder", ShowLogs),
-        MenuItem::action("Report an Issue…", ReportIssue),
     ])
 }

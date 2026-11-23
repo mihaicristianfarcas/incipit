@@ -429,6 +429,12 @@ the keyboard as it opens, so that its keys work at once, and Tab from there goes
 to the next stop. What the keyboard moves to is scrolled into view, in the scroll
 areas the page said it drew (`scroll_area`; `page` does it for its own).
 
+**The menu bar is a Mac's** (`incipit_ui::menus`): the app's menu (About,
+Hide, Quit ⌘Q), Edit (what the text fields do) and Window (Close Window ⌘W,
+Minimize ⌘M). It offers only what has something behind it, so there is no
+Check for Updates, Help or Show Logs. GPUI draws no menu bar on Windows and
+Linux; Ctrl+Q quits there, and the other keys are a Mac's.
+
 **A sheet is a dialog for the keyboard**, as every dialog of the earlier app was
 (`useFocusTrap`). `incipit_ui::sheet` takes the keyboard when it opens (the field
 it is told to write in, else what is already inside it, else its first stop, else

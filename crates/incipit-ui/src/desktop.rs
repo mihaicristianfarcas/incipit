@@ -38,9 +38,9 @@ pub fn show_about(name: &str, version: &str, build: &str) {
     let _ = (name, version, build);
 }
 
-/// The menu bar as it is: a line for each menu ("Helio", "View", ...) and,
-/// indented under it, each item with its key ("Hosts  ⌘1"), separators as
-/// "-". For checks that the menus are the ones meant, the system's own
+/// The menu bar as it is: a line for each menu ("Incipit", "Edit", ...) and,
+/// indented under it, each item with its key ("Quit Incipit  ⌘Q"), separators
+/// as "-". For checks that the menus are the ones meant, the system's own
 /// additions included. Empty where there is no menu bar.
 pub fn menu_bar() -> Vec<String> {
     #[cfg(target_os = "macos")]

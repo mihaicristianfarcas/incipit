@@ -708,6 +708,13 @@ fn main() {
     application.on_reopen(front::reopen);
     application.run(move |cx: &mut App| {
         incipit_ui::init(cx);
+        // Without a menu bar a Mac app has no Quit to reach, and ⌘Q does nothing.
+        incipit_ui::menus::init("Incipit", env!("CARGO_PKG_VERSION"), cx);
+        cx.set_menus(vec![
+            incipit_ui::menus::app_menu("Incipit"),
+            incipit_ui::menus::edit_menu(),
+            incipit_ui::menus::window_menu(),
+        ]);
         // Math in Markdown is typeset by incipit-math.
         incipit_ui::typeset_with(cx, math::typeset);
         let window = front::open(cx).expect("the window opens");

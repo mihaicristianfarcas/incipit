@@ -11,6 +11,9 @@
 //!   for this note (`crate::connect`). Asking takes a while: it runs in the background with a
 //!   spinner and a Stop, and what it finds is kept in `brain/connections.jsonl`.
 //!
+//! Connections are the agent's, so they show only while the agent is switched on (Settings'
+//! Extras); links accepted stay in the notes either way.
+//!
 //! A note's backlinks and outgoing links, which the earlier app's sidebar also listed, are not
 //! here yet.
 
@@ -420,6 +423,10 @@ impl Render for LinksView {
             .as_ref()
             .filter(|(note, _)| Some(note) == here.as_ref())
             .map(|(_, said)| said.clone());
+        let agent = self
+            .workspace
+            .read(cx)
+            .has_extra(incipit_vault::Extra::Agent);
         let mentions = self.mention_rows(t, cx);
         let suggestions = self.suggestion_rows(t, cx);
         let accepted = self.accepted_rows(t, cx);
@@ -441,70 +448,72 @@ impl Render for LinksView {
                         .children(mentions),
                 )
             })
-            .child(
-                section("Connections", t)
-                    .gap(px(10.0))
-                    .child(
-                        div()
-                            .text_size(px(Type::META))
-                            .text_color(t.tertiary)
-                            .child(
+            .when(agent, |column| {
+                column.child(
+                    section("Connections", t)
+                        .gap(px(10.0))
+                        .child(
+                            div()
+                                .text_size(px(Type::META))
+                                .text_color(t.tertiary)
+                                .child(
                                 "An agent reads your vault and suggests notes and concepts this \
                                  one should link to. You decide.",
                             ),
-                    )
-                    .children(suggestions)
-                    .when(!accepted.is_empty(), |s| {
-                        s.child(div().flex().flex_col().gap(px(2.0)).children(accepted))
-                    })
-                    .child(
-                        div().flex().child(
-                            button(
-                                "note-suggest",
-                                if looking.is_some() {
-                                    "Reading your vault…"
-                                } else {
-                                    "Suggest connections"
-                                },
-                                t,
-                            )
-                            .icon(IconName::Sparkle)
-                            .disabled(self.looking.is_some())
-                            .on_click(cx.listener(|this, _, _, cx| this.suggest(cx))),
-                        ),
-                    )
-                    .when(looking.is_some(), |s| {
-                        s.child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.0))
-                                .text_color(t.secondary)
-                                .child(spinner("note-looking", 14.0, t.secondary))
-                                .child(div().flex_1().child("The agent is reading your notes"))
-                                .child(button("note-look-stop", "Stop", t).on_click(cx.listener(
-                                    |this, _, _, cx| {
-                                        if let Some((_, cancel)) = &this.looking {
-                                            cancel.cancel();
-                                        }
-                                        cx.notify();
-                                    },
-                                ))),
                         )
-                    })
-                    .children(said.map(|said| {
-                        div()
-                            .text_size(px(Type::META))
-                            .text_color(t.secondary)
-                            .child(said)
-                    }))
-                    .children(self.trouble.clone().map(|problem| {
-                        div()
-                            .text_size(px(Type::META))
-                            .text_color(t.danger)
-                            .child(problem)
-                    })),
-            );
+                        .children(suggestions)
+                        .when(!accepted.is_empty(), |s| {
+                            s.child(div().flex().flex_col().gap(px(2.0)).children(accepted))
+                        })
+                        .child(
+                            div().flex().child(
+                                button(
+                                    "note-suggest",
+                                    if looking.is_some() {
+                                        "Reading your vault…"
+                                    } else {
+                                        "Suggest connections"
+                                    },
+                                    t,
+                                )
+                                .icon(IconName::Sparkle)
+                                .disabled(self.looking.is_some())
+                                .on_click(cx.listener(|this, _, _, cx| this.suggest(cx))),
+                            ),
+                        )
+                        .when(looking.is_some(), |s| {
+                            s.child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.0))
+                                    .text_color(t.secondary)
+                                    .child(spinner("note-looking", 14.0, t.secondary))
+                                    .child(div().flex_1().child("The agent is reading your notes"))
+                                    .child(button("note-look-stop", "Stop", t).on_click(
+                                        cx.listener(|this, _, _, cx| {
+                                            if let Some((_, cancel)) = &this.looking {
+                                                cancel.cancel();
+                                            }
+                                            cx.notify();
+                                        }),
+                                    )),
+                            )
+                        })
+                        .children(said.map(|said| {
+                            div()
+                                .text_size(px(Type::META))
+                                .text_color(t.secondary)
+                                .child(said)
+                        }))
+                        .children(self.trouble.clone().map(|problem| {
+                            div()
+                                .text_size(px(Type::META))
+                                .text_color(t.danger)
+                                .child(problem)
+                        })),
+                )
+            });
         div()
             .flex_none()
             .w(px(WIDTH))

@@ -411,6 +411,13 @@ impl BrainView {
         }
     }
 
+    /// Whether the agent is switched on: the links it suggests are shown.
+    fn agent(&self, cx: &gpui::App) -> bool {
+        self.workspace
+            .read(cx)
+            .has_extra(incipit_vault::Extra::Agent)
+    }
+
     /// Shows the picture: the sidebar's Graph.
     pub fn show_graph(&mut self, cx: &mut Context<Self>) {
         self.switch_to(Shown::Graph, cx);
@@ -687,7 +694,7 @@ impl BrainView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
-        if self.suggesting {
+        if self.suggesting && self.agent(cx) {
             return Some(self.suggestions_card(t, window, cx).into_any_element());
         }
         self.panel(t, window, cx).map(IntoElement::into_any_element)
@@ -716,7 +723,9 @@ impl BrainView {
                     .p(px(6.0))
                     .gap(px(6.0))
                     .child(field(&self.find, t))
-                    .child(self.suggestions_button(t, cx))
+                    .when(self.agent(cx), |card| {
+                        card.child(self.suggestions_button(t, cx))
+                    })
                     .when(typed, |card| {
                         card.child(
                             div()

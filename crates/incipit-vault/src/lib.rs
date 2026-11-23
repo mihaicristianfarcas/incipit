@@ -59,7 +59,7 @@ pub use links::{Link, LinkStyle};
 pub use logs::{AgentRun, Log, Review, RunStatus, AGENTS, REVIEWS};
 pub use mentions::Mention;
 pub use path::VaultPath;
-pub use profile::{Level, Method, Methods, Profile, Role, Styles, Switch, Switches};
+pub use profile::{Extra, Extras, Level, Method, Methods, Profile, Role, Styles, Switch, Switches};
 pub use quiz::{
     attempt_markdown, quiz_blocks, quiz_from_data, quiz_from_yaml, Attempt, NoteQuestion, NoteQuiz,
 };

@@ -32,6 +32,11 @@ pub fn add(vault: &Vault, now: i64) {
     if vault.count(Some(Kind::Note)) + vault.count(Some(Kind::Concept)) > 0 {
         return;
     }
+    // What it shows is the agent's and the concept map's: both are switched on.
+    let mut profile = vault.profile();
+    profile.extras.set(incipit_vault::Extra::Agent, true);
+    profile.methods.set(incipit_vault::Method::ConceptMap, true);
+    let _ = vault.save_profile(&profile);
     let note = |title: &str, body: &str, related: &[&str]| {
         let mut doc = Doc::new(Kind::Note);
         doc.set_title(title);

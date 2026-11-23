@@ -44,6 +44,7 @@ impl Page {
             "you" => Page::Settings(Section::You),
             "methods" => Page::Settings(Section::Methods),
             "flashcards" => Page::Settings(Section::Flashcards),
+            "extras" => Page::Settings(Section::Extras),
             _ => return None,
         })
     }
@@ -117,7 +118,7 @@ const LEARNING: [Row; 7] = [
 ];
 
 /// Settings' pages, under their heading.
-const SETTINGS: [Row; 4] = [
+const SETTINGS: [Row; 5] = [
     row(
         Page::Settings(Section::General),
         "nav-general",
@@ -141,6 +142,12 @@ const SETTINGS: [Row; 4] = [
         "nav-flashcards",
         "Flashcards",
         IconName::Refresh,
+    ),
+    row(
+        Page::Settings(Section::Extras),
+        "nav-extras",
+        "Extras",
+        IconName::Agent,
     ),
 ];
 
@@ -221,6 +228,7 @@ mod tests {
             ("settings", Page::Settings(Section::General)),
             ("you", Page::Settings(Section::You)),
             ("flashcards", Page::Settings(Section::Flashcards)),
+            ("extras", Page::Settings(Section::Extras)),
         ] {
             assert_eq!(Page::named(name), Some(page));
         }

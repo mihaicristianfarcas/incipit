@@ -2,8 +2,9 @@
 //! is made. General: the folder the vault is in (and the choices to open another folder, or an
 //! Obsidian vault where it is) and the model that answers. Each way to reach a model is a row
 //! saying whether it can be used now and, if not, what to do; the learner picks one. Signing in
-//! happens in the browser, started from here. You: the learner's profile. Flashcards: how cards
-//! come back, and whether that schedule is fitted to the learner (`crate::fitted`).
+//! happens in the browser, started from here. You: the learner's profile. Methods: the ways of
+//! learning switched on (`crate::methods`). Flashcards: how cards come back, and whether that
+//! schedule is fitted to the learner (`crate::fitted`).
 
 use gpui::{
     div, prelude::*, px, Context, Entity, IntoElement, Render, ScrollHandle, SharedString,
@@ -21,6 +22,7 @@ use crate::workspace::{Happened, Workspace};
 pub enum Section {
     General,
     You,
+    Methods,
     Flashcards,
 }
 
@@ -35,6 +37,8 @@ pub struct SettingsView {
     scroll: ScrollHandle,
     you: Entity<ProfileForm>,
     flashcards: Entity<ProfileForm>,
+    /// Why the last switch of a method could not be kept.
+    methods_problem: Option<String>,
     _subscriptions: [Subscription; 2],
 }
 
@@ -62,6 +66,7 @@ impl SettingsView {
             scroll: ScrollHandle::new(),
             you,
             flashcards,
+            methods_problem: None,
             _subscriptions: subscriptions,
         }
     }
@@ -136,6 +141,35 @@ impl SettingsView {
     }
 }
 
+impl SettingsView {
+    /// A switch for each way of learning.
+    fn methods(&self, t: Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let me = cx.entity().downgrade();
+        let said = move |problem: Option<String>, cx: &mut gpui::App| {
+            let _ = me.update(cx, |this, cx| {
+                this.methods_problem = problem;
+                cx.notify();
+            });
+        };
+        let rows = crate::methods::rows("settings-method", &self.workspace, t, said, cx);
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .child(incipit_ui::rows(rows, t))
+            .children(
+                self.methods_problem
+                    .clone()
+                    .map(|p| footnote(p, t).text_color(t.danger)),
+            )
+            .child(footnote(
+                "A method switched off is hidden: its buttons, its suggestions on Today and its \
+                 views. What it made stays in your vault and shows again when you switch it on.",
+                t,
+            ))
+    }
+}
+
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme(window);
@@ -150,6 +184,11 @@ impl Render for SettingsView {
                 "The tutor, the figures and the quizzes adapt to this. It is kept in your vault \
                  as profile.md.",
                 self.you.clone().into_any_element(),
+            ),
+            Section::Methods => (
+                "Methods",
+                "Ways of learning that work. Switch on the ones you want.",
+                self.methods(t, cx).into_any_element(),
             ),
             Section::Flashcards => (
                 "Flashcards",

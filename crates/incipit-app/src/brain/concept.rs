@@ -14,6 +14,7 @@ use incipit_ui::{
     button, focus_handle, focus_ring, keep_focus, ringed, section, Radius, Theme, Type,
 };
 use incipit_vault::Kind;
+use incipit_vault::Method;
 
 use super::{BrainView, Edit, Open, Read, Shown};
 use crate::concepts::known::{band, words, Band};
@@ -157,6 +158,8 @@ impl BrainView {
         let Some(detail) = self.detail.clone() else {
             return div().size_full().into_any_element();
         };
+        let methods = self.workspace.read(cx).methods.clone();
+        let has = |method| methods.has(method);
         let back_label = match self.back {
             Shown::List => "Concepts",
             _ => "Graph",
@@ -198,32 +201,42 @@ impl BrainView {
                             .font_weight(Type::SEMIBOLD)
                             .child(detail.title.clone()),
                     )
-                    .child({
+                    .when(has(Method::Quizzes), |row| {
                         let id = id.clone();
-                        button("concept-practise", "Practise it", t)
-                            .tooltip("A worked example, then problems to try")
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.practise_concept(&id, cx)),
-                            )
+                        row.child(
+                            button("concept-practise", "Practise it", t)
+                                .tooltip("A worked example, then problems to try")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.practise_concept(&id, cx)
+                                })),
+                        )
                     })
-                    .child({
+                    .when(has(Method::Connect), |row| {
                         let id = id.clone();
-                        button("concept-connect", "Connect", t)
-                            .tooltip(
-                                "Examples that tie it to the world today and to your own goals",
-                            )
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.connect_concept(&id, cx)),
-                            )
+                        row.child(
+                            button("concept-connect", "Connect", t)
+                                .tooltip(
+                                    "Examples that tie it to the world today and to your own goals",
+                                )
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.connect_concept(&id, cx)
+                                    }),
+                                ),
+                        )
                     })
-                    .child({
+                    .when(has(Method::ExplainBack), |row| {
                         let id = id.clone();
-                        button("concept-explain", "Explain it back", t)
-                            .accent()
-                            .tooltip("Explain it in your own words, and see what you missed")
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.explain_concept(&id, cx)),
-                            )
+                        row.child(
+                            button("concept-explain", "Explain it back", t)
+                                .accent()
+                                .tooltip("Explain it in your own words, and see what you missed")
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.explain_concept(&id, cx)
+                                    }),
+                                ),
+                        )
                     })
                     .child(
                         button("concept-edit", "Edit in Notes", t)

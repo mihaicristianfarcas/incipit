@@ -790,6 +790,12 @@ impl Render for NotesView {
                 .child(crate::welcome::welcome(&self.workspace, t, cx))
                 .into_any_element();
         }
+        // The quizzes a note holds are listed while Quizzes and practice is on.
+        let quizzes = if self.workspace.read(cx).has(incipit_vault::Method::Quizzes) {
+            self.quizzes.clone()
+        } else {
+            Vec::new()
+        };
         let note = if let Some((path, shown)) = self.mending.clone() {
             let reason = self
                 .broken
@@ -947,7 +953,7 @@ impl Render for NotesView {
                                         ))
                                         .child(field(&self.body, t).bare().size(16.0).min_rows(14)),
                                 )
-                                .children(self.quizzes.iter().enumerate().map(|(ix, found)| {
+                                .children(quizzes.iter().enumerate().map(|(ix, found)| {
                                     note_quizzes::card(
                                         ix,
                                         found,

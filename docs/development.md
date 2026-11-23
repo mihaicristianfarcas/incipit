@@ -106,7 +106,7 @@ screenshots are taken:
 
 | Variable | Does |
 |---|---|
-| `INCIPIT_PAGE` | Opens on `today` (the default), `journey` (reached in the app from Today's week), `library`, `reader`, `notes`, `graph`, `concepts`, `review`, `cards` (all the cards, reached in the app from Review's "All cards"), or one of Settings' pages: `general` (also `settings`), `you` or `flashcards` |
+| `INCIPIT_PAGE` | Opens on `today` (the default), `journey` (reached in the app from Today's week), `library`, `reader`, `notes`, `graph`, `concepts`, `review`, `cards` (all the cards, reached in the app from Review's "All cards"), or one of Settings' pages: `general` (also `settings`), `you`, `methods` or `flashcards` |
 | `INCIPIT_DECK` | A deck's name: Review starts on that deck, and the Cards page lists only it (a name no card has is ignored) |
 | `INCIPIT_CARDS` | On the Cards page, with `INCIPIT_VAULT` on a throwaway folder: `demo` adds made-up cards to a vault that has none (two decks, concepts where one builds on the other, math in the two Calculus cards not set aside, so Review with `INCIPIT_DECK=Calculus` starts on a card with math, and one card forgotten eight times and set aside, so "Keeps slipping" shows), `edit` opens the first card's editor. No model is called; Refresh what it builds on does call one |
 | `INCIPIT_VAULT` | A folder: the vault there is opened (made, if it is not one yet) without asking. Use a temporary folder for checks, never a vault of your own |

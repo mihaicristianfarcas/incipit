@@ -67,7 +67,8 @@ impl ReaderView {
     ) -> impl IntoElement {
         let top = self.list.logical_scroll_top().item_ix;
         let here = entries.iter().rposition(|e| e.page <= top);
-        let status = self.mapping_status(t, window, cx);
+        let maps = self.has(incipit_vault::Method::ConceptMap, cx);
+        let status = maps.then(|| self.mapping_status(t, window, cx)).flatten();
         let mapping = self.mapping_entry();
         scroll_area(&self.rail_scroll);
         // The lines are one stop for Tab, the arrows going from one to the next.
@@ -82,9 +83,10 @@ impl ReaderView {
             let (page, y) = (entry.page, entry.y);
             let (focus, ring) = stops.row(index, window);
             // The line the keyboard is on (or in) has the button too, as the one under the pointer.
-            let mappable = self.hovered_entry == Some(index)
-                || here == Some(index)
-                || focus.contains_focused(window, cx);
+            let mappable = maps
+                && (self.hovered_entry == Some(index)
+                    || here == Some(index)
+                    || focus.contains_focused(window, cx));
             div()
                 .id(("contents", index))
                 .relative()

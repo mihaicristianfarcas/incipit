@@ -1,6 +1,7 @@
 //! The window's pages, and the sidebar that goes to them, laid out as asides' window is: the
 //! pages a learner uses, then Settings' own pages under a heading, then the version at the foot.
-//! Notes' other views, the graph and the concepts, are rows under it, set in. Two pages have no
+//! Notes' other views, the graph and the concepts, are rows under it, set in; Concepts only
+//! while the concept map is switched on (`crate::methods`). Two pages have no
 //! row of their own: the cards belong to Review and the journey to Today, whose rows stay marked
 //! while they are open.
 
@@ -41,6 +42,7 @@ impl Page {
             "cards" => Page::Cards,
             "settings" | "general" => Page::Settings(Section::General),
             "you" => Page::Settings(Section::You),
+            "methods" => Page::Settings(Section::Methods),
             "flashcards" => Page::Settings(Section::Flashcards),
             _ => return None,
         })
@@ -115,7 +117,7 @@ const LEARNING: [Row; 7] = [
 ];
 
 /// Settings' pages, under their heading.
-const SETTINGS: [Row; 3] = [
+const SETTINGS: [Row; 4] = [
     row(
         Page::Settings(Section::General),
         "nav-general",
@@ -127,6 +129,12 @@ const SETTINGS: [Row; 3] = [
         "nav-you",
         "You",
         IconName::User,
+    ),
+    row(
+        Page::Settings(Section::Methods),
+        "nav-methods",
+        "Methods",
+        IconName::CheckCircle,
     ),
     row(
         Page::Settings(Section::Flashcards),
@@ -149,13 +157,22 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let here = self.page.row();
-        let rows: Vec<&Row> = LEARNING.iter().chain(SETTINGS.iter()).collect();
+        let concepts = self
+            .workspace
+            .read(cx)
+            .has(incipit_vault::Method::ConceptMap);
+        let rows: Vec<&Row> = LEARNING
+            .iter()
+            .filter(|r| concepts || r.page != Page::Concepts)
+            .chain(SETTINGS.iter())
+            .collect();
+        let learning = rows.len() - SETTINGS.len();
         let at = rows.iter().position(|r| r.page == here);
         let stop = at.map_or(incipit_ui::Stop::Start(0), incipit_ui::Stop::Fixed);
         let stops = incipit_ui::row_stops("sidebar", rows.iter().map(|r| r.id), stop, window, cx);
         let mut list = incipit_ui::nav_list(&self.glide, at, t).on_key_down(stops.keys());
         for (index, r) in rows.iter().enumerate() {
-            if index == LEARNING.len() {
+            if index == learning {
                 list = list.child(incipit_ui::sidebar_header("Settings", t));
             }
             let (page, on) = (r.page, here == r.page);

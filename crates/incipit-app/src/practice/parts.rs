@@ -318,7 +318,8 @@ impl PracticeView {
             .into_any_element()
     }
 
-    /// The line naming what the concept builds on that the learner is forgetting, if any.
+    /// The line naming what the concept builds on that the learner is forgetting, if any: the
+    /// concept map's, so none while that method is off.
     fn foundations(
         &self,
         key: &str,
@@ -326,6 +327,13 @@ impl PracticeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        if !self
+            .workspace
+            .read(cx)
+            .has(incipit_vault::Method::ConceptMap)
+        {
+            return None;
+        }
         let fading = &self.open.as_ref()?.fading;
         crate::foundations::line(
             key,

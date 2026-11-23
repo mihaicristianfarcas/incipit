@@ -1,7 +1,8 @@
 //! The menus over the book. A selection opens one where the mouse let go: a row of the five
 //! colours to highlight it in (the last one used ringed), the learner's own note, Explain, Ask and
 //! Copy, and More, which opens a second row with the rest (Define, a figure, cards, teaching it
-//! back, practice, connections, further reading, the book's reading note). The row stays one
+//! back, practice, connections, further reading, the book's reading note), each of a method only
+//! while that method is on (`crate::methods`). The row stays one
 //! short line, so it never runs past the window or over much of the page, and what is used
 //! most is one press away.
 //!
@@ -16,6 +17,8 @@ use gpui::{anchored, deferred, div, prelude::*, px, AnyElement, ClipboardItem, C
 use incipit_ui::{
     button, floating, focus_handle, focus_ring, icon_button, keep_focus, ringed, IconName, Theme,
 };
+
+use incipit_vault::Method;
 
 use super::model::{Colour, Note};
 use super::{Compose, ReaderView};
@@ -94,6 +97,14 @@ impl ReaderView {
                     cx.notify();
                 })),
             );
+        let has = |method| self.has(method, cx);
+        let (figures, teach, practise, connect) = (
+            has(Method::Figures),
+            has(Method::ExplainBack),
+            has(Method::Quizzes),
+            has(Method::Connect),
+        );
+        let resources = has(Method::FurtherReading) && self.models.read(cx).can_search();
         let more = self.more.then(|| {
             div()
                 .flex()
@@ -111,17 +122,20 @@ impl ReaderView {
                         .tooltip("Say what the selected word or phrase means here (D)")
                         .on_click(cx.listener(|this, _, _, cx| this.define(cx))),
                 )
-                .child(
-                    button("reader-figure", "Figure", t)
-                        .ghost()
-                        .icon(IconName::Activity)
-                        .tooltip(
-                            "Have the model draw a figure of it; say what to show if you like (V)",
-                        )
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.start_writing(Compose::Figure, window, cx)
-                        })),
-                )
+                .when(figures, |row| {
+                    row.child(
+                        button("reader-figure", "Figure", t)
+                            .ghost()
+                            .icon(IconName::Activity)
+                            .tooltip(
+                                "Have the model draw a figure of it; say what to show if you \
+                                 like (V)",
+                            )
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.start_writing(Compose::Figure, window, cx)
+                            })),
+                    )
+                })
                 .child(
                     button("reader-cards", "Cards", t)
                         .ghost()
@@ -129,28 +143,38 @@ impl ReaderView {
                         .tooltip("Draft flashcards from it, to look over before they are kept")
                         .on_click(cx.listener(|this, _, _, cx| this.make_cards(cx))),
                 )
-                .child(
-                    button("reader-teach", "Teach it back", t)
-                        .ghost()
-                        .icon(IconName::Pencil)
-                        .tooltip("Explain it in your own words, and see what you missed")
-                        .on_click(cx.listener(|this, _, _, cx| this.teach_back(cx))),
-                )
-                .child(
-                    button("reader-practise", "Practise", t)
-                        .ghost()
-                        .icon(IconName::Gamepad)
-                        .tooltip("A worked example of the skill it teaches, then problems to try")
-                        .on_click(cx.listener(|this, _, _, cx| this.practise(cx))),
-                )
-                .child(
-                    button("reader-connect", "Connect", t)
-                        .ghost()
-                        .icon(IconName::Link)
-                        .tooltip("Examples that tie it to the world today and to your own goals")
-                        .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),
-                )
-                .when(self.models.read(cx).can_search(), |row| {
+                .when(teach, |row| {
+                    row.child(
+                        button("reader-teach", "Teach it back", t)
+                            .ghost()
+                            .icon(IconName::Pencil)
+                            .tooltip("Explain it in your own words, and see what you missed")
+                            .on_click(cx.listener(|this, _, _, cx| this.teach_back(cx))),
+                    )
+                })
+                .when(practise, |row| {
+                    row.child(
+                        button("reader-practise", "Practise", t)
+                            .ghost()
+                            .icon(IconName::Gamepad)
+                            .tooltip(
+                                "A worked example of the skill it teaches, then problems to try",
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| this.practise(cx))),
+                    )
+                })
+                .when(connect, |row| {
+                    row.child(
+                        button("reader-connect", "Connect", t)
+                            .ghost()
+                            .icon(IconName::Link)
+                            .tooltip(
+                                "Examples that tie it to the world today and to your own goals",
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),
+                    )
+                })
+                .when(resources, |row| {
                     row.child(
                         button("reader-resources", "Resources", t)
                             .ghost()

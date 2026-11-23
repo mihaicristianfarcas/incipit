@@ -41,6 +41,7 @@ pub enum IconName {
     List,
     Lock,
     Message,
+    Microphone,
     Minus,
     Monitor,
     More,
@@ -70,7 +71,7 @@ pub enum IconName {
 }
 
 impl IconName {
-    pub const ALL: [IconName; 60] = [
+    pub const ALL: [IconName; 61] = [
         IconName::Activity,
         IconName::Agent,
         IconName::ArrowRight,
@@ -105,6 +106,7 @@ impl IconName {
         IconName::List,
         IconName::Lock,
         IconName::Message,
+        IconName::Microphone,
         IconName::Minus,
         IconName::Monitor,
         IconName::More,
@@ -169,6 +171,7 @@ impl IconName {
             IconName::List => "icons/list.svg",
             IconName::Lock => "icons/lock.svg",
             IconName::Message => "icons/message.svg",
+            IconName::Microphone => "icons/microphone.svg",
             IconName::Minus => "icons/minus.svg",
             IconName::Monitor => "icons/monitor.svg",
             IconName::More => "icons/more.svg",
@@ -290,6 +293,7 @@ fn embedded(path: &str) -> Option<&'static [u8]> {
         "icons/list.svg" => include_bytes!("../assets/icons/list.svg"),
         "icons/lock.svg" => include_bytes!("../assets/icons/lock.svg"),
         "icons/message.svg" => include_bytes!("../assets/icons/message.svg"),
+        "icons/microphone.svg" => include_bytes!("../assets/icons/microphone.svg"),
         "icons/minus.svg" => include_bytes!("../assets/icons/minus.svg"),
         "icons/monitor.svg" => include_bytes!("../assets/icons/monitor.svg"),
         "icons/more.svg" => include_bytes!("../assets/icons/more.svg"),

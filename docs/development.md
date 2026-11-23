@@ -22,7 +22,7 @@ Docker, see [In Docker](#in-docker).
 ### macOS
 
 Apple's command-line tools (`xcode-select --install`), which Rust links
-with.
+with, and CMake (`brew install cmake`), which builds whisper.cpp for voice.
 
 ### Linux
 
@@ -30,21 +30,21 @@ What GPUI links against, and a Vulkan driver, which draws the window:
 
 ```sh
 # Ubuntu, Debian
-sudo apt-get install build-essential pkg-config clang libclang-dev \
+sudo apt-get install build-essential pkg-config clang libclang-dev cmake \
   libasound2-dev libudev-dev libx11-dev libx11-xcb-dev libxkbcommon-dev \
   libxkbcommon-x11-dev libwayland-dev libxcursor-dev libxrandr-dev libxi-dev \
   libfontconfig-dev libfreetype-dev libxcb1-dev libdbus-1-dev \
   libvulkan1 mesa-vulkan-drivers
 
 # Fedora
-sudo dnf install gcc gcc-c++ make pkgconf-pkg-config clang clang-devel \
+sudo dnf install gcc gcc-c++ make pkgconf-pkg-config clang clang-devel cmake \
   alsa-lib-devel systemd-devel libX11-devel libxkbcommon-devel \
   libxkbcommon-x11-devel wayland-devel libXcursor-devel libXrandr-devel \
   libXi-devel fontconfig-devel freetype-devel libxcb-devel dbus-devel \
   vulkan-loader mesa-vulkan-drivers
 
 # Arch
-sudo pacman -S --needed base-devel clang alsa-lib libx11 libxkbcommon \
+sudo pacman -S --needed base-devel clang cmake alsa-lib libx11 libxkbcommon \
   libxkbcommon-x11 wayland libxcursor libxrandr libxi fontconfig freetype2 \
   libxcb dbus vulkan-icd-loader vulkan-swrast
 ```
@@ -66,6 +66,9 @@ that exist.
   GPUI's shaders with).
 - On an ARM PC, `clang` on the `PATH` too (LLVM's); an x64 build does
   without it.
+- CMake, which builds whisper.cpp for voice, and LLVM, whose libclang
+  makes its bindings when `LIBCLANG_PATH` names LLVM's `bin` folder (CI
+  sets it); without it, whisper-rs-sys uses the bindings it carries.
 
 Run `tools/setup` in Git Bash. It puts pdfium's DLL in `lib\lib`, where the
 program looks.
@@ -138,6 +141,7 @@ screenshots are taken:
 | `HELIO_APPEARANCE` | `light` or `dark`: the app's theme, whatever the system's. With `dark`, a PDF's pages in the reader are drawn dark too (the paper dark, the ink light, pictures as they are) |
 | `INCIPIT_WAIT` | With `INCIPIT_SHOT`: seconds to wait before the picture, instead of 1.5. Half of it is also the wait before `INCIPIT_KEYS`' first key |
 | `INCIPIT_KEYS` | Keys pressed as if typed, in the page the window shows: GPUI's spelling, separated by spaces, one to a frame, the first after half the picture's wait (0.75 seconds to begin with), so with `INCIPIT_SHOT` the picture shows where the keyboard got to. Each key goes down and comes up, so `enter` and `space` press what has the keyboard as a real press does. `tab` and `shift-tab` move it along what can be clicked (the sidebar's current page first, then the page in reading order), `down`, `up`, `home` and `end` go along the rows of a list it is on, and `cmd-k`, `cmd-j` and `cmd-f` (`ctrl-` off macOS) are the app's own keys. `tab tab down enter` is the second stop, the row after the first one in it, opened. `click@x,y` presses the mouse's left button at that place, in the window's points from its top left (half a Retina picture's pixels), and lets go two frames later, as a hand does: `INCIPIT_ASK_BOOK=demo INCIPIT_KEYS=click@1136,199` follows the demo answer's second citation in a window 1,180 by 780 points. `drag@x1,y1,x2,y2` presses at the first place, moves to the second with the button held, and lets go there. In a sheet (`INCIPIT_FIND`, `INCIPIT_AGENT=demo`, `INCIPIT_QUIZ=demo`, …) Tab goes round inside it: after its last stop the keyboard is on its first, not behind the sheet. A name GPUI cannot read is said and left out |
+| `INCIPIT_DICTATE` | A WAV file heard in place of the microphone, for speaking into a field without one: with voice switched on and its model downloaded, the field's microphone or ⌘D in it starts listening and, pressed again, writes down the file. See [Voice](#voice) |
 | `INCIPIT_NOTE` | On the Reader page: starts with one passage noted and another selected; `answer` shows the note as a model's answer, `math` as an answer with math in it (in a line and on a line of its own), `session` opens it as a tutor session with a made-up conversation (no model is called), `figure` shows it as a figure's card (the flow diagram example), which can be redrawn (`INCIPIT_REDRAW`); in an EPUB the note is on the first paragraph of the first screen, so it is in view when the book opens |
 | `INCIPIT_CONTENTS` | On the Reader page: starts with the book's contents open |
 | `INCIPIT_NOTEBOOK` | On the Reader page: starts with the rail open on the notes on the book (with `INCIPIT_NOTE`, or a book of the vault that has notes, there are some to list) |
@@ -157,6 +161,27 @@ INCIPIT_KIND=sequence INCIPIT_AT=3 INCIPIT_SHOT=shots/figure.png cargo run -p in
 ```
 
 `shots/` is not in git.
+
+### Voice
+
+Voice is an extra: switch it on in Settings' Extras, then download its model there (190 MB for
+English), into `voice/` in the app's folder, so a throwaway `INCIPIT_HOME` downloads its own. A
+recording made with macOS's `say` stands in for the microphone:
+
+```sh
+say -o /tmp/fox.wav --data-format=LEI16@16000 "The quick brown fox jumps over the lazy dog."
+INCIPIT_DICTATE=/tmp/fox.wav INCIPIT_PAGE=you INCIPIT_KEYS="click@700,470 cmd-d cmd-d" \
+  INCIPIT_WAIT=8 INCIPIT_VAULT=/tmp/shelf INCIPIT_HOME=/tmp/home INCIPIT_SHOT=shots/voice.png \
+  cargo run -p incipit-app
+```
+
+The test that writes speech down is ignored: it needs the model and such a recording, named by
+`INCIPIT_VOICE_MODEL` (the folder) and `INCIPIT_VOICE_WAV`, and runs with
+`cargo test -p incipit-voice -- --ignored`.
+
+whisper.cpp is optimised in debug builds too (`[profile.dev.package.whisper-rs-sys]` in the
+workspace's `Cargo.toml`). That test, which loads the English model and writes down 2.7 s of
+speech, took 10.0 s with it built unoptimised and 2.0 to 3.1 s optimised, on an Apple M4 Pro.
 
 A PDF or EPUB named after the program is added to the library and opened in the reader, which is how
 Windows and Linux hand over the file "Open With" chose. It takes no switch: give it a throwaway vault

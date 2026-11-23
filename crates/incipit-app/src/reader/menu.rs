@@ -1,10 +1,11 @@
 //! The menus over the book. A selection opens one where the mouse let go: a row of the five
-//! colours to highlight it in (the last one used ringed), the learner's own note, Explain, Ask and
-//! Copy, and More, which opens a second row with the rest (Define, a figure, cards, teaching it
-//! back, practice, connections, further reading, the book's reading note), each of a method only
-//! while that method is on (`crate::methods`). The row stays one
-//! short line, so it never runs past the window or over much of the page, and what is used
-//! most is one press away.
+//! colours to highlight it in (the last one used ringed), the learner's own note, Explain, Teach
+//! it back, Ask, and More, which opens a second row with the rest (Define, a figure, cards,
+//! practice, connections, further reading, the book's reading note, Copy). Teaching it back is on
+//! the first row because explaining back is the loop the app is built around. Each button of a
+//! method shows only while that method is on (`crate::methods`). The row stays one short line, so
+//! it never runs past the window or over much of the page, and what is used most is one press
+//! away; Copy keeps its key (C) from inside More.
 //!
 //! A click on a marked passage opens the other menu, at the click: its colours, a note of the
 //! learner's own on it, copying its words, and deleting it. A note with a card in the margin
@@ -35,6 +36,14 @@ impl ReaderView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let at = self.menu?;
+        let has = |method| self.has(method, cx);
+        let (figures, teach, practise, connect) = (
+            has(Method::Figures),
+            has(Method::ExplainBack),
+            has(Method::Quizzes),
+            has(Method::Connect),
+        );
+        let resources = has(Method::FurtherReading) && self.models.read(cx).can_search();
         let first = div()
             .flex()
             .items_center()
@@ -66,6 +75,15 @@ impl ReaderView {
                     .tooltip("Have the model explain it in the margin (E)")
                     .on_click(cx.listener(|this, _, _, cx| this.explain(cx))),
             )
+            .when(teach, |row| {
+                row.child(
+                    button("reader-teach", "Teach it back", t)
+                        .ghost()
+                        .icon(IconName::Pencil)
+                        .tooltip("Explain it in your own words, and see what you missed (T)")
+                        .on_click(cx.listener(|this, _, _, cx| this.teach_back(cx))),
+                )
+            })
             .child(
                 button("reader-ask", "Ask", t)
                     .ghost()
@@ -74,11 +92,6 @@ impl ReaderView {
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.start_writing(Compose::Ask, window, cx)
                     })),
-            )
-            .child(
-                icon_button("reader-copy", IconName::Copy, "Copy (C)", t)
-                    .ghost()
-                    .on_click(cx.listener(|this, _, _, cx| this.copy_selection(cx))),
             )
             .child(
                 icon_button(
@@ -97,14 +110,6 @@ impl ReaderView {
                     cx.notify();
                 })),
             );
-        let has = |method| self.has(method, cx);
-        let (figures, teach, practise, connect) = (
-            has(Method::Figures),
-            has(Method::ExplainBack),
-            has(Method::Quizzes),
-            has(Method::Connect),
-        );
-        let resources = has(Method::FurtherReading) && self.models.read(cx).can_search();
         let more = self.more.then(|| {
             div()
                 .flex()
@@ -143,15 +148,6 @@ impl ReaderView {
                         .tooltip("Draft flashcards from it, to look over before they are kept")
                         .on_click(cx.listener(|this, _, _, cx| this.make_cards(cx))),
                 )
-                .when(teach, |row| {
-                    row.child(
-                        button("reader-teach", "Teach it back", t)
-                            .ghost()
-                            .icon(IconName::Pencil)
-                            .tooltip("Explain it in your own words, and see what you missed")
-                            .on_click(cx.listener(|this, _, _, cx| this.teach_back(cx))),
-                    )
-                })
                 .when(practise, |row| {
                     row.child(
                         button("reader-practise", "Practise", t)
@@ -189,6 +185,13 @@ impl ReaderView {
                         .icon(IconName::List)
                         .tooltip("Highlight it and add it to this book's note in Notes")
                         .on_click(cx.listener(|this, _, _, cx| this.note_passage(cx))),
+                )
+                .child(
+                    button("reader-copy", "Copy", t)
+                        .ghost()
+                        .icon(IconName::Copy)
+                        .tooltip("Copy its words (C)")
+                        .on_click(cx.listener(|this, _, _, cx| this.copy_selection(cx))),
                 )
         });
         let menu = floating(t)

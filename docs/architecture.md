@@ -103,6 +103,13 @@ first use, so what is noted while reading is found in Notes. The earlier
 app let the learner pick another note to add to; here it is always the
 book's.
 
+**The selection menu's first row is the loop.** A selection's menu
+(`reader/menu.rs`) is one short row: the five colours, Note, Explain, Teach it
+back, Ask, and More. Explaining back is on the first row because it is what the
+app is built around; the rest (Define, Figure, Cards, Practise, Connect,
+Resources, Add to reading note, Copy) is under More, each of a method only
+while it is on. Every button has a letter (Copy's C works with More closed).
+
 **A highlight has a colour and can carry the learner's own words.** The
 selection menu marks a passage in one of five colours (the one used last
 first) and the colour is kept in the annotation by name; a click on a marked

@@ -5,12 +5,12 @@
 //! fitted to their reviews (Settings' Flashcards). It is kept as `profile.md` in the open vault
 //! (`incipit_vault::Profile`).
 //!
-//! In Settings a change is kept as it is made, as asides' settings are: a choice at once, typing
-//! once it pauses ([`TYPING_PAUSE`]), so there is no Save button. Each part is a form of its own
-//! on the same file; a form hears the file change and takes what another part (or Obsidian)
-//! wrote, and leaves alone a field whose words already say the same, so the field being typed in
-//! keeps its spaces. The first run shows the whole form with a button that keeps it and marks
-//! the first run done, as the earlier app's did.
+//! A change is kept as it is made, as asides' settings are: a choice at once, typing once it
+//! pauses ([`TYPING_PAUSE`]), so there is no Save button. Each part is a form of its own on the
+//! same file; a form hears the file change and takes what another part (or Obsidian) wrote, and
+//! leaves alone a field whose words already say the same, so the field being typed in keeps its
+//! spaces. The first run asks two of the questions (`Part::Start`): what the learner wants to
+//! learn and why, and their level; the rest waits in Settings with its defaults.
 //!
 //! The earlier app's three sliders are choices here (a little, some, a lot; 80, 85, 90 or 95 per
 //! cent), since the app has no slider; a value kept in the file that none of them is stays as it
@@ -23,22 +23,16 @@
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::*, px, AnyElement, Context, Entity, EventEmitter, FontWeight, SharedString,
-    Subscription, Window,
+    div, prelude::*, px, AnyElement, Context, Entity, FontWeight, SharedString, Subscription,
+    Window,
 };
 use incipit_ui::{
-    button, card, field, footnote, segmented, select, setting, switch, FieldEvent, TextField,
-    Theme, Type,
+    card, field, footnote, segmented, select, setting, switch, FieldEvent, TextField, Theme, Type,
 };
 use incipit_vault::{Level, Profile, Role};
 
 use crate::fitted::{self, Fitting};
 use crate::workspace::{Happened, Workspace};
-
-/// The first run's form was kept, or skipped.
-pub struct Saved;
-
-impl EventEmitter<Saved> for ProfileForm {}
 
 /// How long typing pauses before what was typed is kept: long enough that a word typed at an
 /// ordinary pace is kept once, not letter by letter.
@@ -51,8 +45,8 @@ pub enum Part {
     You,
     /// The flashcards' schedule: Settings' Flashcards.
     Flashcards,
-    /// All of it but the fitted schedule, kept with a button: the first run.
-    Whole,
+    /// What they want to learn and why, and their level: the first run.
+    Start,
 }
 
 /// The ways to say how much of something the learner wants: its words and the value each keeps.
@@ -128,10 +122,8 @@ pub struct ProfileForm {
     interests: Entity<TextField>,
     daily: Entity<TextField>,
     notes: Entity<TextField>,
-    /// What the button that keeps the form says; none where changes are kept as they are made.
-    submit: Option<SharedString>,
-    /// Why the last change could not be kept, or how the button's save went.
-    said: Option<(SharedString, bool)>,
+    /// Why the last change could not be kept.
+    said: Option<SharedString>,
     /// Counts the pauses waited on, so only the last one keeps what was typed.
     typing: u64,
     /// The fields have been filled from the vault once.
@@ -167,12 +159,10 @@ fn text_field(
 }
 
 impl ProfileForm {
-    /// The form for `part`. With `submit`, a button with those words keeps it; without, every
-    /// change is kept as it is made.
+    /// The form for `part`.
     pub fn new(
         workspace: Entity<Workspace>,
         part: Part,
-        submit: Option<&'static str>,
         fitting: Option<Entity<Fitting>>,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -221,7 +211,6 @@ impl ProfileForm {
                 true,
                 cx,
             ),
-            submit: submit.map(SharedString::from),
             said: None,
             typing: 0,
             filled: false,
@@ -234,11 +223,6 @@ impl ProfileForm {
 
     fn vault(&self, cx: &Context<Self>) -> Option<incipit_vault::Vault> {
         self.workspace.read(cx).vault.clone()
-    }
-
-    /// Changes are kept as they are made.
-    fn keeps_as_it_goes(&self) -> bool {
-        self.submit.is_none()
     }
 
     /// Reads the profile again from the open vault into the form. The form's own last write is
@@ -282,16 +266,15 @@ impl ProfileForm {
         p
     }
 
-    /// Writes the profile the form shows, `onboarded` as asked, and fits the schedule if it was
-    /// not fitted (`was_fitted`) and now is. Says why when it cannot.
-    fn write(&mut self, onboarded: bool, was_fitted: bool, cx: &mut Context<Self>) -> bool {
+    /// Writes the profile the form shows, and fits the schedule if it was not fitted
+    /// (`was_fitted`) and now is. Says why when it cannot.
+    fn write(&mut self, was_fitted: bool, cx: &mut Context<Self>) {
         let Some(vault) = self.vault(cx) else {
-            self.said = Some(("Open a vault first.".into(), true));
+            self.said = Some("Open a vault first.".into());
             cx.notify();
-            return false;
+            return;
         };
-        let mut profile = self.made(cx);
-        profile.onboarded |= onboarded;
+        let profile = self.made(cx);
         match vault.save_profile(&profile) {
             Ok(saved) => {
                 if saved.fitted_schedule && !was_fitted {
@@ -302,52 +285,21 @@ impl ProfileForm {
                 }
                 self.profile = saved;
                 self.said = None;
-                cx.notify();
-                true
             }
-            Err(e) => {
-                self.said = Some((format!("The profile could not be kept: {e}").into(), true));
-                cx.notify();
-                false
-            }
-        }
-    }
-
-    /// The first run's button: keeps the profile and marks the first run done.
-    pub fn save(&mut self, cx: &mut Context<Self>) {
-        if self.write(true, self.profile.fitted_schedule, cx) {
-            self.load(cx);
-            cx.emit(Saved);
-        }
-    }
-
-    /// Keep the profile as it is (the defaults, if nothing was kept) and mark the first run done.
-    pub fn skip(&mut self, cx: &mut Context<Self>) {
-        if let Some(vault) = self.vault(cx) {
-            let mut profile = vault.profile();
-            profile.onboarded = true;
-            let _ = vault.save_profile(&profile);
-        }
-        cx.emit(Saved);
-    }
-
-    /// A choice changed the profile the form holds: kept at once where changes are kept as they
-    /// are made.
-    fn choose(&mut self, change: impl FnOnce(&mut Profile), cx: &mut Context<Self>) {
-        let was_fitted = self.profile.fitted_schedule;
-        change(&mut self.profile);
-        self.said = None;
-        if self.keeps_as_it_goes() {
-            self.write(false, was_fitted, cx);
+            Err(e) => self.said = Some(format!("The profile could not be kept: {e}").into()),
         }
         cx.notify();
     }
 
-    /// Something was typed: kept once typing pauses, where changes are kept as they are made.
+    /// A choice changed the profile the form holds: kept at once.
+    fn choose(&mut self, change: impl FnOnce(&mut Profile), cx: &mut Context<Self>) {
+        let was_fitted = self.profile.fitted_schedule;
+        change(&mut self.profile);
+        self.write(was_fitted, cx);
+    }
+
+    /// Something was typed: kept once typing pauses.
     fn typed(&mut self, cx: &mut Context<Self>) {
-        if !self.keeps_as_it_goes() {
-            return;
-        }
         self.typing += 1;
         let typing = self.typing;
         cx.spawn(async move |this, cx| {
@@ -355,7 +307,7 @@ impl ProfileForm {
             let _ = this.update(cx, |this, cx| {
                 if this.typing == typing && this.made(cx) != this.profile {
                     let fitted = this.profile.fitted_schedule;
-                    this.write(false, fitted, cx);
+                    this.write(fitted, cx);
                 }
             });
         })
@@ -553,14 +505,45 @@ impl ProfileForm {
     }
 }
 
+impl ProfileForm {
+    /// The first run's two questions: what they want to learn and why, and their level.
+    fn start(&self, t: Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let me = cx.entity().downgrade();
+        let level = Level::ALL
+            .iter()
+            .position(|l| *l == self.profile.level)
+            .unwrap_or(1);
+        vec![
+            Self::asked(
+                "What do you want to learn, and why?",
+                Some("A book, a subject, an exam, a job: anything the tutor should aim at."),
+                field(&self.goals, t).min_rows(3),
+                t,
+            ),
+            setting(
+                "Your level in it",
+                None,
+                select("profile-level", LEVELS, Some(level), t)
+                    .width(150.0)
+                    .on_select(move |i, _, cx| {
+                        let _ =
+                            me.update(cx, |this, cx| this.choose(|p| p.level = Level::ALL[i], cx));
+                    }),
+                t,
+            )
+            .into_any_element(),
+        ]
+    }
+}
+
 impl Render for ProfileForm {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme(window);
-        let you = matches!(self.part, Part::You | Part::Whole);
-        let schedule = matches!(self.part, Part::Flashcards | Part::Whole);
-        let mut form = div().flex().flex_col().gap(px(18.0));
-        if you {
-            form = form
+        let form = match self.part {
+            Part::You => div()
+                .flex()
+                .flex_col()
+                .gap(px(18.0))
                 .child(
                     incipit_ui::section("About you", t)
                         .child(incipit_ui::rows(self.about(t, cx), t)),
@@ -572,37 +555,16 @@ impl Render for ProfileForm {
                             "Figures, the tutor and quizzes adapt to this. Most people are a mix.",
                             t,
                         )),
-                );
-        }
-        if schedule {
-            form = form.child(
-                incipit_ui::section("Review", t).child(incipit_ui::rows(self.schedule(t, cx), t)),
-            );
-        }
-        if you {
-            form = form.child(incipit_ui::section("In your own words", t).child(self.own_words(t)));
-        }
-        let said = self.said.clone().map(|(text, bad)| {
-            div()
-                .text_size(px(Type::BODY))
-                .text_color(if bad { t.danger } else { t.secondary })
-                .child(text)
-        });
-        match self.submit.clone() {
-            Some(submit) => form.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.0))
-                    .child(
-                        button("profile-save", submit, t)
-                            .accent()
-                            .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
-                    )
-                    .children(said),
-            ),
-            None => form.children(said),
-        }
+                )
+                .child(incipit_ui::section("In your own words", t).child(self.own_words(t))),
+            Part::Flashcards => div().child(incipit_ui::rows(self.schedule(t, cx), t)),
+            Part::Start => div().child(incipit_ui::rows(self.start(t, cx), t)),
+        };
+        form.children(
+            self.said
+                .clone()
+                .map(|said| footnote(said, t).text_color(t.danger)),
+        )
     }
 }
 

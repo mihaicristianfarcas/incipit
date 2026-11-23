@@ -334,19 +334,24 @@ optimizer (`fsrs`) or schedule learning steps and same-day reviews
 differently (`rs-fsrs`). `tests/against_typescript.rs` checks the port against
 numbers printed by the original.
 
-**The profile is a file of the vault, and the first run asks for it.**
+**The profile is a file of the vault, and the first run asks for little of it.**
 `profile.md` (`incipit_vault::profile`, described in `vault.md`) holds who the
 learner is and how they learn. Two of its settings change review: the day's
 new cards and the recall a card is scheduled to fall to (`study.rs`). Every
 request that adapts to the learner carries the earlier app's paragraph about
 them as material (`learning/learner.rs`). Before the app opens, the first run
-(`first_run.rs`) asks where the vault is kept (a new folder, an Obsidian vault
-opened where it is, or another folder; Settings has the last two), how to reach
-a model (the rows of Settings, `providers.rs`) and about the learner
-(`profile_form.rs`, also Settings' You and Flashcards); the earlier app needed only the last,
-since it was started from a terminal in its folder. The first run shows while no vault is open and while
-the open vault's profile is not marked done; the model step is left out when
-a model already works, and it and the last step can be skipped.
+(`first_run.rs`), laid out as asides' setup, welcomes the learner with the way
+in and a way past it that uses the defaults (a vault made in the documents
+folder). Its steps, named along the top with Back, Skip Setup and Continue at
+the foot: where the vault is kept (a new folder, an Obsidian vault opened where
+it is, or another folder; Settings' General has the last two), how to reach a
+model (the rows of Settings, `providers.rs`), two questions about the learner
+(what they want to learn and why, and their level; the rest of the profile
+waits in Settings' You with its defaults), and the methods with their defaults.
+Every answer is kept as it is given; the last button marks the profile done.
+The earlier app needed none of the vault step, since it was started from a
+terminal in its folder. The first run shows while no vault is open and while the
+open vault's profile is not marked done.
 
 **One door to models.** Every call goes through `incipit-llm`, whichever
 provider is behind it, so the separation of instructions from material, the

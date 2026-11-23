@@ -77,11 +77,20 @@ package_notices() {
 }
 
 # Puts what a package says about licences into the folder $1: Incipit's own, the notice of the Rust
-# crates (made by `package_notices`), and pdfium's, which the folder lib/ holds beside its library.
+# crates (made by `package_notices`), pdfium's, which the folder lib/ holds beside its library, and
+# whisper.cpp's.
 package_licenses() {
     mkdir -p "$1/pdfium"
     cp "$package_root/LICENSE" "$1/LICENSE"
     package_notices "$1/THIRD-PARTY-NOTICES.txt"
     cp "$package_root/lib/LICENSE" "$1/pdfium/LICENSE"
     cp "$package_root"/lib/licenses/* "$1/pdfium/"
+    # whisper.cpp and ggml, which whisper-rs-sys builds into the program: their MIT licence is in
+    # its sources, not its crate's declared licence (the Unlicense), so cargo-about does not carry it.
+    sys=$(cargo metadata --format-version 1 --manifest-path "$package_root/Cargo.toml" |
+        grep -o '"manifest_path":"[^"]*/whisper-rs-sys-[^"]*/Cargo.toml"' | head -n 1 |
+        sed -e 's/^"manifest_path":"//' -e 's|/Cargo.toml"$||')
+    [ -f "$sys/whisper.cpp/LICENSE" ] || package_fail "whisper.cpp's licence was not found in whisper-rs-sys's sources: cargo fetch, then try again"
+    mkdir -p "$1/whisper.cpp"
+    cp "$sys/whisper.cpp/LICENSE" "$1/whisper.cpp/LICENSE"
 }

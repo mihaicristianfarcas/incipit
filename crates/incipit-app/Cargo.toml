@@ -28,6 +28,7 @@ incipit-learn = { path = "../incipit-learn", features = ["fit"] }
 incipit-graph = { path = "../incipit-graph" }
 incipit-llm = { path = "../incipit-llm" }
 incipit-launch = { path = "../incipit-launch" }
+incipit-voice = { path = "../incipit-voice" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 unicode-normalization = "0.1.26"
 url = "2"

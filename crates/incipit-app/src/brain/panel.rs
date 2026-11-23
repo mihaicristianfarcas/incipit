@@ -167,7 +167,11 @@ impl BrainView {
                         },
                     ),
             )
-            .children(self.node_suggestions(&id_for_suggestions, t, cx))
+            .children(
+                self.agent(cx)
+                    .then(|| self.node_suggestions(&id_for_suggestions, t, cx))
+                    .flatten(),
+            )
             .when(!links.is_empty(), |card| {
                 card.child(
                     div()

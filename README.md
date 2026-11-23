@@ -22,10 +22,10 @@ Early. One window, with these pages, on a vault of plain files:
 | Notes › Graph | The notes, concepts and books as a graph of their links. A node can be dragged and the rest follows, then settles. A selected node has a card with what it links to and a button that opens it, and a field finds nodes by title |
 | Notes › Concepts | The concepts, best known first; a concept's page says how well it is known, what it builds on and leads to, its related concepts, cards and notes, and the passages it came from, and it can be explained back or tied to the world with examples |
 | Review | Flashcards due today, one at a time, scheduled by FSRS-6, and a mixed quiz across the concepts known least |
-| Settings | Pages of their own, each change kept as it is made. General: the vault's folder, and which model answers ([docs/models.md](docs/models.md)). You: who you are and how you like to learn. Methods: the ways of learning switched on (explaining back, quizzes and practice, figures; a concept map, tutor sessions, connections and further reading a switch away), each with what it does and why it works. Flashcards: new cards a day, the recall aimed for, and the schedule fitted to your reviews |
+| Settings | Pages of their own, each change kept as it is made. General: the vault's folder, and which model answers ([docs/models.md](docs/models.md)). You: who you are and how you like to learn. Methods: the ways of learning switched on (explaining back, quizzes and practice, figures; a concept map, tutor sessions, connections and further reading a switch away), each with what it does and why it works. Flashcards: new cards a day, the recall aimed for, and the schedule fitted to your reviews. Extras: the agent, off until you switch it on |
 
-From any page, ⌘K (Ctrl+K) finds a document or a passage of a book, and ⌘J (Ctrl+J) opens the
-agent: you say what should be done in the vault, or ask about it, the
+From any page, ⌘K (Ctrl+K) finds a document or a passage of a book. Once the
+agent is switched on in Settings' Extras (it starts off), ⌘J (Ctrl+J) opens it: you say what should be done in the vault, or ask about it, the
 command-line agent chosen in Settings does it in a copy of the vault,
 knowing where you are, and the sheet lists what it changed, with Undo; a
 follow-up continues the conversation. The agent's sheet has been looked at with a

@@ -449,6 +449,13 @@ the sidebar, concept cards in the margin, the foundations line); nothing it
 made is changed, it still opens from Notes and the graph, and a concept opened
 while the concept map is off opens in Notes.
 
+**The agent is an extra, off until it is switched on.** It is the most
+powerful thing in the app and the least tried, so it waits on Settings'
+Extras page (`extras` in `profile.md`, held by the workspace as the methods
+are): until then ⌘J does nothing, Today has no field for it, and the links it
+suggests are not shown in Notes or on the graph. What it changed, and the links
+accepted, stay in the vault.
+
 **The keyboard reaches everything that can be clicked.** GPUI does not move
 the keyboard on Tab, so `incipit_ui::focus` binds Tab and Shift+Tab to the next
 and the one before of the window's tab stops. A control is a tab stop by

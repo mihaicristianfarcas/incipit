@@ -122,13 +122,15 @@ impl ReaderView {
             .children(place)
             .child(drag_area().flex_1().min_w(px(16.0)).h_full())
             .when(open.is_some(), |bar| {
-                bar.child(
-                    button("reader-quiz", "Quiz", t)
-                        .ghost()
-                        .icon(IconName::CheckCircle)
-                        .tooltip("A pretest or a quiz on the chapter on screen")
-                        .on_click(cx.listener(|this, _, _, cx| this.offer_quiz(None, cx))),
-                )
+                bar.when(self.has(incipit_vault::Method::Quizzes, cx), |bar| {
+                    bar.child(
+                        button("reader-quiz", "Quiz", t)
+                            .ghost()
+                            .icon(IconName::CheckCircle)
+                            .tooltip("A pretest or a quiz on the chapter on screen")
+                            .on_click(cx.listener(|this, _, _, cx| this.offer_quiz(None, cx))),
+                    )
+                })
                 .child(
                     button("reader-ask-book", "Ask", t)
                         .ghost()

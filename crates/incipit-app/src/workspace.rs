@@ -10,6 +10,10 @@
 //! without Obsidian's `.obsidian` is refused with words saying what to pick. INCIPIT_OBSIDIAN
 //! opens a folder the way that choice does, so both outcomes can be looked at without a dialog.
 //!
+//! The ways of learning switched on (`methods` in the vault's profile) are kept here as well, read
+//! again when a vault opens and when `profile.md` changes, so every page can ask whether a
+//! method is on while it is drawn without reading a file. With no vault open, the defaults.
+//!
 //! A vault another program has open is not opened (`incipit_vault::Error::Held`): the learner is
 //! told so, where every other failure to open is said, and the app goes on as with no vault. The
 //! vault open here is asked for again without being opened twice, and one that a part of the app
@@ -21,7 +25,7 @@ use std::path::{Path, PathBuf};
 use futures::channel::mpsc::unbounded;
 use futures::StreamExt;
 use gpui::{Context, EventEmitter, PathPromptOptions};
-use incipit_vault::{Event, KnownVaults, Vault};
+use incipit_vault::{Event, KnownVaults, Method, Methods, Vault};
 
 /// What the learner is told when the vault is open in another program.
 pub const HELD: &str =
@@ -34,6 +38,8 @@ pub struct Workspace {
     /// A vault is being opened (its files read, its history started): the first run waits for it
     /// rather than ask where the vault is.
     pub opening: bool,
+    /// The ways of learning switched on in the open vault's profile.
+    pub methods: Methods,
     /// Counts the vaults opened, so the changes of one that is no longer open stop being passed
     /// on, even when the same vault is opened again.
     opened: u64,
@@ -70,6 +76,7 @@ impl Workspace {
             vault: None,
             problem: None,
             opening: false,
+            methods: Methods::default(),
             opened: 0,
             home: home(),
         };
@@ -137,6 +144,7 @@ impl Workspace {
                         this.remember(&vault);
                         this.opened += 1;
                         this.listen(&vault, cx);
+                        this.methods = vault.profile().methods;
                         this.vault = Some(vault);
                         this.problem = None;
                     }
@@ -185,6 +193,11 @@ impl Workspace {
                 let still_open = this.update(cx, |this, cx| {
                     let open = this.opened == opened;
                     if open {
+                        if event.path.as_str() == incipit_vault::profile::PROFILE {
+                            if let Some(vault) = &this.vault {
+                                this.methods = vault.profile().methods;
+                            }
+                        }
                         cx.emit(Happened::Changed(event));
                     }
                     open
@@ -195,6 +208,24 @@ impl Workspace {
             }
         })
         .detach();
+    }
+
+    /// Whether `method` is switched on.
+    pub fn has(&self, method: Method) -> bool {
+        self.methods.has(method)
+    }
+
+    /// Switches `method` on or off in the open vault's profile. The change is heard back as the
+    /// profile's, and every page follows it.
+    pub fn switch(&mut self, method: Method, on: bool) -> Result<(), String> {
+        let vault = self.vault.as_ref().ok_or("Open a vault first.")?;
+        let mut profile = vault.profile();
+        profile.methods.set(method, on);
+        let saved = vault
+            .save_profile(&profile)
+            .map_err(|e| format!("The change could not be kept: {e}"))?;
+        self.methods = saved.methods;
+        Ok(())
     }
 
     /// Make a new folder called `name` in `parent` and open a vault in it.

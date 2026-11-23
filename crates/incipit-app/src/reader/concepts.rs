@@ -211,6 +211,11 @@ impl ReaderView {
             })
             .collect();
         self.notes.retain(|n| n.concept.is_none());
+        // With the concept map off its cards are not in the margin; the concepts stay.
+        if !self.has(incipit_vault::Method::ConceptMap, cx) {
+            cx.notify();
+            return;
+        }
         for doc in vault.list(Some(Kind::Concept)) {
             let Some(fields) = doc.fields::<Concept>() else {
                 continue;
@@ -325,14 +330,16 @@ impl ReaderView {
                                 cx.emit(OpenConcept(concept_id.clone()));
                             })),
                     )
-                    .child(
-                        button(("note-explain", id as usize), "Explain it back", t)
-                            .ghost()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.explain_concept(id, cx);
-                            })),
-                    ),
+                    .when(self.has(incipit_vault::Method::ExplainBack, cx), |row| {
+                        row.child(
+                            button(("note-explain", id as usize), "Explain it back", t)
+                                .ghost()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.explain_concept(id, cx);
+                                })),
+                        )
+                    }),
             )
     }
 

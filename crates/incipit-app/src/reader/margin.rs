@@ -131,15 +131,17 @@ impl ReaderView {
                             cx.emit(OpenFigure(figure.clone(), doc.clone()));
                         })),
                 )
-                .child(
-                    button(("note-redraw-toggle", id as usize), "Redraw…", t)
-                        .icon(IconName::Refresh)
-                        .tooltip("Say what should change, and have the figure drawn again")
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.toggle_redraw(id, window, cx);
-                        })),
-                )
+                .when(self.has(incipit_vault::Method::Figures, cx), |row| {
+                    row.child(
+                        button(("note-redraw-toggle", id as usize), "Redraw…", t)
+                            .icon(IconName::Refresh)
+                            .tooltip("Say what should change, and have the figure drawn again")
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.toggle_redraw(id, window, cx);
+                            })),
+                    )
+                })
         }))
         .children(self.redraw_part(note, t, cx))
         .child(

@@ -428,6 +428,20 @@ kept as it is made, a choice at once and typing once it pauses, so there is no
 Save button; each part of the profile is a form of its own on the same file,
 which hears the file change and takes what another part wrote.
 
+**Ways of learning are switched on, as Obsidian's core plugins are.** A small
+core is always there (the pages, highlights and the learner's own notes,
+Explain, Define and Ask on a passage, asking the whole book, cards and their
+review). Each method beyond it is one switch on Settings' Methods page
+(`methods.rs`): Explain it back, Quizzes and practice, Figures (on to begin
+with), Concept map, Tutor sessions, Connect and Further reading (off). The
+choice is `methods` in `profile.md`, so it travels with the vault; the
+workspace holds it and reads it again when the file changes, and every page
+asks it while it draws (`Workspace::has`). A method off hides its buttons, its
+keys, its suggestions on Today (`today::offered`) and its views (Concepts in
+the sidebar, concept cards in the margin, the foundations line); nothing it
+made is changed, it still opens from Notes and the graph, and a concept opened
+while the concept map is off opens in Notes.
+
 **The keyboard reaches everything that can be clicked.** GPUI does not move
 the keyboard on Tab, so `incipit_ui::focus` binds Tab and Shift+Tab to the next
 and the one before of the window's tab stops. A control is a tab stop by

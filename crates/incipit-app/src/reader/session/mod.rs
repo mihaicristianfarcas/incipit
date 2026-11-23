@@ -179,7 +179,8 @@ impl ReaderView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let id = note.id;
-        Self::talks(note).then(|| {
+        let on = self.has(incipit_vault::Method::Tutor, cx);
+        (on && Self::talks(note)).then(|| {
             button(("note-session", id as usize), "Continue", t)
                 .icon(IconName::Message)
                 .tooltip("Talk this over with the tutor")

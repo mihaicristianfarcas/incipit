@@ -5,7 +5,8 @@
 //! other things worth doing next, each one press from doing it (`incipit_learn::plan`: explain a
 //! concept that is slipping, quiz on a chapter read a few days ago, a mixed review); and the
 //! week's seven days with the streak and its pause (`crate::journey`). With nothing left to
-//! review and cards in the vault, a mixed review quiz is offered. Nothing here is a score.
+//! review and cards in the vault, a mixed review quiz is offered. A suggestion of a method that
+//! is switched off is not made (`offered`). Nothing here is a score.
 //! INCIPIT_HISTORY=demo gives the books a made-up reading history; the Journey page is shown in
 //! its states by INCIPIT_JOURNEY.
 
@@ -20,7 +21,7 @@ use incipit_ui::{
     button, card, field, focus_ring, icon, icon_button, meter, page, FieldEvent, Radius, TextField,
     Theme, Type,
 };
-use incipit_vault::{DocId, Kind};
+use incipit_vault::{DocId, Kind, Method, Methods};
 
 use crate::concepts::view::Concepts;
 use crate::journey::view::link_row;
@@ -47,6 +48,18 @@ pub enum Go {
     Quiz(DocId, usize),
 }
 
+/// Whether Today suggests `suggestion` with these methods on: explaining a concept back needs
+/// Explain it back and the concept map (it opens on the concept's page), a quiz needs Quizzes
+/// and practice.
+fn offered<T>(suggestion: &Suggestion<T>, methods: &Methods) -> bool {
+    match suggestion {
+        Suggestion::Explain { .. } => {
+            methods.has(Method::ExplainBack) && methods.has(Method::ConceptMap)
+        }
+        Suggestion::Quiz { .. } | Suggestion::Mixed => methods.has(Method::Quizzes),
+    }
+}
+
 /// How many of the other books are listed under the one to continue.
 const ALSO: usize = 3;
 
@@ -64,6 +77,8 @@ pub struct TodayView {
     fresh: usize,
     /// The cards that are not suspended.
     cards: usize,
+    /// Quizzes and practice is on: the mixed quiz is offered.
+    quizzes: bool,
     /// The books, the one touched last first.
     books: Vec<Reading>,
     suggestions: Vec<Suggestion<DocId>>,
@@ -99,6 +114,7 @@ impl TodayView {
             due: 0,
             fresh: 0,
             cards: 0,
+            quizzes: true,
             books: Vec::new(),
             suggestions: Vec::new(),
             journey: None,
@@ -203,11 +219,16 @@ impl TodayView {
             .map(|doc| (doc.id().clone(), doc.title(), concepts.mastery(doc.id())))
             .collect();
         let log = vault.activity().unwrap_or_default();
+        let methods = self.workspace.read(cx).methods.clone();
         self.suggestions = suggestions(&Facts {
             concepts: &listed,
             sittings: &sittings(&log),
             now: at,
-        });
+        })
+        .into_iter()
+        .filter(|s| offered(s, &methods))
+        .collect();
+        self.quizzes = methods.has(Method::Quizzes);
         self.journey = Some(read_with(&vault, at, &Local, &concepts));
     }
 
@@ -353,7 +374,7 @@ impl TodayView {
                     .large()
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(Go::Review))),
             )
-        } else if self.cards > 0 {
+        } else if self.cards > 0 && self.quizzes {
             Some(
                 button("today-mixed", "Mixed quiz", t)
                     .large()
@@ -545,5 +566,26 @@ impl Render for TodayView {
             .children(next)
             .children(week);
         page("today", &self.scroll, 600.0, t, body).into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_suggestion_is_made_only_while_its_methods_are_on() {
+        let explain = Suggestion::Explain {
+            concept: 1,
+            title: "Limit".into(),
+        };
+        let mut methods = Methods::default();
+        assert!(offered(&Suggestion::<u8>::Mixed, &methods));
+        // Explaining a concept back opens its page, which needs the concept map too.
+        assert!(!offered(&explain, &methods));
+        methods.set(Method::ConceptMap, true);
+        assert!(offered(&explain, &methods));
+        methods.set(Method::Quizzes, false);
+        assert!(!offered(&Suggestion::<u8>::Mixed, &methods));
     }
 }

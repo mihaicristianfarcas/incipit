@@ -37,6 +37,7 @@ mod journey;
 mod learning;
 mod library;
 mod math;
+mod methods;
 mod models;
 mod new_way;
 mod note_embeds;
@@ -148,6 +149,9 @@ impl Root {
             .detach();
         }
         let workspace = cx.new(workspace::Workspace::new);
+        // A method switched on or off changes the sidebar.
+        cx.subscribe(&workspace, |_, _, _: &workspace::Happened, cx| cx.notify())
+            .detach();
         let models = cx.new(models::Models::new);
         // A sheet that names a document asks for it to be shown where documents are shown.
         cx.subscribe(
@@ -492,6 +496,17 @@ impl Root {
     fn open(&mut self, kind: Kind, id: &DocId, cx: &mut Context<Self>) {
         match kind {
             Kind::Note => {
+                let id = id.clone();
+                self.notes.update(cx, |notes, cx| notes.select(id, cx));
+                self.page = Page::Notes;
+            }
+            // Without the concept map there are no concept pages: a concept is a note to edit.
+            Kind::Concept
+                if !self
+                    .workspace
+                    .read(cx)
+                    .has(incipit_vault::Method::ConceptMap) =>
+            {
                 let id = id.clone();
                 self.notes.update(cx, |notes, cx| notes.select(id, cx));
                 self.page = Page::Notes;

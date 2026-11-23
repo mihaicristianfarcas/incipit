@@ -169,7 +169,8 @@ mod tests {
     use super::*;
     use crate::store::Vault;
 
-    /// What another program does to hold a vault: the same lock on the same file.
+    /// What another program does to hold a vault: the same lock on the same file, waited for, as
+    /// a vault this process just let go can hold it a moment longer (its threads finishing).
     fn held_elsewhere(root: &Path) -> File {
         let folder = root.join(crate::store::APP_FOLDER);
         fs::create_dir_all(&folder).unwrap();
@@ -180,7 +181,7 @@ mod tests {
             .truncate(false)
             .open(folder.join(LOCK))
             .unwrap();
-        file.try_lock().unwrap();
+        file.lock().unwrap();
         file
     }
 

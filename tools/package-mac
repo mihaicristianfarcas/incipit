@@ -60,7 +60,8 @@ if [ "$identity" = - ]; then
     codesign --force --sign - "$app"
 else
     codesign --force --options runtime --timestamp --sign "$identity" "$app/Contents/Frameworks/libpdfium.dylib"
-    codesign --force --options runtime --timestamp --sign "$identity" "$app"
+    codesign --force --options runtime --timestamp \
+        --entitlements "$package_root/packaging/macos/incipit.entitlements" --sign "$identity" "$app"
 fi
 codesign --verify --strict "$app"
 

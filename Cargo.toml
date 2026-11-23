@@ -11,6 +11,7 @@ members = [
     "crates/incipit-vault",
     "crates/incipit-llm",
     "crates/incipit-launch",
+    "crates/incipit-voice",
     "crates/incipit-ui",
     "crates/incipit-app",
 ]
@@ -38,6 +39,12 @@ anyhow = "1"
 # same no-op API under Apache-2.0 (from Helio).
 ztracing = { path = "vendor/ztracing" }
 ztracing_macro = { path = "vendor/ztracing_macro" }
+
+# whisper.cpp (built by whisper-rs-sys through CMake, which takes its build type from this) is
+# optimised in debug builds too: unoptimised, writing down a few seconds of speech took longer than
+# the speaking (`docs/development.md` has the measurements).
+[profile.dev.package.whisper-rs-sys]
+opt-level = 3
 
 # What the installers carry (docs/packaging.md): the release build, made smaller. The package scripts
 # also remove the build machine's paths from it (`--remap-path-prefix`; Cargo's `trim-paths` is not

@@ -87,11 +87,12 @@ themselves were used where a number is given.
 
 ```
 Incipit.app/Contents/            macOS
-    Info.plist                   name, identifier, version, minimum system, PDF and EPUB as "Open With"
+    Info.plist                   name, identifier, version, minimum system, PDF and EPUB as "Open With",
+                                 and what macOS says when it asks for the microphone (voice)
     MacOS/incipit
     Frameworks/libpdfium.dylib
     Resources/incipit.icns
-    Resources/licenses/          LICENSE, THIRD-PARTY-NOTICES.txt, pdfium/
+    Resources/licenses/          LICENSE, THIRD-PARTY-NOTICES.txt, pdfium/, whisper.cpp/
 ```
 
 Windows installs to `%LOCALAPPDATA%\Programs\Incipit`: `incipit.exe`, `pdfium.dll`, `licenses\` and the
@@ -106,8 +107,9 @@ The Linux AppDir is `usr/bin/incipit`, `usr/lib/libpdfium.so`, `usr/share/applic
 
 Incipit is AGPL-3.0. Each package carries `LICENSE`, the notice of the Rust libraries (made by
 `cargo about` from `packaging/about.toml`, which lists the licences the project takes in; a library
-under another one stops the build until someone reads it) and pdfium's own licences, which cover the
-libraries pdfium is made of. The fonts Typst carries are not in the notice and their licences have
+under another one stops the build until someone reads it), pdfium's own licences, which cover the
+libraries pdfium is made of, and whisper.cpp's (MIT, also covering ggml), which whisper-rs-sys builds
+into the program under its own licence, the Unlicense. The fonts Typst carries are not in the notice and their licences have
 not been read.
 
 ### Opening a book from outside
@@ -189,8 +191,9 @@ None of this was run: there is no certificate here.
 
 **macOS.** An Apple Developer Program membership gives a "Developer ID Application" certificate.
 `CODESIGN_IDENTITY="Developer ID Application: NAME (TEAM)" tools/package-mac` signs the library and the
-bundle with the hardened runtime (`--options runtime --timestamp`). Whether the hardened runtime needs
-an entitlement for something Incipit does (the library is signed by the same identity, so library
+bundle with the hardened runtime (`--options runtime --timestamp`), with one entitlement
+(`packaging/macos/incipit.entitlements`): the microphone, which the hardened runtime keeps from a
+program that does not declare it, for voice. Whether it needs another for something Incipit does (the library is signed by the same identity, so library
 validation should pass; the Metal shaders are compiled at run time with GPUI's `runtime_shaders`; it
 starts command-line programs) is found out by notarising. Notarise and staple the disk image:
 

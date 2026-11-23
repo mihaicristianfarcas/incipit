@@ -13,6 +13,7 @@ incipit-app ──▶ incipit-ui ──▶ gpui
      ├──▶ incipit-graph     force layout and geometry of the graph of ideas
      ├──▶ incipit-llm       request → provider → text, checked JSON or an agent's work
      ├──▶ incipit-launch    one program for each app folder: a later launch hands it its books
+     ├──▶ incipit-voice     the microphone → a local Whisper model → the words said
      └──▶ incipit-vault     the learner's files, their links, search and history
 ```
 
@@ -25,6 +26,7 @@ incipit-app ──▶ incipit-ui ──▶ gpui
 | `incipit-graph` | The picture of the graph of ideas, with no drawing in it. `Layout` is a force layout (Barnes-Hut repulsion, springs, gravity, collision by radius) that the caller steps until it settles (the graph under Notes lays it out on a background thread, then steps it once a frame while a node is dragged); it keeps positions when the graph changes, can pin a dragged node and exports positions to keep. `View`, `SpatialIndex` and `choose_labels` give the window the fit-to-view transform and a view centred on a node, the node under a point or in a rectangle, and the names that fit | no |
 | `incipit-llm` | The one door to models. A `Request` keeps instructions apart from material; a `Provider` gives text, JSON checked against a schema, or an agent's work on files; `Call` runs one in the background and stops it when cancelled ([models.md](models.md)) | no |
 | `incipit-launch` | One program for each app folder. `launch`, before any window, takes the lock on a file in the app folder, or finds it held and hands the files it was given to the program holding it over a local socket (a Unix socket, or a named pipe on Windows); `Listener::hear` gives the program running what each later launch sends, read as untrusted (`message`) | no |
+| `incipit-voice` | Speaking instead of typing. `Recorder` records the default microphone into memory and says how loud it is; `resample` brings a recording to Whisper's 16 kHz; `Transcriber` loads a Whisper model with whisper.cpp (through `whisper-rs`) and writes down what was said; `Model` lists the models a learner can download and downloads one, kept only when its SHA-256 is the published one | no |
 | `incipit-vault` | The vault. Every record is a `Doc`, a Markdown file with YAML properties and a `kind`; `Vault` keeps the folder to one program at a time (a lock in it), holds the index, the links and backlinks and the search, writes files whole, announces every change, hears edits made by other programs, and keeps history with Jujutsu through its library ([vault.md](vault.md)) | no |
 | `incipit-ui` | The look: theme, controls, icons, motion, window chrome, and Markdown, its math typeset by what the app gives it. It began as Helio's kit | yes |
 | `incipit-app` | The window: one module per page | yes |
@@ -352,6 +354,20 @@ Every answer is kept as it is given; the last button marks the profile done.
 The earlier app needed none of the vault step, since it was started from a
 terminal in its folder. The first run shows while no vault is open and while the
 open vault's profile is not marked done.
+
+**Voice is written down on this computer.** Voice, an extra, lets the learner
+speak into any field instead of typing: a microphone in the corner of each field
+of several lines, and ⌘D (Ctrl+D) in any field. The kit's fields know only that
+they can be spoken into (`incipit_ui::Dictation`, set by the app while voice is
+on); `voice.rs` records, has a Whisper model on this computer write down what
+was said off the window's thread (`incipit-voice`), and puts it where the cursor
+was. Speech never leaves the computer and never goes through `incipit-llm`: a
+model provider sees the words only if the learner sends them, as typed words.
+The model is downloaded once, when the learner asks in Extras, into `voice/` in
+the app's folder, not the vault: it is the computer's, hundreds of megabytes that
+Obsidian has no use for. It is loaded as listening starts and kept loaded. This
+is asides' way of doing it (English by default; any language with a larger
+model).
 
 **One door to models.** Every call goes through `incipit-llm`, whichever
 provider is behind it, so the separation of instructions from material, the

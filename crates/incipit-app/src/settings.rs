@@ -5,7 +5,7 @@
 //! happens in the browser, started from here. You: the learner's profile. Methods: the ways of
 //! learning switched on (`crate::methods`). Flashcards: how cards come back, and whether that
 //! schedule is fitted to the learner (`crate::fitted`). Extras: what is off until the learner
-//! wants it, the agent to begin with.
+//! wants it: the agent, and voice, with the voice model and its download (`crate::voice`).
 
 use gpui::{
     div, prelude::*, px, Context, Entity, IntoElement, Render, ScrollHandle, SharedString,
@@ -16,6 +16,7 @@ use incipit_ui::{button, footnote, page, page_header, rows, section, setting, sw
 use crate::fitted::Fitting;
 use crate::models::{Changed, Models};
 use crate::profile_form::{Part, ProfileForm};
+use crate::voice::Voice;
 use crate::workspace::{Happened, Workspace};
 
 /// A page of Settings.
@@ -34,6 +35,7 @@ const WIDTH: f32 = 600.0;
 pub struct SettingsView {
     workspace: Entity<Workspace>,
     models: Entity<Models>,
+    voice: Entity<Voice>,
     /// The page shown; the sidebar picks it.
     pub section: Section,
     scroll: ScrollHandle,
@@ -49,6 +51,7 @@ impl SettingsView {
         workspace: Entity<Workspace>,
         models: Entity<Models>,
         fitting: Entity<Fitting>,
+        voice: Entity<Voice>,
         cx: &mut Context<Self>,
     ) -> Self {
         let subscriptions = [
@@ -57,12 +60,15 @@ impl SettingsView {
         ];
         // Whatever the models say about themselves (a sign-in under way) shows here.
         cx.observe(&models, |_, _, cx| cx.notify()).detach();
+        // A voice model's download, as it goes.
+        cx.observe(&voice, |_, _, cx| cx.notify()).detach();
         let you = cx.new(|cx| ProfileForm::new(workspace.clone(), Part::You, None, cx));
         let flashcards =
             cx.new(|cx| ProfileForm::new(workspace.clone(), Part::Flashcards, Some(fitting), cx));
         SettingsView {
             workspace,
             models,
+            voice,
             section: Section::General,
             scroll: ScrollHandle::new(),
             you,
@@ -172,43 +178,65 @@ impl SettingsView {
 }
 
 impl SettingsView {
-    /// A switch for each extra.
+    /// The switch for `extra`, kept in the vault as it is turned.
+    fn extra_switch(
+        &self,
+        extra: incipit_vault::Extra,
+        id: &'static str,
+        t: Theme,
+        cx: &mut Context<Self>,
+    ) -> incipit_ui::Switch {
+        let on = self.workspace.read(cx).has_extra(extra);
+        let me = cx.entity().downgrade();
+        switch(id, on, t).on_toggle(move |on, _, cx| {
+            let _ = me.update(cx, |this, cx| {
+                let kept = this.workspace.update(cx, |w, cx| {
+                    let kept = w.switch_extra(extra, on);
+                    cx.notify();
+                    kept
+                });
+                this.methods_problem = kept.err();
+                cx.notify();
+            });
+        })
+    }
+
+    /// A switch for each extra; under voice, while it is on, its model.
     fn extras(&self, t: Theme, cx: &mut Context<Self>) -> gpui::Div {
-        let on = self
-            .workspace
-            .read(cx)
-            .has_extra(incipit_vault::Extra::Agent);
         let agent = setting(
             "The agent",
             Some(
-                "Ask your library anything, or say what should be done in it: ⌘J (Ctrl+J) from any page, \
-                 or the field on Today. It works in a copy of your vault, lists what it changed, \
-                 and can be undone. It also suggests links between your notes. It needs a \
-                 command-line agent chosen in General."
+                "Ask your library anything, or say what should be done in it: ⌘J (Ctrl+J) from \
+                 any page, or the field on Today. It works in a copy of your vault, lists what it \
+                 changed, and can be undone. It also suggests links between your notes. It needs \
+                 a command-line agent chosen in General."
                     .into(),
             ),
-            switch("settings-extra-agent", on, t).on_toggle({
-                let me = cx.entity().downgrade();
-                move |on, _, cx| {
-                    let _ = me.update(cx, |this, cx| {
-                        let kept = this.workspace.update(cx, |w, cx| {
-                            let kept = w.switch_extra(incipit_vault::Extra::Agent, on);
-                            cx.notify();
-                            kept
-                        });
-                        this.methods_problem = kept.err();
-                        cx.notify();
-                    });
-                }
-            }),
+            self.extra_switch(incipit_vault::Extra::Agent, "settings-extra-agent", t, cx),
             t,
         )
         .into_any_element();
+        let voice = setting(
+            "Voice",
+            Some(
+                "Speak instead of typing, in any field you write in: the microphone in its \
+                 corner, or ⌘D (Ctrl+D) to start and stop. What you say is written down on this \
+                 computer by a voice model, and never leaves it."
+                    .into(),
+            ),
+            self.extra_switch(incipit_vault::Extra::Voice, "settings-extra-voice", t, cx),
+            t,
+        )
+        .into_any_element();
+        let mut rows = vec![agent, voice];
+        if self.voice.read(cx).on(cx) {
+            rows.extend(self.voice_model(t, cx));
+        }
         div()
             .flex()
             .flex_col()
             .gap(px(6.0))
-            .child(rows([agent], t))
+            .child(incipit_ui::rows(rows, t))
             .children(
                 self.methods_problem
                     .clone()
@@ -219,6 +247,71 @@ impl SettingsView {
                  changed and the links you accepted stay in your vault.",
                 t,
             ))
+    }
+
+    /// Which voice model writes down what is said, and its download.
+    fn voice_model(&self, t: Theme, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        let voice = self.voice.read(cx);
+        let chosen = incipit_voice::MODELS
+            .iter()
+            .position(|m| m.id == voice.model.id);
+        let choices = incipit_voice::MODELS
+            .iter()
+            .map(|m| format!("{} ({})", m.label, m.size_label()));
+        let (ready, downloading, problem) = (
+            voice.ready(),
+            voice.downloading,
+            voice.download_problem.clone(),
+        );
+        let size = voice.model.size_label();
+        let choose = {
+            let voice = self.voice.clone();
+            move |i: usize, _: &mut Window, cx: &mut gpui::App| {
+                if let Some(model) = incipit_voice::MODELS.get(i) {
+                    voice.update(cx, |v, cx| v.choose(model, cx));
+                }
+            }
+        };
+        let model = setting(
+            "Voice model",
+            Some(
+                "English is smaller and never mistakes your words for another language. Any \
+                 language writes down what you say in the language you say it in."
+                    .into(),
+            ),
+            incipit_ui::select("settings-voice-model", choices, chosen, t)
+                .width(190.0)
+                .on_select(choose),
+            t,
+        )
+        .into_any_element();
+        let (status, button): (String, Option<incipit_ui::Button>) = match downloading {
+            Some(p) => (
+                format!("Downloading: {:.0}% of {size}.", p * 100.0),
+                Some(
+                    button("settings-voice-download", "Downloading", t)
+                        .spinning(true)
+                        .disabled(true),
+                ),
+            ),
+            None if ready => ("On this computer, ready.".into(), None),
+            None => (
+                problem.unwrap_or(format!(
+                    "{size}, downloaded once from whisper.cpp's page on Hugging Face."
+                )),
+                Some(
+                    button("settings-voice-download", "Download", t)
+                        .accent()
+                        .on_click({
+                            let voice = self.voice.clone();
+                            move |_, _, cx| voice.update(cx, |v, cx| v.download(cx))
+                        }),
+                ),
+            ),
+        };
+        let download =
+            setting("The model", Some(status.into()), div().children(button), t).into_any_element();
+        vec![model, download]
     }
 }
 

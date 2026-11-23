@@ -62,6 +62,7 @@ mod stage;
 mod study;
 mod today;
 mod versions;
+mod voice;
 mod welcome;
 mod workspace;
 
@@ -110,6 +111,8 @@ struct Root {
     agent: Entity<agent::AgentView>,
     /// The agent's sheet is open.
     acting: bool,
+    /// Speaking instead of typing, and its pill over every page.
+    voice: Entity<voice::Voice>,
 }
 
 impl Root {
@@ -166,9 +169,18 @@ impl Root {
         let reader = cx.new(|cx| reader::ReaderView::new(workspace.clone(), models.clone(), cx));
         // Reading counts while the window is the one in use.
         reader.update(cx, |reader, cx| reader.watch_window(window, cx));
+        let voice = cx.new(|cx| voice::Voice::new(workspace.clone(), cx));
+        // The fields hear whether they can be spoken into once the window is there to hold them.
+        let publish = voice.clone();
+        cx.defer(move |cx| publish.update(cx, |voice, cx| voice.publish(cx)));
         let settings = cx.new(|cx| {
-            let mut settings =
-                settings::SettingsView::new(workspace.clone(), models.clone(), fitting.clone(), cx);
+            let mut settings = settings::SettingsView::new(
+                workspace.clone(),
+                models.clone(),
+                fitting.clone(),
+                voice.clone(),
+                cx,
+            );
             if let Page::Settings(section) = page {
                 settings.section = section;
             }
@@ -451,6 +463,7 @@ impl Root {
             journey,
             settings,
             first_run,
+            voice,
             library,
             brain,
             today,
@@ -648,6 +661,7 @@ impl Render for Root {
                 .text_size(px(Type::BODY))
                 .bg(t.background)
                 .child(self.first_run.clone())
+                .child(self.voice.clone())
                 .children(incipit_ui::caption_buttons(window, t))
                 .into_any_element();
         }
@@ -694,6 +708,7 @@ impl Render for Root {
             )
             .children(incipit_ui::caption_buttons(window, t))
             .child(self.figure.clone())
+            .child(self.voice.clone())
             .when(self.finding, |root| root.child(self.find.clone()))
             .when(self.acting, |root| root.child(self.agent.clone()))
             .into_any_element()

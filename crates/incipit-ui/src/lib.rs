@@ -53,7 +53,9 @@ pub use markdown::{markdown, markdown_cloze, markdown_linked, Cloze};
 pub use meter::meter;
 pub use motion::{ease, fade_in, Fade, Glide, Grow, FADE, RESIZE};
 pub use snapshot::snapshot;
-pub use text_field::{field, Field, FieldEvent, Pasted, TextField};
+pub use text_field::{
+    dictate_into, field, Dictation, Field, FieldEvent, Hearing, Pasted, Speak, TextField,
+};
 pub use theme::{hex, rgba, Ink, Layer, Marker, Metrics, Radius, Theme, Type};
 
 static UI_FONT: OnceLock<SharedString> = OnceLock::new();

@@ -8,7 +8,7 @@
 //! way, after the book's text (`passage_material`).
 //!
 //! This blocks, so it runs on a call's own thread (`Models::work`). The checks here measure text
-//! by rule of thumb, since no window is at hand; the Figure page checks again with real widths.
+//! by rule of thumb, since no window is at hand; the figure sheet checks again with real widths.
 
 use incipit_llm::{structured, Cancel, Error, Event, Provider, Request};
 use incipit_scene::{check, schema, Figure, Kind, Rough};

@@ -1,4 +1,4 @@
-//! The Brain's graph: the vault's notes, concepts and books and the links between them (and from
+//! The graph's picture: the vault's notes, concepts and books and the links between them (and from
 //! what was made from a book, or a concept that came from one, to the book), gathered from the
 //! vault on the window's thread and laid out by `incipit-graph` off it. The picture keeps
 //! its `Layout` once it is back on the window's thread, so a node can be held under the pointer

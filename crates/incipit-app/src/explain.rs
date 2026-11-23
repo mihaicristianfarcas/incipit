@@ -5,13 +5,13 @@
 //! simply and a quote to reread; it can be kept as a note about the concept, which counts toward
 //! how well it is known, or tried again with the words kept.
 //!
-//! It opens on a concept (from its page on the Brain, the Brain's card for it, or its card in
+//! It opens on a concept (from its page among the concepts, the graph's card for it, or its card in
 //! the reader's margin) or on a passage the learner selected, when they say which concept they
 //! are explaining. "Check my understanding" waits for a concept and eight words. Escape in a
 //! field or Close closes it.
 //!
 //! Without clicking: INCIPIT_EXPLAIN=demo opens the sheet on a made-up explanation already
-//! graded, on the Reader or the Brain page; nothing is asked of a model and nothing is written.
+//! graded, on the Reader or the Concepts page; nothing is asked of a model and nothing is written.
 
 use futures::StreamExt;
 use gpui::{

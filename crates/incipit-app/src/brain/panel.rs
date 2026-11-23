@@ -1,4 +1,4 @@
-//! The card beside the Brain's picture for the selected node: its title and kind, a button that
+//! The card beside the graph's picture for the selected node: its title and kind, a button that
 //! opens its document on the page that shows it (a concept on its own page here; for the rest the
 //! page emits `Open`, and the window decides where), for a concept one that explains it back,
 //! and the nodes it links with, in the order their titles read, each of which selects

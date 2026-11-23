@@ -6,17 +6,17 @@
 //! A picture is read from the vault off the window's thread and kept for as long as the vault
 //! is open; the window draws it from there. A figure is drawn still, at its first moment, by
 //! the figure engine (`incipit-scene`) with this window's text widths, so it never needs a
-//! model; it is not played here (the Figure page plays a kept figure). A picture that cannot be
-//! read, or a figure whose spec the engine does not accept, is named and not drawn.
+//! model; its Play button opens it in the figure sheet, to play, move and redraw. A picture that
+//! cannot be read, or a figure whose spec the engine does not accept, is named and not drawn.
 
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{div, img, prelude::*, px, AnyElement, Image, Window};
+use gpui::{div, img, prelude::*, px, AnyElement, App, Image, Window};
 use incipit_scene::{layout, Figure};
-use incipit_ui::{Theme, Type};
+use incipit_ui::{button, IconName, Theme, Type};
 use incipit_vault::{Doc, DocId, Embed, Vault, VaultPath};
 
 use crate::reader::rows::format_of;
@@ -76,8 +76,15 @@ impl Embeds {
         self.items.is_empty()
     }
 
-    /// The embeds, one under another.
-    pub fn view(&self, vault: &Vault, t: Theme, window: &Window) -> AnyElement {
+    /// The embeds, one under another; `play` opens a figure, with its document, in the figure
+    /// sheet.
+    pub fn view(
+        &self,
+        vault: &Vault,
+        t: Theme,
+        window: &Window,
+        play: impl Fn(Figure, DocId, &mut App) + Clone + 'static,
+    ) -> AnyElement {
         let measure = Shaped(window.text_system().clone());
         let caption = |text: String| {
             div()
@@ -116,6 +123,7 @@ impl Embeds {
                 let doc = vault.get(id);
                 let title = doc.as_ref().map(|d| d.title()).unwrap_or_default();
                 let figure = doc.as_ref().and_then(figure_of);
+                let playable = figure.clone();
                 let drawn = match figure {
                     Some(figure) => {
                         let frame = layout(&figure, &figure.start(), &measure);
@@ -133,7 +141,21 @@ impl Embeds {
                     .flex_col()
                     .gap(px(4.0))
                     .child(drawn)
-                    .child(caption(format!("Figure: {title}")))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.0))
+                            .child(caption(format!("Figure: {title}")))
+                            .children(playable.map(|figure| {
+                                let (id, play) = (id.clone(), play.clone());
+                                button(("note-figure-play", ix), "Play", t)
+                                    .ghost()
+                                    .icon(IconName::Play)
+                                    .tooltip("Play the figure, move it and redraw it")
+                                    .on_click(move |_, _, cx| play(figure.clone(), id.clone(), cx))
+                            })),
+                    )
                     .into_any_element()
             }
         });

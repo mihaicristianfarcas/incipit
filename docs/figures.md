@@ -268,5 +268,5 @@ lights one before it appears.
    `schema::{schema, guide, example}`.
 4. Tests: the example passes its checks (the test in `schema.rs` covers
    every kind), and each structure rule and layout guarantee has its own.
-5. Look at the example on the Figure page (`INCIPIT_KIND=<kind>`), in a
+5. Look at the example in the figure sheet (`INCIPIT_KIND=<kind>`), in a
    few states, and try the schema and guide with a model.

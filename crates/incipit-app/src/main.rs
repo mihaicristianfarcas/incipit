@@ -1,7 +1,8 @@
-//! Incipit's window: a sidebar of pages (Today, Library, Reader, Notes, Review, Brain, Math,
-//! Figure, Settings), each drawn natively in GPUI with incipit-ui, and over them the find sheet
-//! and the sheet of the agent that works on the vault, each opened with a key from any page
-//! (and on the Reader, the find bar of the book open, with a key of its own).
+//! Incipit's window: a sidebar of pages (Today, Library, Reader, Notes with its graph and
+//! concepts, Review, and Settings' pages), each drawn natively in GPUI with incipit-ui, and over
+//! them the find sheet and the sheet of the agent that works on the vault, each opened with a key
+//! from any page (and on the Reader, the find bar of the book open, with a key of its own), and
+//! the figure sheet, opened from a figure in the reader's margin or in a note.
 //! For checks without clicking, environment switches open a page in a given state and save a
 //! picture of the window: docs/development.md lists them.
 //! A PDF or EPUB given to the program (named in its arguments, or sent by the system's open event
@@ -89,8 +90,8 @@ struct Root {
     page: Page,
     workspace: Entity<workspace::Workspace>,
     glide: Glide,
+    /// The figure sheet, over whatever page is shown.
     figure: Entity<figure::FigureView>,
-    math: Entity<math::MathView>,
     notes: Entity<notes::NotesView>,
     review: Entity<review::ReviewView>,
     cards: Entity<cards::CardsView>,
@@ -112,24 +113,15 @@ struct Root {
 
 impl Root {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let page = match std::env::var("INCIPIT_PAGE").as_deref() {
-            Ok("reader") => Page::Reader,
-            Ok("math") => Page::Math,
-            Ok("notes") => Page::Notes,
-            Ok("review") => Page::Review,
-            Ok("cards") => Page::Cards,
-            Ok("library") => Page::Library,
-            Ok("brain") | Ok("concepts") => Page::Brain,
-            Ok("journey") => Page::Journey,
-            Ok("figure") => Page::Figure,
-            Ok("settings") => Page::Settings,
-            // A node or a concept to show is on the Brain page.
-            _ if std::env::var_os("INCIPIT_NODE").is_some()
-                || std::env::var_os("INCIPIT_CONCEPT").is_some() =>
-            {
-                Page::Brain
-            }
-            _ => Page::Today,
+        let named = std::env::var("INCIPIT_PAGE")
+            .ok()
+            .and_then(|name| Page::named(&name));
+        let page = match named {
+            Some(page) => page,
+            // A node to show is on the graph, a concept on its page among the concepts.
+            None if std::env::var_os("INCIPIT_NODE").is_some() => Page::Graph,
+            None if std::env::var_os("INCIPIT_CONCEPT").is_some() => Page::Concepts,
+            None => Page::Today,
         };
         if let Some(path) = std::env::var_os("INCIPIT_SHOT") {
             // Nothing says "the page has settled" (fonts shaped, the fade over), so the picture is
@@ -171,22 +163,23 @@ impl Root {
         // Reading counts while the window is the one in use.
         reader.update(cx, |reader, cx| reader.watch_window(window, cx));
         let settings = cx.new(|cx| {
-            settings::SettingsView::new(workspace.clone(), models.clone(), fitting.clone(), cx)
+            let mut settings =
+                settings::SettingsView::new(workspace.clone(), models.clone(), fitting.clone(), cx);
+            if let Page::Settings(section) = page {
+                settings.section = section;
+            }
+            settings
         });
         let first_run =
             cx.new(|cx| first_run::FirstRun::new(workspace.clone(), models.clone(), cx));
         // The app opens, or the first run comes back, as what it waits on changes.
         cx.observe(&first_run, |_, _, cx| cx.notify()).detach();
         let figure = cx.new(|cx| figure::FigureView::new(workspace.clone(), models.clone(), cx));
-        // A figure made for a passage opens on the Figure page.
+        // A figure made for a passage plays in the figure sheet.
         cx.subscribe(
             &reader,
             |this: &mut Self, _, open: &reader::OpenFigure, cx| {
-                let (figure, doc) = (open.0.clone(), open.1.clone());
-                this.figure
-                    .update(cx, |page, cx| page.present(figure, doc, cx));
-                this.page = Page::Figure;
-                cx.notify();
+                this.present_figure(open, cx);
             },
         )
         .detach();
@@ -225,6 +218,14 @@ impl Root {
             |this: &mut Self, _, open: &notes::OpenConcept, cx| {
                 this.open(Kind::Concept, &open.0, cx);
                 cx.notify();
+            },
+        )
+        .detach();
+        // A figure a note embeds plays in the figure sheet.
+        cx.subscribe(
+            &notes,
+            |this: &mut Self, _, open: &reader::OpenFigure, cx| {
+                this.present_figure(open, cx);
             },
         )
         .detach();
@@ -296,7 +297,7 @@ impl Root {
                             brain.show_concept(id.clone(), cx);
                             brain.explain_concept(&id, cx);
                         });
-                        this.page = Page::Brain;
+                        this.page = Page::Concepts;
                     }
                     today::Go::Quiz(book, chapter) => {
                         let (book, chapter) = (book.clone(), *chapter);
@@ -324,6 +325,14 @@ impl Root {
         )
         .detach();
         let journey = cx.new(|cx| journey::view::JourneyView::new(workspace.clone(), cx));
+        cx.subscribe(
+            &journey,
+            |this: &mut Self, _, _: &journey::view::Back, cx| {
+                this.go(Page::Today, cx);
+                cx.notify();
+            },
+        )
+        .detach();
         // A concept or a book named on the journey opens where it is shown.
         cx.subscribe(
             &journey,
@@ -431,7 +440,6 @@ impl Root {
             page,
             glide: Glide::new(cx),
             figure,
-            math: cx.new(math::MathView::new),
             notes,
             review,
             cards,
@@ -453,16 +461,33 @@ impl Root {
     }
 
     /// Goes to a page. Opening Review starts a sitting: its queue is built then, as the earlier
-    /// app builds it when its page opens, and not while the learner reviews.
+    /// app builds it when its page opens, and not while the learner reviews. The graph and the
+    /// concepts are one view, as are Settings' pages: going to one tells the view which.
     fn go(&mut self, page: Page, cx: &mut Context<Self>) {
-        if page == Page::Review && self.page != Page::Review {
-            self.review.update(cx, |review, cx| review.begin(cx));
+        match page {
+            Page::Review if self.page != Page::Review => {
+                self.review.update(cx, |review, cx| review.begin(cx))
+            }
+            Page::Graph => self.brain.update(cx, |brain, cx| brain.show_graph(cx)),
+            Page::Concepts => self.brain.update(cx, |brain, cx| brain.show_list(cx)),
+            Page::Settings(section) => self
+                .settings
+                .update(cx, |settings, cx| settings.show(section, cx)),
+            _ => {}
         }
         self.page = page;
     }
 
-    /// Shows a document on the page that shows it: notes on Notes, a concept on its page on the
-    /// Brain, cards on Review, a book in the reader (in the Library when its file is not there),
+    /// Plays a figure in the figure sheet, over the page shown.
+    fn present_figure(&mut self, open: &reader::OpenFigure, cx: &mut Context<Self>) {
+        let (figure, doc) = (open.0.clone(), open.1.clone());
+        self.figure
+            .update(cx, |sheet, cx| sheet.present(figure, doc, cx));
+        cx.notify();
+    }
+
+    /// Shows a document on the page that shows it: notes on Notes, a concept on its page among
+    /// the concepts, cards on Review, a book in the reader (in the Library when its file is not there),
     /// and what belongs to a book in the Library.
     fn open(&mut self, kind: Kind, id: &DocId, cx: &mut Context<Self>) {
         match kind {
@@ -475,7 +500,7 @@ impl Root {
                 let id = id.clone();
                 self.brain
                     .update(cx, |brain, cx| brain.show_concept(id, cx));
-                self.page = Page::Brain;
+                self.page = Page::Concepts;
             }
             // Choosing the book takes the window to the reader.
             Kind::Book => {
@@ -544,7 +569,7 @@ impl Root {
         };
         match self.page {
             Page::Notes => here.doc = self.notes.read(cx).open_note(),
-            Page::Brain => here.doc = self.brain.read(cx).concept_shown(),
+            Page::Graph | Page::Concepts => here.doc = self.brain.read(cx).concept_shown(),
             Page::Reader => (here.book, here.selection) = self.reader.read(cx).here(),
             _ => {}
         }
@@ -604,17 +629,15 @@ impl Render for Root {
                 .into_any_element();
         }
         let page: AnyElement = match self.page {
-            Page::Figure => self.figure.clone().into_any_element(),
-            Page::Math => self.math.clone().into_any_element(),
             Page::Notes => self.notes.clone().into_any_element(),
             Page::Today => self.today.clone().into_any_element(),
             Page::Journey => self.journey.clone().into_any_element(),
-            Page::Brain => self.brain.clone().into_any_element(),
+            Page::Graph | Page::Concepts => self.brain.clone().into_any_element(),
             Page::Library => self.library.clone().into_any_element(),
             Page::Review => self.review.clone().into_any_element(),
             Page::Cards => self.cards.clone().into_any_element(),
             Page::Reader => self.reader.clone().into_any_element(),
-            Page::Settings => self.settings.clone().into_any_element(),
+            Page::Settings(_) => self.settings.clone().into_any_element(),
         };
         // The reader counts reading only while it is the page shown.
         let on_reader = self.page == Page::Reader;
@@ -647,6 +670,7 @@ impl Render for Root {
                     )),
             )
             .children(incipit_ui::caption_buttons(window, t))
+            .child(self.figure.clone())
             .when(self.finding, |root| root.child(self.find.clone()))
             .when(self.acting, |root| root.child(self.agent.clone()))
             .into_any_element()

@@ -1,4 +1,5 @@
-//! The Journey page, laid out as the earlier app's: a few numbers (the streak, which can be paused
+//! The Journey page, Today's detail (opened from its week, and back to it with a button),
+//! laid out as the earlier app's: a few numbers (the streak, which can be paused
 //! for a break, recall now, recall over the last 30 days and how many concepts are solid), the
 //! study days of the last 26 weeks shaded by how much was done with the months named over them,
 //! and the concepts from best to least known; then what has been made so far and what was done
@@ -8,7 +9,8 @@
 //! The chart is drawn with the theme's accent, darker for a day with more done, and every number
 //! in it is also words: a line says how many days were studied, each day has a tooltip, and "Show
 //! the days as a list" lists them with their numbers. A concept or a book named opens its page
-//! (the page's `Open` event). Everything that does something is a button or a row Tab reaches.
+//! (the page's `Open` event), and the Today button goes back (`Back`). Everything that does
+//! something is a button or a row Tab reaches.
 
 use gpui::{
     div, prelude::*, px, Context, Entity, EventEmitter, IntoElement, Render, Rgba, ScrollHandle,
@@ -38,6 +40,11 @@ const SOLID: f64 = 0.8;
 
 /// A document to show: a concept's page, or a book in the reader.
 pub struct Open(pub Kind, pub DocId);
+
+/// Back to Today.
+pub struct Back;
+
+impl EventEmitter<Back> for JourneyView {}
 
 pub struct JourneyView {
     workspace: Entity<Workspace>,
@@ -540,12 +547,16 @@ impl Render for JourneyView {
             .flex()
             .flex_col()
             .gap(px(22.0))
-            .child(
-                div()
-                    .text_size(px(Type::DISPLAY))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child("Journey"),
-            )
+            .child(incipit_ui::page_header(
+                "Journey",
+                None,
+                Some(
+                    button("journey-back", "Today", t)
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(Back)))
+                        .into_any_element(),
+                ),
+                t,
+            ))
             .child(stats)
             .child(cards)
             .child(self.pausing(&journey, t, cx))

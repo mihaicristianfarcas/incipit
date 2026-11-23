@@ -185,7 +185,7 @@ impl ReaderView {
     }
 
     /// The vault's figure `doc` changed: the card that shows it shows the figure as it is now (it
-    /// was redrawn on the Figure page, say). A card whose own redraw is under way is left to it.
+    /// was redrawn in the figure sheet, say). A card whose own redraw is under way is left to it.
     pub(super) fn figure_changed(&mut self, doc: Option<&DocId>, cx: &mut Context<Self>) {
         let Some(doc) = doc else {
             return;

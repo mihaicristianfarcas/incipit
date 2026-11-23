@@ -15,7 +15,7 @@
 //! Without clicking: INCIPIT_PRACTICE=demo opens the sheet on a made-up worked example,
 //! `problem` on its first problem, `missed` on a problem answered wrongly (worked out beneath
 //! it), `easier` on the easier problem three misses bring, and `done` on a finished practice, on
-//! the Reader or the Brain page; no model is called and nothing is written. With
+//! the Reader or the Concepts page; no model is called and nothing is written. With
 //! INCIPIT_CONNECT=demo on a throwaway vault, the made-up practice is of a concept that builds on
 //! one the learner is forgetting, which `easier` names once the vault has opened.
 

@@ -21,7 +21,7 @@ use incipit_llm::{
     MemorySecrets, Provider, Registry, Request, SecretStore, Settings, Status, Structured, Update,
 };
 
-/// A provider as the Settings page shows it.
+/// A provider as Settings' General page shows it.
 #[derive(Clone)]
 pub struct Offered {
     pub id: String,

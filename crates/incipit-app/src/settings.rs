@@ -1,26 +1,40 @@
-//! Settings: the folder the vault is in (and the choices to open another folder, or an Obsidian
-//! vault where it is), the learner's profile, and the model that answers. Each
-//! way to reach a model is a row saying whether it can be used now and, if not, what to do; the
-//! learner picks one. Signing in happens in the browser, started from here. The profile form here
-//! also says whether the flashcards' schedule is fitted to the learner (`crate::fitted`), with the
-//! switch back to the standard one.
+//! Settings, as asides' are: a group of pages in the sidebar, each short, each change kept as it
+//! is made. General: the folder the vault is in (and the choices to open another folder, or an
+//! Obsidian vault where it is) and the model that answers. Each way to reach a model is a row
+//! saying whether it can be used now and, if not, what to do; the learner picks one. Signing in
+//! happens in the browser, started from here. You: the learner's profile. Flashcards: how cards
+//! come back, and whether that schedule is fitted to the learner (`crate::fitted`).
 
 use gpui::{
     div, prelude::*, px, Context, Entity, IntoElement, Render, ScrollHandle, SharedString,
     Subscription, Window,
 };
-use incipit_ui::{button, footnote, page, page_header, rows, section, setting};
+use incipit_ui::{button, footnote, page, page_header, rows, section, setting, Theme};
 
 use crate::fitted::Fitting;
 use crate::models::{Changed, Models};
-use crate::profile_form::ProfileForm;
+use crate::profile_form::{Part, ProfileForm};
 use crate::workspace::{Happened, Workspace};
+
+/// A page of Settings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Section {
+    General,
+    You,
+    Flashcards,
+}
+
+/// How wide a page of Settings' column is.
+const WIDTH: f32 = 600.0;
 
 pub struct SettingsView {
     workspace: Entity<Workspace>,
     models: Entity<Models>,
+    /// The page shown; the sidebar picks it.
+    pub section: Section,
     scroll: ScrollHandle,
-    form: Entity<ProfileForm>,
+    you: Entity<ProfileForm>,
+    flashcards: Entity<ProfileForm>,
     _subscriptions: [Subscription; 2],
 }
 
@@ -37,20 +51,32 @@ impl SettingsView {
         ];
         // Whatever the models say about themselves (a sign-in under way) shows here.
         cx.observe(&models, |_, _, cx| cx.notify()).detach();
-        let form = cx.new(|cx| ProfileForm::new(workspace.clone(), "Save", Some(fitting), cx));
+        let you = cx.new(|cx| ProfileForm::new(workspace.clone(), Part::You, None, None, cx));
+        let flashcards = cx.new(|cx| {
+            ProfileForm::new(workspace.clone(), Part::Flashcards, None, Some(fitting), cx)
+        });
         SettingsView {
             workspace,
             models,
+            section: Section::General,
             scroll: ScrollHandle::new(),
-            form,
+            you,
+            flashcards,
             _subscriptions: subscriptions,
         }
     }
-}
 
-impl Render for SettingsView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = crate::theme(window);
+    /// Shows `section`, from its top.
+    pub fn show(&mut self, section: Section, cx: &mut Context<Self>) {
+        if self.section != section {
+            self.section = section;
+            self.scroll = ScrollHandle::new();
+            cx.notify();
+        }
+    }
+
+    /// The vault's folder and the model that answers.
+    fn general(&self, t: Theme, cx: &mut Context<Self>) -> gpui::Div {
         let folder: SharedString = match &self.workspace.read(cx).vault {
             Some(vault) => vault.root().display().to_string().into(),
             None => "No vault is open.".into(),
@@ -78,11 +104,10 @@ impl Render for SettingsView {
         let models = self.models.read(cx);
         let link = models.link.clone();
         let problem = models.problem.clone();
-        let body = div()
+        div()
             .flex()
             .flex_col()
             .gap(px(22.0))
-            .child(page_header("Settings", None, None, t))
             .child(
                 section("Vault", t)
                     .child(rows([vault, obsidian], t))
@@ -92,15 +117,6 @@ impl Render for SettingsView {
                          already has files in it is opened as it is.",
                         t,
                     )),
-            )
-            .child(
-                section("Profile", t)
-                    .child(footnote(
-                        "Who you are and how you learn. The tutor, the figures and the quizzes \
-                             adapt to this. It is kept in your vault as profile.md.",
-                        t,
-                    ))
-                    .child(self.form.clone()),
             )
             .child(
                 section("Model", t)
@@ -116,7 +132,37 @@ impl Render for SettingsView {
                          own account; Incipit has none.",
                         t,
                     )),
-            );
-        page("settings", &self.scroll, 600.0, t, body)
+            )
+    }
+}
+
+impl Render for SettingsView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = crate::theme(window);
+        let (title, about, body) = match self.section {
+            Section::General => (
+                "General",
+                "Incipit keeps each change at once.",
+                self.general(t, cx).into_any_element(),
+            ),
+            Section::You => (
+                "You",
+                "The tutor, the figures and the quizzes adapt to this. It is kept in your vault \
+                 as profile.md.",
+                self.you.clone().into_any_element(),
+            ),
+            Section::Flashcards => (
+                "Flashcards",
+                "How often your cards come back.",
+                self.flashcards.clone().into_any_element(),
+            ),
+        };
+        let content = div()
+            .flex()
+            .flex_col()
+            .gap(px(22.0))
+            .child(page_header(title, Some(about.into()), None, t))
+            .child(body);
+        page("settings", &self.scroll, WIDTH, t, content)
     }
 }

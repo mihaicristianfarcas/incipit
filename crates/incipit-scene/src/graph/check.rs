@@ -405,7 +405,7 @@ mod tests {
         }
     }
 
-    /// The graphs in `examples/graphs`, which show each layout with groups on the Figure page.
+    /// The graphs in `examples/graphs`, which show each layout with groups in the figure sheet.
     #[test]
     fn the_example_graphs_with_groups_keep_them_apart() {
         for json in [

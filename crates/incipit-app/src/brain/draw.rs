@@ -1,4 +1,4 @@
-//! The Brain's canvas. What the picture looks like at this view (links, dots, rings around the
+//! The graph's canvas. What the picture looks like at this view (links, dots, rings around the
 //! selected node and the nodes found, the names that fit) is worked out before painting, so the
 //! paint closure owns it. The canvas also registers the pointer's listeners for the whole window, not only over the
 //! picture: a drag that strays over a panel or out of the picture goes on until the button is let

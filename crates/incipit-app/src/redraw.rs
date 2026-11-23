@@ -10,7 +10,7 @@
 //! the learner's request and what they wrote beside it stay) once it has passed the engine's
 //! checks. Until then the old one is as it was, and when every try is refused it stays and the
 //! reasons are said (`figures::refused`). This blocks like `figures::make`, so it runs on a
-//! call's own thread (`Models::work`); the margin and the Figure page show what it comes to.
+//! call's own thread (`Models::work`); the margin and the figure sheet show what it comes to.
 
 use incipit_llm::Error;
 use incipit_scene::Figure;

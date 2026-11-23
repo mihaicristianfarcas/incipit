@@ -1,4 +1,4 @@
-//! Find in the graph: which nodes' titles have the words typed into the Brain's field, best
+//! Find in the graph: which nodes' titles have the words typed into the graph's field, best
 //! first, and which one Enter goes to. A title matches when it has every word, in any case and
 //! anywhere in it, so the field narrows as one types. The best match is the title that is the
 //! words themselves, then one that starts with them, then one where each word starts a word of

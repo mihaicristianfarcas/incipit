@@ -22,7 +22,7 @@ incipit-app ──▶ incipit-ui ──▶ gpui
 | `incipit-math` | Typesets LaTeX: mitex converts it to Typst, Typst lays it out, and the result is a raster with its size and baseline | no |
 | `incipit-book` | Opens books. `Pdf` draws pages through pdfium and gives each character's place, the PDF's contents (each line with its page and, when the PDF says, how far down the page it leads) and the text of a run of pages, cut at its ends when asked; `PdfWorker` does so on a thread of its own; `Dark` turns a drawn page dark for a dark app, its pictures left as they are; `Pdf` also gives each page's links (to a page and a place on it, or to the web); `Book` turns an EPUB into headings, paragraphs, text set apart (quotations, list items, code, captions, table rows) and pictures, with its links and its contents (its navigation document, else its NCX, else its headings), and refuses a book locked by DRM; `Anchor` ties a note to a passage by its words and the words either side, and finds it again; `TextIndex` indexes a book's words (case, accents, ligatures and line breaks aside) to find every place a phrase occurs, for the reader's find bar, the chapters holding every word of a query, for the search across the books, and the passages a question is most about, to answer it from the book | no |
 | `incipit-learn` | Spaced repetition as pure logic: `answers` reads quiz answers as evidence of how well a concept is known; `schedule` applies one FSRS-6 review to a `Card` and returns the log line, `preview` gives the four buttons' waits, `build_queue` orders what to review (learning steps, due reviews earliest due first, or best remembered first when more is due than a sitting holds, then new cards up to the daily limit), `today_counts` feeds the Today page, counting by the learner's day, which starts at 4 am on their clock (`day`). The formulas are canonical FSRS-6, checked against the `fsrs` crate Anki uses; behind the `fit` feature, `fit` fits the weights to the learner's review log with that crate's optimizer. `journey` works out the days studied, recall now and over the month, the streak and its pause, and the Journey chart's days; `plan` says what Today suggests doing next. `asks_new_way` says which reviews of a card known for weeks ask it a new way. `sittings` counts reading time into sittings from the reader's reports, and `progress` says how far through a book a place is and when the learner would finish at the last two weeks' pace. Time and the clock are arguments; there is no storage | no |
-| `incipit-graph` | The picture of the graph of ideas, with no drawing in it. `Layout` is a force layout (Barnes-Hut repulsion, springs, gravity, collision by radius) that the caller steps until it settles (the Brain page lays it out on a background thread, then steps it once a frame while a node is dragged); it keeps positions when the graph changes, can pin a dragged node and exports positions to keep. `View`, `SpatialIndex` and `choose_labels` give the window the fit-to-view transform and a view centred on a node, the node under a point or in a rectangle, and the names that fit | no |
+| `incipit-graph` | The picture of the graph of ideas, with no drawing in it. `Layout` is a force layout (Barnes-Hut repulsion, springs, gravity, collision by radius) that the caller steps until it settles (the graph under Notes lays it out on a background thread, then steps it once a frame while a node is dragged); it keeps positions when the graph changes, can pin a dragged node and exports positions to keep. `View`, `SpatialIndex` and `choose_labels` give the window the fit-to-view transform and a view centred on a node, the node under a point or in a rectangle, and the names that fit | no |
 | `incipit-llm` | The one door to models. A `Request` keeps instructions apart from material; a `Provider` gives text, JSON checked against a schema, or an agent's work on files; `Call` runs one in the background and stops it when cancelled ([models.md](models.md)) | no |
 | `incipit-launch` | One program for each app folder. `launch`, before any window, takes the lock on a file in the app folder, or finds it held and hands the files it was given to the program holding it over a local socket (a Unix socket, or a named pipe on Windows); `Listener::hear` gives the program running what each later launch sends, read as untrusted (`message`) | no |
 | `incipit-vault` | The vault. Every record is a `Doc`, a Markdown file with YAML properties and a `kind`; `Vault` keeps the folder to one program at a time (a lock in it), holds the index, the links and backlinks and the search, writes files whole, announces every change, hears edits made by other programs, and keeps history with Jujutsu through its library ([vault.md](vault.md)) | no |
@@ -51,8 +51,14 @@ button opens a card where the learner may say what to show; those words go
 to the model with the passage in both steps, and are kept as the figure's
 request.
 
+**A figure plays in a sheet over the page.** There is no page of figures: a
+figure is drawn still where it is (a card in the reader's margin, a note that
+embeds it), and its Open or Play button opens the figure sheet (`figure.rs`)
+over that page, where it is played, stepped, scrubbed, and its parameters and
+points are moved. The checks run again there with the window's own text widths.
+
 **A figure is redrawn with the learner's notes.** On a figure's card in the
-margin, and on the Figure page when it shows a figure the vault keeps, a field
+margin, and in the figure sheet when it shows a figure the vault keeps, a field
 takes what should change (`redraw.rs`, `reader/redrawing.rs`,
 `figure/redrawing.rs`). The figure is made again through the same two steps,
 from its passage, with the learner's earlier request and the notes as what
@@ -60,8 +66,8 @@ they asked to be drawn, and, when there are notes, the figure as it is now as
 material, so the model may change the kind. The new figure replaces the old
 one in the same document once the engine passes it; until then the old one
 stays, and when every try is refused it stays and the reasons are said. The
-Figure page has no book open, so it sends the passage and the book's title,
-author and chapter but not the text around it.
+sheet may be over a page with no book open, so it sends the passage and the
+book's title, author and chapter but not the text around it.
 
 **An answer in the margin is kept before it is asked for.** Explain, Define
 and Ask on a passage (`reader/asking.rs`, with the earlier app's three
@@ -230,7 +236,7 @@ quote is looked for in that text only. A chapter is sent in pieces of
 whole pages or blocks of at most 45,000 characters, the earlier app's
 size for one request, so a long chapter is read whole rather than cut
 short; each concept is written to the vault, or added to the one there
-is, as soon as its piece comes back, and the margin and the Brain show it
+is, as soon as its piece comes back, and the margin and the concepts show it
 then.
 
 **Reading is counted from what the reader does.** While a book of the
@@ -250,7 +256,7 @@ estimate are worked out from those lines against the book's length, which
 the reader writes into the book's record (`parts`) when it first opens it;
 the Library lists books by when they were last touched (or by title or
 author, as the learner picks) and Today offers the
-one read last. The Journey page (`journey`) and Today read the same
+one read last. The Journey page (`journey`, opened from Today's week) and Today read the same
 `Journey`, gathered from the review log, the activity log and the documents; a
 pause of the streak is a `pause` line of the activity log, with its first and
 last day, and the streak rule lives only in `incipit_learn::journey`. The place a book reopens at is kept on this computer, in
@@ -330,7 +336,7 @@ them as material (`learning/learner.rs`). Before the app opens, the first run
 (`first_run.rs`) asks where the vault is kept (a new folder, an Obsidian vault
 opened where it is, or another folder; Settings has the last two), how to reach
 a model (the rows of Settings, `providers.rs`) and about the learner
-(`profile_form.rs`, also in Settings); the earlier app needed only the last,
+(`profile_form.rs`, also Settings' You and Flashcards); the earlier app needed only the last,
 since it was started from a terminal in its folder. The first run shows while no vault is open and while
 the open vault's profile is not marked done; the model step is left out when
 a model already works, and it and the last step can be skipped.
@@ -395,8 +401,8 @@ change of its own (`Vault::bring_back`).
 written as Markdown in a field, so what it embeds is shown below the field
 (`note_embeds.rs` in the app): the pictures of `attachments/`, read off the
 window's thread, and the figures it names as `![[figure:<id>]]`, each drawn
-still at its first moment by the figure engine with this window's text widths.
-A picture pasted into the field, or dropped on it, is saved in `attachments/`
+still at its first moment by the figure engine with this window's text widths,
+with a Play button that opens it in the figure sheet. A picture pasted into the field, or dropped on it, is saved in `attachments/`
 by the vault (`Vault::add_picture`, which checks by the bytes that it is a
 PNG, JPEG, GIF or WebP of at most 12 MB) and linked at the cursor.
 
@@ -410,6 +416,17 @@ agent's working copy at the paths the guide names, read-only, so it reads a
 couple of kilobytes of index instead of opening a hundred files, and are taken
 out before its change is looked at. How well a concept is known is the app's to
 work out (`Concepts`), so it is given to the index.
+
+**The window is laid out as asides' is.** The sidebar (`pages.rs`) lists the
+pages a learner uses (Today, Library, Reader, Notes with its Graph and Concepts
+set in under it, Review), then Settings' pages under a heading, then the
+version at its foot. A page that is another's detail has no row: the cards are
+Review's, the journey is Today's, and their owner's row stays marked. Settings
+is pages of its own (`settings.rs`: General for the vault and the model, You
+for the profile, Flashcards for the schedule), each short, and each change is
+kept as it is made, a choice at once and typing once it pauses, so there is no
+Save button; each part of the profile is a form of its own on the same file,
+which hears the file change and takes what another part wrote.
 
 **The keyboard reaches everything that can be clicked.** GPUI does not move
 the keyboard on Tab, so `incipit_ui::focus` binds Tab and Shift+Tab to the next

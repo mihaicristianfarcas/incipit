@@ -87,9 +87,10 @@ package_licenses() {
     cp "$package_root"/lib/licenses/* "$1/pdfium/"
     # whisper.cpp and ggml, which whisper-rs-sys builds into the program: their MIT licence is in
     # its sources, not its crate's declared licence (the Unlicense), so cargo-about does not carry it.
+    # The path is JSON: on Windows its separators are escaped backslashes, made slashes for Git Bash.
     sys=$(cargo metadata --format-version 1 --manifest-path "$package_root/Cargo.toml" |
-        grep -o '"manifest_path":"[^"]*/whisper-rs-sys-[^"]*/Cargo.toml"' | head -n 1 |
-        sed -e 's/^"manifest_path":"//' -e 's|/Cargo.toml"$||')
+        grep -o '"manifest_path":"[^"]*whisper-rs-sys-[0-9][^"]*Cargo.toml"' | head -n 1 |
+        sed -e 's/^"manifest_path":"//' -e 's/"$//' -e 's/\\\\/\//g' -e 's|/Cargo.toml$||')
     [ -f "$sys/whisper.cpp/LICENSE" ] || package_fail "whisper.cpp's licence was not found in whisper-rs-sys's sources: cargo fetch, then try again"
     mkdir -p "$1/whisper.cpp"
     cp "$sys/whisper.cpp/LICENSE" "$1/whisper.cpp/LICENSE"

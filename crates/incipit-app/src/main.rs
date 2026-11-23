@@ -576,6 +576,14 @@ impl Root {
     /// where the learner is: the page, the note or concept open on it, the book and the place
     /// in it, and the selection.
     fn act(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The agent is an extra: its key does nothing until it is switched on.
+        if !self
+            .workspace
+            .read(cx)
+            .has_extra(incipit_vault::Extra::Agent)
+        {
+            return;
+        }
         self.finding = false;
         self.acting = true;
         let mut here = agent::here::Here {

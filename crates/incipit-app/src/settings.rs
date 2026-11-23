@@ -4,13 +4,14 @@
 //! saying whether it can be used now and, if not, what to do; the learner picks one. Signing in
 //! happens in the browser, started from here. You: the learner's profile. Methods: the ways of
 //! learning switched on (`crate::methods`). Flashcards: how cards come back, and whether that
-//! schedule is fitted to the learner (`crate::fitted`).
+//! schedule is fitted to the learner (`crate::fitted`). Extras: what is off until the learner
+//! wants it, the agent to begin with.
 
 use gpui::{
     div, prelude::*, px, Context, Entity, IntoElement, Render, ScrollHandle, SharedString,
     Subscription, Window,
 };
-use incipit_ui::{button, footnote, page, page_header, rows, section, setting, Theme};
+use incipit_ui::{button, footnote, page, page_header, rows, section, setting, switch, Theme};
 
 use crate::fitted::Fitting;
 use crate::models::{Changed, Models};
@@ -24,6 +25,7 @@ pub enum Section {
     You,
     Methods,
     Flashcards,
+    Extras,
 }
 
 /// How wide a page of Settings' column is.
@@ -37,7 +39,7 @@ pub struct SettingsView {
     scroll: ScrollHandle,
     you: Entity<ProfileForm>,
     flashcards: Entity<ProfileForm>,
-    /// Why the last switch of a method could not be kept.
+    /// Why the last switch of a method or an extra could not be kept.
     methods_problem: Option<String>,
     _subscriptions: [Subscription; 2],
 }
@@ -170,6 +172,57 @@ impl SettingsView {
     }
 }
 
+impl SettingsView {
+    /// A switch for each extra.
+    fn extras(&self, t: Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let on = self
+            .workspace
+            .read(cx)
+            .has_extra(incipit_vault::Extra::Agent);
+        let agent = setting(
+            "The agent",
+            Some(
+                "Ask your library anything, or say what should be done in it: ⌘J (Ctrl+J) from any page, \
+                 or the field on Today. It works in a copy of your vault, lists what it changed, \
+                 and can be undone. It also suggests links between your notes. It needs a \
+                 command-line agent chosen in General."
+                    .into(),
+            ),
+            switch("settings-extra-agent", on, t).on_toggle({
+                let me = cx.entity().downgrade();
+                move |on, _, cx| {
+                    let _ = me.update(cx, |this, cx| {
+                        let kept = this.workspace.update(cx, |w, cx| {
+                            let kept = w.switch_extra(incipit_vault::Extra::Agent, on);
+                            cx.notify();
+                            kept
+                        });
+                        this.methods_problem = kept.err();
+                        cx.notify();
+                    });
+                }
+            }),
+            t,
+        )
+        .into_any_element();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .child(rows([agent], t))
+            .children(
+                self.methods_problem
+                    .clone()
+                    .map(|p| footnote(p, t).text_color(t.danger)),
+            )
+            .child(footnote(
+                "The agent is new: it has been tried on made-up runs only. Switched off, what it \
+                 changed and the links you accepted stay in your vault.",
+                t,
+            ))
+    }
+}
+
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme(window);
@@ -189,6 +242,11 @@ impl Render for SettingsView {
                 "Methods",
                 "Ways of learning that work. Switch on the ones you want.",
                 self.methods(t, cx).into_any_element(),
+            ),
+            Section::Extras => (
+                "Extras",
+                "More than learning methods, off until you want them.",
+                self.extras(t, cx).into_any_element(),
             ),
             Section::Flashcards => (
                 "Flashcards",

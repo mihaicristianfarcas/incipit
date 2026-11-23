@@ -1,8 +1,9 @@
 //! The learner's profile: `profile.md` at the vault's root. Who they are and how they like to
 //! learn are its properties, in the earlier app's names (`name`, `role`, `goals`, `background`,
-//! `level`, `styles`, `interests`, `dailyNew`, `retention`, `onboarded`), and one of Incipit's
-//! own (`fittedSchedule`, whether the flashcards' schedule is fitted to their reviews); their own
-//! words about how they learn are its body. It is not a document (it is not listed among the
+//! `level`, `styles`, `interests`, `dailyNew`, `retention`, `onboarded`), and two of Incipit's
+//! own: `fittedSchedule`, whether the flashcards' schedule is fitted to their reviews, and
+//! `methods`, the ways of learning switched on (a list of their names, which reads as a list in
+//! Obsidian; without it, the defaults). Their own words about how they learn are its body. It is not a document (it is not listed among the
 //! notes, and has no id): the vault reads and writes it here, and the app's model prompts and
 //! review settings read it from here.
 //!
@@ -94,6 +95,141 @@ impl Level {
     }
 }
 
+/// A way of learning the app offers, switched on or off as a whole (Settings' Methods). What a
+/// method made stays in the vault when it is off; only its buttons and suggestions go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Method {
+    /// Teach it back, its grade and the gaps it finds.
+    ExplainBack,
+    /// A chapter's pretest and quiz, practice, quizzes in notes, the mixed quiz.
+    Quizzes,
+    /// Figures made for a passage, and redrawing them.
+    Figures,
+    /// Mapping a chapter into concepts, and the concepts' pages.
+    ConceptMap,
+    /// Continuing an answer as a conversation with the tutor.
+    Tutor,
+    /// Examples that tie a passage to the world and to the learner's goals.
+    Connect,
+    /// Resources found on the web.
+    FurtherReading,
+}
+
+/// Something with a fixed set of values, each kept by a name and on or off to begin with.
+pub trait Switch: Copy + PartialEq + 'static {
+    const ALL: &'static [Self];
+    /// The name kept in the file.
+    fn key(self) -> &'static str;
+    /// Whether it is on when the file does not say.
+    fn on_by_default(self) -> bool;
+}
+
+impl Switch for Method {
+    const ALL: &'static [Method] = &[
+        Method::ExplainBack,
+        Method::Quizzes,
+        Method::Figures,
+        Method::ConceptMap,
+        Method::Tutor,
+        Method::Connect,
+        Method::FurtherReading,
+    ];
+
+    fn key(self) -> &'static str {
+        match self {
+            Method::ExplainBack => "explain-back",
+            Method::Quizzes => "quizzes",
+            Method::Figures => "figures",
+            Method::ConceptMap => "concept-map",
+            Method::Tutor => "tutor",
+            Method::Connect => "connect",
+            Method::FurtherReading => "further-reading",
+        }
+    }
+
+    /// The three that make the app's loop (read it, see it, explain it back, keep it); the rest
+    /// are a switch away.
+    fn on_by_default(self) -> bool {
+        matches!(
+            self,
+            Method::ExplainBack | Method::Quizzes | Method::Figures
+        )
+    }
+}
+
+/// Which of a set of switches are on, as a property keeps them: a list of the names of those
+/// on. A name this version does not know is kept as it is, so a vault written by a later
+/// version loses nothing here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Switches<T: Switch> {
+    on: Vec<T>,
+    unknown: Vec<String>,
+}
+
+impl<T: Switch> Default for Switches<T> {
+    fn default() -> Self {
+        Switches {
+            on: T::ALL
+                .iter()
+                .copied()
+                .filter(|s| s.on_by_default())
+                .collect(),
+            unknown: Vec::new(),
+        }
+    }
+}
+
+impl<T: Switch> Switches<T> {
+    pub fn has(&self, which: T) -> bool {
+        self.on.contains(&which)
+    }
+
+    pub fn set(&mut self, which: T, on: bool) {
+        self.on.retain(|s| *s != which);
+        if on {
+            self.on.push(which);
+        }
+    }
+
+    /// The switches a list of names says are on.
+    fn from_keys(keys: &[String]) -> Self {
+        let mut switches = Switches {
+            on: Vec::new(),
+            unknown: Vec::new(),
+        };
+        for key in keys {
+            match T::ALL.iter().find(|s| s.key() == key.trim()) {
+                Some(s) if !switches.on.contains(s) => switches.on.push(*s),
+                Some(_) => {}
+                None => switches.unknown.push(key.clone()),
+            }
+        }
+        switches
+    }
+
+    /// The names to keep, in the order of `T::ALL`, then the unknown ones.
+    fn keys(&self) -> Vec<String> {
+        T::ALL
+            .iter()
+            .filter(|s| self.has(**s))
+            .map(|s| s.key().to_owned())
+            .chain(self.unknown.iter().cloned())
+            .collect()
+    }
+
+    /// What `key` of `props` says, or the defaults when it is not there.
+    fn read(props: &Properties, key: &str) -> Self {
+        if props.contains(key) {
+            Switches::from_keys(&props.texts(key))
+        } else {
+            Switches::default()
+        }
+    }
+}
+
+/// The methods switched on.
+pub type Methods = Switches<Method>;
+
 /// How much the learner wants pictures, words, and things to touch, each 0 to 1.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Styles {
@@ -120,6 +256,8 @@ pub struct Profile {
     /// Whether the flashcards' schedule is fitted to the learner's own reviews once there are
     /// enough of them (true), or always the standard one.
     pub fitted_schedule: bool,
+    /// The ways of learning switched on.
+    pub methods: Methods,
     /// Their own words, the file's body. Empty when they wrote none.
     pub notes: String,
     /// Whether the first run is done.
@@ -143,6 +281,7 @@ impl Default for Profile {
             daily_new: 20,
             retention: 0.9,
             fitted_schedule: true,
+            methods: Methods::default(),
             notes: String::new(),
             onboarded: false,
         }
@@ -211,6 +350,7 @@ impl Profile {
                 .get("fittedSchedule")
                 .and_then(Value::as_bool)
                 .unwrap_or(default.fitted_schedule),
+            methods: Methods::read(&props, "methods"),
             notes: if notes == HINT {
                 String::new()
             } else {
@@ -268,6 +408,7 @@ impl Profile {
         props.set("dailyNew", i64::from(self.daily_new));
         props.set("retention", self.retention);
         props.set("fittedSchedule", self.fitted_schedule);
+        props.set("methods", self.methods.keys());
         props.set("onboarded", self.onboarded);
         let body = if self.notes.trim().is_empty() {
             HINT
@@ -364,6 +505,7 @@ mod tests {
             daily_new: 35,
             retention: 0.85,
             fitted_schedule: false,
+            methods: Methods::from_keys(&["tutor".into(), "connect".into()]),
             notes: "I like proofs first.".into(),
             onboarded: true,
         };
@@ -423,6 +565,43 @@ mod tests {
             }
         });
         assert_eq!(Profile::parse("").notes, "");
+    }
+
+    #[test]
+    fn without_methods_the_three_of_the_loop_are_on_and_the_rest_off() {
+        let p = Profile::parse("---\nname: Ada\n---\n");
+        for method in Method::ALL {
+            assert_eq!(p.methods.has(*method), method.on_by_default(), "{method:?}");
+        }
+        assert!(p.methods.has(Method::Figures) && !p.methods.has(Method::ConceptMap));
+    }
+
+    #[test]
+    fn methods_are_kept_as_a_list_of_names_and_names_not_known_stay() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Vault::create(dir.path()).unwrap();
+        std::fs::write(
+            dir.path().join(PROFILE),
+            "---\nmethods: [tutor, quizzes, mind-palace]\n---\n",
+        )
+        .unwrap();
+        let mut p = vault.profile();
+        assert!(p.methods.has(Method::Tutor) && p.methods.has(Method::Quizzes));
+        assert!(!p.methods.has(Method::ExplainBack));
+        p.methods.set(Method::ConceptMap, true);
+        p.methods.set(Method::Tutor, false);
+        vault.save_profile(&p).unwrap();
+        let text = std::fs::read_to_string(dir.path().join(PROFILE)).unwrap();
+        assert!(text.contains("mind-palace"), "{text}");
+        let again = vault.profile();
+        assert!(again.methods.has(Method::ConceptMap) && !again.methods.has(Method::Tutor));
+        assert_eq!(again.methods, p.methods);
+    }
+
+    #[test]
+    fn an_empty_list_of_methods_is_every_method_off() {
+        let p = Profile::parse("---\nmethods: []\n---\n");
+        assert!(Method::ALL.iter().all(|m| !p.methods.has(*m)));
     }
 
     #[test]

@@ -608,6 +608,7 @@ impl ReviewView {
 
     fn sitting(&self, deck: &Deck, t: Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
         let asked = self.sitting.current();
+        let quizzes = self.workspace.read(cx).has(incipit_vault::Method::Quizzes);
         let Some((id, entry)) = asked.and_then(|id| Some((id, deck.get(id)?))) else {
             let (title, words) = if deck.is_empty() {
                 (
@@ -626,11 +627,13 @@ impl ReviewView {
                 .text_center()
                 .child(div().text_size(px(Type::TITLE)).child(title))
                 .child(div().text_color(t.secondary).child(words))
-                .child(
-                    button("review-done-mixed", "Mixed quiz", t)
-                        .accent()
-                        .on_click(cx.listener(|this, _, _, cx| this.mixed_quiz(cx))),
-                )
+                .when(quizzes, |done| {
+                    done.child(
+                        button("review-done-mixed", "Mixed quiz", t)
+                            .accent()
+                            .on_click(cx.listener(|this, _, _, cx| this.mixed_quiz(cx))),
+                    )
+                })
                 .into_any_element();
         };
         let wrote = self.typed.read(cx).text().trim().to_owned();
@@ -831,10 +834,15 @@ impl Render for ReviewView {
                     cx.notify();
                 },
             )))
-            .child(
-                button("review-mixed", "Mixed quiz", t)
-                    .tooltip("A quiz across the concepts you know least")
-                    .on_click(cx.listener(|this, _, _, cx| this.mixed_quiz(cx))),
+            .when(
+                self.workspace.read(cx).has(incipit_vault::Method::Quizzes),
+                |row| {
+                    row.child(
+                        button("review-mixed", "Mixed quiz", t)
+                            .tooltip("A quiz across the concepts you know least")
+                            .on_click(cx.listener(|this, _, _, cx| this.mixed_quiz(cx))),
+                    )
+                },
             );
         // The deck and typing first on a row of their own: with the buttons they are wider
         // than the page's column.

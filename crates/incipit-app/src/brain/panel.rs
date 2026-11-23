@@ -142,18 +142,30 @@ impl BrainView {
                     .gap(px(6.0))
                     .child({
                         let id = id.clone();
+                        // Without the concept map the window opens a concept, in Notes.
+                        let pages = self
+                            .workspace
+                            .read(cx)
+                            .has(incipit_vault::Method::ConceptMap);
                         button("brain-open", open_label(kind), t).on_click(cx.listener(
                             move |this, _, _, cx| match kind {
-                                Kind::Concept => this.show_concept(id.clone(), cx),
+                                Kind::Concept if pages => this.show_concept(id.clone(), cx),
                                 _ => cx.emit(Open(kind, id.clone())),
                             },
                         ))
                     })
-                    .when(kind == Kind::Concept, |row| {
-                        row.child(button("brain-explain", "Explain it back", t).on_click(
-                            cx.listener(move |this, _, _, cx| this.explain_concept(&id, cx)),
-                        ))
-                    }),
+                    .when(
+                        kind == Kind::Concept
+                            && self
+                                .workspace
+                                .read(cx)
+                                .has(incipit_vault::Method::ExplainBack),
+                        |row| {
+                            row.child(button("brain-explain", "Explain it back", t).on_click(
+                                cx.listener(move |this, _, _, cx| this.explain_concept(&id, cx)),
+                            ))
+                        },
+                    ),
             )
             .children(self.node_suggestions(&id_for_suggestions, t, cx))
             .when(!links.is_empty(), |card| {

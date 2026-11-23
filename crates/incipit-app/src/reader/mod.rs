@@ -86,7 +86,7 @@ use incipit_book::{Anchor, Block, Page};
 use incipit_llm::Cancel;
 use incipit_ui::{focus_ring, ringed, scrollbar, FieldEvent, Metrics, Radius, TextField, Type};
 
-use incipit_vault::DocId;
+use incipit_vault::{DocId, Method};
 
 use crate::learning::quiz::Mode;
 use crate::models::Models;
@@ -270,6 +270,13 @@ pub struct ReaderView {
 }
 
 impl ReaderView {
+    /// Whether the learner has `method` switched on.
+    pub(super) fn has(&self, method: Method, cx: &gpui::App) -> bool {
+        self.workspace.read(cx).has(method)
+    }
+}
+
+impl ReaderView {
     pub fn new(
         workspace: Entity<Workspace>,
         models: Entity<Models>,
@@ -325,6 +332,13 @@ impl ReaderView {
         let vault_events =
             cx.subscribe(&workspace, |this: &mut Self, _, happened: &Happened, cx| {
                 match happened {
+                    // A method switched on or off shows or hides its buttons and cards.
+                    Happened::Changed(event)
+                        if event.path.as_str() == incipit_vault::profile::PROFILE =>
+                    {
+                        this.concept_notes(cx);
+                        cx.notify();
+                    }
                     Happened::Changed(event) => match event.path.parts().next() {
                         Some("concepts") => this.concept_notes(cx),
                         Some("figures") => this.figure_changed(event.doc.as_ref(), cx),

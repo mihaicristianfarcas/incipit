@@ -2,6 +2,7 @@
 //! forgetting (`crate::foundations`). Before a pretest or a quiz is chosen it names those the
 //! chapter builds on, with a button for a refresher on just them; over the results it names those
 //! the questions missed were on. A concept in the line opens its page, and the sheet closes.
+//! The line is the concept map's: with that method off there is none.
 
 use gpui::{AnyElement, Context, Window};
 use incipit_ui::Theme;
@@ -15,6 +16,13 @@ use crate::workspace::Show;
 impl QuizView {
     /// The concepts of the chapter on offer that it builds on and the learner is forgetting.
     pub(super) fn chapter_foundations(&self, offer: &Offer, cx: &Context<Self>) -> Vec<Brief> {
+        if !self
+            .workspace
+            .read(cx)
+            .has(incipit_vault::Method::ConceptMap)
+        {
+            return Vec::new();
+        }
         let vault = self.workspace.read(cx).vault.clone();
         let (Some(vault), Some(book), Some(chapter)) = (vault, &offer.book, &offer.context.chapter)
         else {
@@ -72,6 +80,13 @@ impl QuizView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        if !self
+            .workspace
+            .read(cx)
+            .has(incipit_vault::Method::ConceptMap)
+        {
+            return None;
+        }
         let fading = &self.open.as_ref()?.status.fading;
         crate::foundations::line(
             key,

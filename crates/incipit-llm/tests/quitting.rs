@@ -17,8 +17,11 @@ fn a_child_still_running_when_the_app_quits_is_stopped_with_what_it_started() {
     let (started, said) = mpsc::channel();
     let begun = Instant::now();
     let call = thread::spawn(move || {
+        // The shell waits with `wait`, which starts nothing. macOS can miss a process being forked
+        // at the moment its group is signalled, and a `sleep` begun after the line would be forked
+        // just then: the line is the test's cue to stop the shell.
         let mut command = Command::new("sh");
-        command.args(["-c", "sleep 60 & echo started; sleep 60"]);
+        command.args(["-c", "sleep 60 & echo started; wait"]);
         run(
             command,
             None,

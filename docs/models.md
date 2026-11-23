@@ -4,6 +4,10 @@ Every model call goes through one crate, `incipit-llm`. This page says what
 it offers, what each provider needs, how a learner signs in, and what is
 done to keep keys and book text in their place.
 
+Speaking into a field (voice, an extra) uses none of these: a Whisper model on
+the learner's own computer writes down what they say
+([architecture.md](architecture.md), "Voice is written down on this computer").
+
 | Provider | The learner needs | Agent |
 |---|---|---|
 | ChatGPT | a ChatGPT plan, signed in from the app | no |

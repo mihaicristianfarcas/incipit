@@ -5,16 +5,23 @@
 //! notes: `markup` says how its text looks and what Enter and Tab do there.
 //! Up and Down in a one-line field also go on to what holds it, which may
 //! step through a list with them.
+//!
+//! A field can be spoken into instead of typed in (`Dictate`, ⌘D or Ctrl+D)
+//! once the app says how ([`Dictation`]): the app records and writes down
+//! what is said, and puts it where the cursor is. A field of several lines
+//! then shows a microphone in its corner, which says whether it is being
+//! listened to. The kit knows nothing of microphones or models.
 
 use std::ops::Range;
+use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
     actions, div, fill, point, prelude::*, px, size, App, Bounds, ClipboardEntry, ClipboardItem,
-    Context, CursorStyle, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter,
-    FocusHandle, Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Style, TextRun, UTF16Selection,
-    UnderlineStyle, Window, WrappedLine,
+    Context, CursorStyle, ElementId, ElementInputHandler, Entity, EntityId, EntityInputHandler,
+    EventEmitter, FocusHandle, Focusable, Global, GlobalElementId, KeyBinding, LayoutId,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Style,
+    TextRun, UTF16Selection, UnderlineStyle, Window, WrappedLine,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -56,6 +63,7 @@ actions!(
         Bold,
         Italic,
         ShowCharacterPalette,
+        Dictate,
     ]
 );
 
@@ -104,6 +112,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new(&format!("{cmd}-shift-z"), Redo, c),
         KeyBinding::new(&format!("{cmd}-b"), Bold, c),
         KeyBinding::new(&format!("{cmd}-i"), Italic, c),
+        KeyBinding::new(&format!("{cmd}-d"), Dictate, c),
     ]);
     if cfg!(target_os = "macos") {
         cx.bind_keys([
@@ -125,6 +134,58 @@ pub enum FieldEvent {
     /// Enter (in a multi-line field, Shift+Enter adds a line instead).
     Submit,
     Cancel,
+}
+
+/// How a field is spoken into: set by the app while voice is switched on, removed when it is
+/// off. `start` is given the field that asked, the first time to listen and the second to stop;
+/// the app puts what was said in with [`TextField::insert`].
+pub struct Dictation {
+    pub start: Speak,
+    /// The field being spoken into, and how far it has got.
+    pub at: Option<(EntityId, Hearing)>,
+}
+
+impl Global for Dictation {}
+
+/// What the app does when a field asks to be spoken into.
+pub type Speak = Rc<dyn Fn(Entity<TextField>, &mut Window, &mut App)>;
+
+/// How far speaking into a field has got.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hearing {
+    Listening,
+    /// What was said is being written down.
+    Writing,
+}
+
+/// Starts or stops speaking into `field`, if the app has said how: after this frame, so the app
+/// may read the field.
+pub fn dictate_into(field: Entity<TextField>, window: &mut Window, cx: &mut App) {
+    let Some(start) = cx.try_global::<Dictation>().map(|d| d.start.clone()) else {
+        return;
+    };
+    window.defer(cx, move |window, cx| start(field, window, cx));
+}
+
+/// `words` as they go after `before`: with a space when `before` ends in something that is not
+/// one, so that what is said is not run into the word before it.
+fn spaced(before: &str, words: &str) -> String {
+    let words = words.trim();
+    match before.chars().last() {
+        Some(c) if !c.is_whitespace() && !words.is_empty() => format!(" {words}"),
+        _ => words.to_owned(),
+    }
+}
+
+/// Room on a field's right for its microphone: the button and a gap.
+const SPEAK_ROOM: f32 = 40.0;
+
+/// How far speaking into `field` has got, if it is being spoken into.
+fn hearing(field: EntityId, cx: &App) -> Option<Hearing> {
+    cx.try_global::<Dictation>()
+        .and_then(|d| d.at)
+        .filter(|(id, _)| *id == field)
+        .map(|(_, hearing)| hearing)
 }
 
 /// Something that is not text was pasted into a field for Markdown: a picture, or files.
@@ -510,6 +571,19 @@ impl TextField {
     /// Puts `text` where the cursor is, in place of what is selected, as if typed.
     pub fn insert(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.edit(self.selected.clone(), text, window, cx);
+    }
+
+    /// Puts words that were said where the cursor is, as `insert` does, with a space before them
+    /// when they follow a word.
+    pub fn insert_spoken(&mut self, words: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let words = spaced(&self.text[..self.selected.start], words);
+        self.insert(&words, window, cx);
+    }
+
+    fn dictate(&mut self, _: &Dictate, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.disabled && !self.password {
+            dictate_into(cx.entity(), window, cx);
+        }
     }
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
@@ -1305,6 +1379,48 @@ impl RenderOnce for Field {
         let disabled = f.disabled;
         let multiline = f.multiline;
         let text_size = self.size.unwrap_or(Type::BODY);
+        // A microphone in the corner of a field one writes at length in, while voice is on: with
+        // a box of its own or without (a note's body).
+        let speakable = multiline && !disabled && !f.password && cx.has_global::<Dictation>();
+        let microphone = speakable.then(|| {
+            let id = self.field.entity_id();
+            let field = self.field.clone();
+            let chrome = self.chrome;
+            let button = match hearing(id, cx) {
+                None => crate::icon_button(
+                    ("field-speak", id),
+                    crate::IconName::Microphone,
+                    "Speak (⌘D)",
+                    t,
+                ),
+                Some(Hearing::Listening) => crate::icon_button(
+                    ("field-speak", id),
+                    crate::IconName::Stop,
+                    "Stop, and write down what was said (⌘D)",
+                    t,
+                )
+                .accent(),
+                Some(Hearing::Writing) => crate::icon_button(
+                    ("field-speak", id),
+                    crate::IconName::Microphone,
+                    "Writing down what was said",
+                    t,
+                )
+                .spinning(true),
+            };
+            div()
+                .absolute()
+                // In a box, in its lower corner; without one (a note's body, as tall as a page)
+                // beside the first line, where the writing is.
+                .when(chrome, |d| d.right(px(6.0)).bottom(px(6.0)))
+                .when(!chrome, |d| d.right_0().top(px(-4.0)))
+                // The click is the button's: the cursor stays where it was.
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(button.on_click(move |_, window, cx| {
+                    TextField::focus(&field, window, cx);
+                    dictate_into(field.clone(), window, cx);
+                }))
+        });
         let line_height = self.size.map(|s| (s * 1.6).round()).unwrap_or(18.0);
         let entity = self.field.clone();
         div()
@@ -1347,6 +1463,7 @@ impl RenderOnce for Field {
             .on_action(window.listener_for(&entity, TextField::bold))
             .on_action(window.listener_for(&entity, TextField::italic))
             .on_action(window.listener_for(&entity, TextField::show_character_palette))
+            .on_action(window.listener_for(&entity, TextField::dictate))
             .on_mouse_down(
                 MouseButton::Left,
                 window.listener_for(&entity, TextField::on_mouse_down),
@@ -1379,6 +1496,8 @@ impl RenderOnce for Field {
                     })
             })
             .when(disabled, |d| d.opacity(0.6))
+            .when(microphone.is_some(), |d| d.relative().pr(px(SPEAK_ROOM)))
+            .children(microphone)
             .child(
                 div()
                     .w_full()
@@ -1398,6 +1517,14 @@ impl RenderOnce for Field {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn words_said_after_a_word_are_spaced_from_it() {
+        assert_eq!(spaced("I think", " it holds. "), " it holds.");
+        assert_eq!(spaced("I think ", "it holds."), "it holds.");
+        assert_eq!(spaced("", "It holds."), "It holds.");
+        assert_eq!(spaced("line\n", "next"), "next");
+    }
 
     #[test]
     fn utf16_ranges_round_trip_through_emoji() {

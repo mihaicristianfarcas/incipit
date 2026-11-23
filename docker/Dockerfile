@@ -23,7 +23,7 @@ ARG GID=1000
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        build-essential pkg-config clang libclang-dev lld \
+        build-essential pkg-config clang libclang-dev cmake lld \
         libasound2-dev libudev-dev \
         libx11-dev libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
         libxcursor-dev libxrandr-dev libxi-dev libfontconfig-dev libfreetype-dev libxcb1-dev \

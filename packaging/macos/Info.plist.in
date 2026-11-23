@@ -31,6 +31,9 @@
 	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
+	<!-- What macOS shows when it asks whether Incipit may use the microphone (voice, an extra). -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Incipit listens while you speak into a field, and writes down what you say on this Mac.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Licensed under the GNU Affero General Public License, version 3.</string>
 	<!-- Books Incipit can open. Alternate: it shows in "Open With" and never takes a file type from

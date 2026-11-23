@@ -236,14 +236,18 @@ pub type Methods = Switches<Method>;
 pub enum Extra {
     /// The agent that works on the vault: its sheet, Today's field, and the links it suggests.
     Agent,
+    /// Speaking instead of typing: a microphone in the fields one writes in, and a voice model
+    /// on this computer.
+    Voice,
 }
 
 impl Switch for Extra {
-    const ALL: &'static [Extra] = &[Extra::Agent];
+    const ALL: &'static [Extra] = &[Extra::Agent, Extra::Voice];
 
     fn key(self) -> &'static str {
         match self {
             Extra::Agent => "agent",
+            Extra::Voice => "voice",
         }
     }
 
@@ -635,6 +639,7 @@ mod tests {
         assert!(!Profile::parse("").extras.has(Extra::Agent));
         let on = Profile::parse("---\nextras: [agent]\n---\n");
         assert!(on.extras.has(Extra::Agent));
+        assert!(!on.extras.has(Extra::Voice));
     }
 
     #[test]
